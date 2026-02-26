@@ -3,52 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>ChatTrade Mobile</title>
+    <title>ChatTrade WeChat Style</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div id="authScreen" class="auth-screen">
       <div class="auth-card">
         <h1>ChatTrade</h1>
-        <p>登录或创建用户后即可体验完整聊天功能</p>
-
+        <p>登录后进入微信式消息首页</p>
         <div class="auth-tabs">
           <button id="loginTab" class="active">登录</button>
-          <button id="registerTab">创建用户</button>
+          <button id="registerTab">注册</button>
         </div>
-
         <form id="loginForm" class="auth-form">
           <input id="loginUsername" placeholder="用户名" required />
           <input id="loginPassword" type="password" placeholder="密码" required />
           <button type="submit" class="primary">登录</button>
         </form>
-
         <form id="registerForm" class="auth-form hidden">
           <input id="registerDisplayName" placeholder="昵称" required />
-          <input id="registerUsername" placeholder="用户名（唯一）" required />
-          <input id="registerPassword" type="password" placeholder="密码（至少 4 位）" required />
+          <input id="registerUsername" placeholder="用户名" required />
+          <input id="registerPassword" type="password" placeholder="密码（>=4）" required />
           <button type="submit" class="primary">创建并登录</button>
         </form>
-
-        <small>演示账号：alice / 1234，bob / 1234</small>
+        <small>默认账号：alice / 1234，bob / 1234</small>
       </div>
     </div>
 
     <div id="appScreen" class="mobile-shell hidden">
       <header class="topbar">
-        <button id="backBtn" class="icon-btn hidden" aria-label="返回">‹</button>
-        <button id="openChatListBtn" class="icon-btn" aria-label="会话">☰</button>
+        <button id="backBtn" class="icon-btn hidden">‹</button>
         <div class="topbar-title">
-          <h1 id="chatTitle">会话列表</h1>
-          <p id="chatSubtitle">选择聊天或创建新会话</p>
+          <h2 id="chatTitle">消息</h2>
+          <p id="chatSubtitle">ChatTrade</p>
         </div>
-        <button id="moreBtn" class="icon-btn" aria-label="更多">⋯</button>
+        <button id="moreBtn" class="icon-btn">⋯</button>
       </header>
 
       <section id="chatListView" class="chat-list-view">
         <div class="toolbar">
-          <input id="searchInput" placeholder="搜索会话 / 用户" />
-          <button id="newChatBtn">新建</button>
+          <input id="searchInput" placeholder="搜索" />
+          <button id="newChatBtn">＋</button>
         </div>
         <div id="chatList" class="chat-list"></div>
       </section>
@@ -56,28 +51,22 @@
       <main id="chatView" class="messages hidden"></main>
 
       <section id="composerPanel" class="composer-panel hidden">
-        <div class="quick-row">
+        <div id="actionPanel" class="action-panel hidden">
           <button type="button" data-action="emoji">🙂 表情</button>
           <button type="button" data-action="image">🖼 图片</button>
           <button type="button" data-action="at">@成员</button>
-          <button type="button" data-action="product">商品卡片</button>
-          <button type="button" data-action="order">订单卡片</button>
-          <button type="button" data-action="wallet">钱包卡片</button>
+          <button type="button" data-action="product">商品卡</button>
+          <button type="button" data-action="order">订单卡</button>
+          <button type="button" data-action="wallet">钱包卡</button>
+          <button type="button" data-action="mall">商城卡</button>
         </div>
-
         <form id="composer" class="composer">
+          <button id="toggleActionsBtn" type="button" class="plus-btn">＋</button>
           <input id="messageInput" type="text" placeholder="输入消息" autocomplete="off" />
           <button type="submit" class="send-btn">发送</button>
         </form>
         <input id="imageInput" type="file" accept="image/*" class="hidden" />
       </section>
-
-      <nav class="tabbar" aria-label="主导航">
-        <button class="tab active">聊天</button>
-        <button class="tab">联系人</button>
-        <button class="tab">发现</button>
-        <button class="tab" id="profileBtn">我</button>
-      </nav>
     </div>
 
     <template id="textMessageTemplate">
@@ -95,7 +84,7 @@
         <div class="avatar"></div>
         <div class="content-wrap">
           <div class="sender"></div>
-          <div class="bubble image-bubble"><img alt="图片消息" /></div>
+          <div class="bubble image-bubble"><img alt="图片" /></div>
         </div>
       </article>
     </template>
@@ -106,10 +95,7 @@
         <div class="content-wrap">
           <div class="sender"></div>
           <div class="card">
-            <header>
-              <span class="chip"></span>
-              <strong class="title"></strong>
-            </header>
+            <header><span class="chip"></span><strong class="title"></strong></header>
             <p class="description"></p>
             <div class="meta"></div>
             <div class="actions"></div>
