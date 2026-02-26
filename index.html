@@ -7,59 +7,113 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="mobile-shell">
-      <header class="topbar">
-        <button class="icon-btn" aria-label="返回">‹</button>
-        <div class="topbar-title">
-          <h1 id="chatTitle"></h1>
-          <p id="chatSubtitle"></p>
+    <div id="authScreen" class="auth-screen">
+      <div class="auth-card">
+        <h1>ChatTrade</h1>
+        <p>登录或创建用户后即可体验完整聊天功能</p>
+
+        <div class="auth-tabs">
+          <button id="loginTab" class="active">登录</button>
+          <button id="registerTab">创建用户</button>
         </div>
-        <button class="icon-btn" id="moreBtn" aria-label="更多">⋯</button>
+
+        <form id="loginForm" class="auth-form">
+          <input id="loginUsername" placeholder="用户名" required />
+          <input id="loginPassword" type="password" placeholder="密码" required />
+          <button type="submit" class="primary">登录</button>
+        </form>
+
+        <form id="registerForm" class="auth-form hidden">
+          <input id="registerDisplayName" placeholder="昵称" required />
+          <input id="registerUsername" placeholder="用户名（唯一）" required />
+          <input id="registerPassword" type="password" placeholder="密码（至少 4 位）" required />
+          <button type="submit" class="primary">创建并登录</button>
+        </form>
+
+        <small>演示账号：alice / 1234，bob / 1234</small>
+      </div>
+    </div>
+
+    <div id="appScreen" class="mobile-shell hidden">
+      <header class="topbar">
+        <button id="backBtn" class="icon-btn hidden" aria-label="返回">‹</button>
+        <button id="openChatListBtn" class="icon-btn" aria-label="会话">☰</button>
+        <div class="topbar-title">
+          <h1 id="chatTitle">会话列表</h1>
+          <p id="chatSubtitle">选择聊天或创建新会话</p>
+        </div>
+        <button id="moreBtn" class="icon-btn" aria-label="更多">⋯</button>
       </header>
 
-      <main id="messages" class="messages"></main>
+      <section id="chatListView" class="chat-list-view">
+        <div class="toolbar">
+          <input id="searchInput" placeholder="搜索会话 / 用户" />
+          <button id="newChatBtn">新建</button>
+        </div>
+        <div id="chatList" class="chat-list"></div>
+      </section>
 
-      <section class="composer-panel">
+      <main id="chatView" class="messages hidden"></main>
+
+      <section id="composerPanel" class="composer-panel hidden">
         <div class="quick-row">
+          <button type="button" data-action="emoji">🙂 表情</button>
+          <button type="button" data-action="image">🖼 图片</button>
+          <button type="button" data-action="at">@成员</button>
           <button type="button" data-action="product">商品卡片</button>
           <button type="button" data-action="order">订单卡片</button>
           <button type="button" data-action="wallet">钱包卡片</button>
-          <button type="button" id="shareMallCard">商城分享</button>
         </div>
 
         <form id="composer" class="composer">
-          <button type="button" class="plus">＋</button>
-          <input id="messageInput" type="text" placeholder="发送消息 / 输入交易意图" autocomplete="off" />
+          <input id="messageInput" type="text" placeholder="输入消息" autocomplete="off" />
           <button type="submit" class="send-btn">发送</button>
         </form>
+        <input id="imageInput" type="file" accept="image/*" class="hidden" />
       </section>
 
       <nav class="tabbar" aria-label="主导航">
         <button class="tab active">聊天</button>
-        <button class="tab">通讯录</button>
+        <button class="tab">联系人</button>
         <button class="tab">发现</button>
-        <button class="tab">我</button>
+        <button class="tab" id="profileBtn">我</button>
       </nav>
     </div>
 
     <template id="textMessageTemplate">
       <article class="message-row">
         <div class="avatar"></div>
-        <div class="bubble"></div>
+        <div class="content-wrap">
+          <div class="sender"></div>
+          <div class="bubble"></div>
+        </div>
+      </article>
+    </template>
+
+    <template id="imageMessageTemplate">
+      <article class="message-row">
+        <div class="avatar"></div>
+        <div class="content-wrap">
+          <div class="sender"></div>
+          <div class="bubble image-bubble"><img alt="图片消息" /></div>
+        </div>
       </article>
     </template>
 
     <template id="cardMessageTemplate">
       <article class="message-row">
         <div class="avatar"></div>
-        <div class="card">
-          <header>
-            <span class="chip"></span>
-            <strong class="title"></strong>
-          </header>
-          <p class="description"></p>
-          <div class="meta"></div>
-          <div class="actions"></div>
+        <div class="content-wrap">
+          <div class="sender"></div>
+          <div class="card">
+            <header>
+              <span class="chip"></span>
+              <strong class="title"></strong>
+            </header>
+            <p class="description"></p>
+            <div class="meta"></div>
+            <div class="actions"></div>
+          </div>
         </div>
       </article>
     </template>
