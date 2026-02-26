@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>ChatTrade Mobile</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="mobile-shell">
+      <header class="topbar">
+        <button class="icon-btn" aria-label="返回">‹</button>
+        <div class="topbar-title">
+          <h1 id="chatTitle"></h1>
+          <p id="chatSubtitle"></p>
+        </div>
+        <button class="icon-btn" id="moreBtn" aria-label="更多">⋯</button>
+      </header>
+
+      <main id="messages" class="messages"></main>
+
+      <section class="composer-panel">
+        <div class="quick-row">
+          <button type="button" data-action="product">商品卡片</button>
+          <button type="button" data-action="order">订单卡片</button>
+          <button type="button" data-action="wallet">钱包卡片</button>
+          <button type="button" id="shareMallCard">商城分享</button>
+        </div>
+
+        <form id="composer" class="composer">
+          <button type="button" class="plus">＋</button>
+          <input id="messageInput" type="text" placeholder="发送消息 / 输入交易意图" autocomplete="off" />
+          <button type="submit" class="send-btn">发送</button>
+        </form>
+      </section>
+
+      <nav class="tabbar" aria-label="主导航">
+        <button class="tab active">聊天</button>
+        <button class="tab">通讯录</button>
+        <button class="tab">发现</button>
+        <button class="tab">我</button>
+      </nav>
+    </div>
+
+    <template id="textMessageTemplate">
+      <article class="message-row">
+        <div class="avatar"></div>
+        <div class="bubble"></div>
+      </article>
+    </template>
+
+    <template id="cardMessageTemplate">
+      <article class="message-row">
+        <div class="avatar"></div>
+        <div class="card">
+          <header>
+            <span class="chip"></span>
+            <strong class="title"></strong>
+          </header>
+          <p class="description"></p>
+          <div class="meta"></div>
+          <div class="actions"></div>
+        </div>
+      </article>
+    </template>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
