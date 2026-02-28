@@ -48,9 +48,21 @@ function loadDb() {
 }
 
 let db = loadDb();
+const sseClients = new Set();
 
 function saveDb() {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
+function broadcastEvent(event, payload) {
+  const data = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(data);
+    } catch (e) {
+      sseClients.delete(client);
+    }
+  }
 }
 
 function sendJson(res, status, payload) {
@@ -135,6 +147,19 @@ const server = http.createServer(async (req, res) => {
   const { pathname, searchParams } = parsed;
 
   try {
+
+    if (pathname === '/api/events' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write('event: ready\ndata: {}\n\n');
+      sseClients.add(res);
+      req.on('close', () => sseClients.delete(res));
+      return;
+    }
+
     if (pathname === '/api/register' && req.method === 'POST') {
       const body = await parseBody(req);
       const displayName = String(body.displayName || '').trim();
@@ -145,6 +170,7 @@ const server = http.createServer(async (req, res) => {
       const user = { id: uid('u'), username, password, displayName, createdAt: Date.now() };
       db.users.push(user);
       saveDb();
+      broadcastEvent('users_updated', { userId: user.id });
       return sendJson(res, 201, { user: getUserSafe(user) });
     }
 
@@ -210,6 +236,7 @@ const server = http.createServer(async (req, res) => {
         };
         db.conversations.push(conv);
         saveDb();
+        broadcastEvent('conversation_updated', { conversationId: conv.id });
         return sendJson(res, 201, { conversation: conv });
       }
 
@@ -230,6 +257,7 @@ const server = http.createServer(async (req, res) => {
       db.conversations.push(conv);
       db.messages.push({ id: uid('m'), conversationId: conv.id, senderId: creatorId, type: 'system', text: `已创建群聊 ${groupName}`, createdAt: Date.now() });
       saveDb();
+      broadcastEvent('conversation_updated', { conversationId: conv.id });
       return sendJson(res, 201, { conversation: conv });
     }
 
@@ -264,6 +292,7 @@ const server = http.createServer(async (req, res) => {
         };
         db.messages.push(msg);
         saveDb();
+        broadcastEvent('message_created', { conversationId, messageId: msg.id });
         return sendJson(res, 201, { message: msg });
       }
 
@@ -273,6 +302,7 @@ const server = http.createServer(async (req, res) => {
         if (!userId || !canAccessConversation(conv, userId)) return sendJson(res, 403, { error: 'forbidden' });
         conv.lastRead[userId] = Date.now();
         saveDb();
+        broadcastEvent('conversation_updated', { conversationId });
         return sendJson(res, 200, { ok: true });
       }
 
@@ -283,6 +313,7 @@ const server = http.createServer(async (req, res) => {
         const idx = conv.mutedBy.indexOf(userId);
         if (idx >= 0) conv.mutedBy.splice(idx, 1); else conv.mutedBy.push(userId);
         saveDb();
+        broadcastEvent('conversation_updated', { conversationId });
         return sendJson(res, 200, { muted: conv.mutedBy.includes(userId) });
       }
 
@@ -297,6 +328,7 @@ const server = http.createServer(async (req, res) => {
           conv.announcement = String(body.announcement || '');
           db.messages.push({ id: uid('m'), conversationId, senderId: userId, type: 'system', text: `群公告：${conv.announcement || '（空）'}`, createdAt: Date.now() });
           saveDb();
+          broadcastEvent('message_created', { conversationId });
           return sendJson(res, 200, { ok: true });
         }
 
@@ -307,6 +339,7 @@ const server = http.createServer(async (req, res) => {
           conv.lastRead[targetUserId] = 0;
           db.messages.push({ id: uid('m'), conversationId, senderId: userId, type: 'system', text: `${nameOfUser(userId)} 邀请新成员加入群聊`, createdAt: Date.now() });
           saveDb();
+          broadcastEvent('conversation_updated', { conversationId });
           return sendJson(res, 200, { ok: true });
         }
 
@@ -315,6 +348,7 @@ const server = http.createServer(async (req, res) => {
           conv.members = conv.members.filter((id) => id !== userId);
           delete conv.lastRead[userId];
           saveDb();
+          broadcastEvent('conversation_updated', { conversationId });
           return sendJson(res, 200, { ok: true });
         }
 

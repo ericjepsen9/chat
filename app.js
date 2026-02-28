@@ -33,6 +33,8 @@ const state = {
   conversations: [],
   activeConversation: null,
   messages: [],
+  eventSource: null,
+  refreshing: false,
 };
 
 async function api(path, options = {}) {
@@ -43,6 +45,40 @@ async function api(path, options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "request_failed");
   return data;
+}
+
+
+function connectRealtime() {
+  if (state.eventSource) state.eventSource.close();
+  state.eventSource = new EventSource('/api/events');
+
+  const onUpdate = async () => {
+    if (!state.currentUser || state.refreshing) return;
+    state.refreshing = true;
+    try {
+      await loadConversations();
+      if (state.activeConversation) {
+        const id = state.activeConversation.id;
+        const data = await api(`/api/conversations/${id}/messages?userId=${encodeURIComponent(state.currentUser.id)}`);
+        state.activeConversation = data.conversation;
+        state.messages = data.messages;
+        renderMessages();
+      }
+    } finally {
+      state.refreshing = false;
+    }
+  };
+
+  state.eventSource.addEventListener('message_created', onUpdate);
+  state.eventSource.addEventListener('conversation_updated', onUpdate);
+  state.eventSource.addEventListener('users_updated', onUpdate);
+}
+
+function disconnectRealtime() {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
 }
 
 function renderAuth(isLogin = true) {
@@ -337,6 +373,7 @@ async function moreMenu() {
     if (mode === "1") {
       localStorage.removeItem(SESSION_KEY);
       state.currentUser = null;
+      disconnectRealtime();
       return showAuth();
     }
     if (mode === "2") {
@@ -378,6 +415,7 @@ async function moreMenu() {
     if (mode === "3") {
       await api(`/api/conversations/${conv.id}/group`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id, op: "leave" }) }).catch(() => alert("群主不能直接退群"));
       await loadConversations();
+      connectRealtime();
       showList();
     }
     if (mode === "4") {
@@ -408,6 +446,7 @@ function bindEvents() {
       authScreen.classList.add("hidden");
       appScreen.classList.remove("hidden");
       await loadConversations();
+      connectRealtime();
       showList();
     } catch {
       alert("用户名或密码错误");
@@ -426,6 +465,7 @@ function bindEvents() {
       authScreen.classList.add("hidden");
       appScreen.classList.remove("hidden");
       await loadConversations();
+      connectRealtime();
       showList();
     } catch {
       alert("注册失败（用户名可能已存在 / 密码不足4位）");
@@ -474,6 +514,7 @@ async function bootstrap() {
     authScreen.classList.add("hidden");
     appScreen.classList.remove("hidden");
     await loadConversations();
+    connectRealtime();
     showList();
   } catch {
     showAuth();
