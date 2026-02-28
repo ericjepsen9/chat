@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>ChatTrade WeChat Style</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="authScreen" class="auth-screen">
+      <div class="auth-card">
+        <h1>ChatTrade</h1>
+        <p>登录后进入微信式消息首页</p>
+        <div class="auth-tabs">
+          <button id="loginTab" class="active">登录</button>
+          <button id="registerTab">注册</button>
+        </div>
+        <form id="loginForm" class="auth-form">
+          <input id="loginUsername" placeholder="用户名" required />
+          <input id="loginPassword" type="password" placeholder="密码" required />
+          <button type="submit" class="primary">登录</button>
+        </form>
+        <form id="registerForm" class="auth-form hidden">
+          <input id="registerDisplayName" placeholder="昵称" required />
+          <input id="registerUsername" placeholder="用户名" required />
+          <input id="registerPassword" type="password" placeholder="密码（>=4）" required />
+          <button type="submit" class="primary">创建并登录</button>
+        </form>
+        <small>默认账号：alice / 1234，bob / 1234</small>
+      </div>
+    </div>
+
+    <div id="appScreen" class="mobile-shell hidden">
+      <header class="topbar">
+        <button id="backBtn" class="icon-btn hidden">‹</button>
+        <div class="topbar-title">
+          <h2 id="chatTitle">消息</h2>
+          <p id="chatSubtitle">ChatTrade</p>
+        </div>
+        <button id="moreBtn" class="icon-btn">⋯</button>
+      </header>
+
+      <section id="chatListView" class="chat-list-view">
+        <div class="toolbar">
+          <input id="searchInput" placeholder="搜索" />
+          <button id="newChatBtn">＋</button>
+        </div>
+        <div id="chatList" class="chat-list"></div>
+      </section>
+
+      <section id="friendListView" class="chat-list-view hidden">
+        <div class="toolbar">
+          <input id="friendSearchInput" placeholder="搜索好友" />
+          <button id="addFriendBtn">添加</button>
+        </div>
+        <div id="friendList" class="friend-list"></div>
+      </section>
+
+      <section id="mallView" class="chat-list-view hidden">
+        <div class="toolbar">
+          <input id="mallSearchInput" placeholder="搜索商城商品" />
+          <button id="quickShareMallBtn">分享到会话</button>
+        </div>
+        <div class="friend-list">
+          <button class="friend-item" id="mallCardBtn">
+            <div class="avatar"></div>
+            <div>
+              <strong>商城热卖：蓝牙耳机</strong>
+              <div class="preview">现价 ¥299 · 次日达</div>
+            </div>
+            <span>发送</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="profileView" class="chat-list-view hidden">
+        <div class="friend-list">
+          <div class="chat-item">
+            <div class="avatar"></div>
+            <div>
+              <strong id="profileDisplayName">未登录</strong>
+              <div class="preview" id="profileUsername">@guest</div>
+            </div>
+          </div>
+          <button id="logoutBtn" class="primary">退出登录</button>
+        </div>
+      </section>
+
+      <main id="chatView" class="messages hidden"></main>
+
+      <section id="composerPanel" class="composer-panel hidden">
+        <div id="actionPanel" class="action-panel hidden">
+          <button type="button" data-action="emoji"><img src="icons/emoji.svg" alt="" /><span>表情</span></button>
+          <button type="button" data-action="image"><img src="icons/image.svg" alt="" /><span>图片</span></button>
+          <button type="button" data-action="at"><img src="icons/at.svg" alt="" /><span>@成员</span></button>
+          <button type="button" data-action="product"><img src="icons/product.svg" alt="" /><span>商品卡</span></button>
+          <button type="button" data-action="order"><img src="icons/order.svg" alt="" /><span>订单卡</span></button>
+          <button type="button" data-action="wallet"><img src="icons/wallet.svg" alt="" /><span>钱包卡</span></button>
+          <button type="button" data-action="mall"><img src="icons/mall.svg" alt="" /><span>商城卡</span></button>
+          <button type="button" data-action="voice"><img src="icons/voice.svg" alt="" /><span>语音通话</span></button>
+          <button type="button" data-action="video"><img src="icons/video.svg" alt="" /><span>视频通话</span></button>
+        </div>
+        <form id="composer" class="composer">
+          <button id="toggleActionsBtn" type="button" class="plus-btn">＋</button>
+          <input id="messageInput" type="text" placeholder="输入消息" autocomplete="off" />
+          <button type="submit" class="send-btn">发送</button>
+        </form>
+        <input id="imageInput" type="file" accept="image/*" class="hidden" />
+      </section>
+
+      <nav id="homeTabbar" class="home-tabbar">
+        <button id="messagesTab" class="tab-item active" data-tab="messages">消息</button>
+        <button id="friendsTab" class="tab-item" data-tab="friends">好友</button>
+        <button id="publishTab" class="publish-tab" data-tab="publish" aria-label="发布">＋</button>
+        <button id="mallTab" class="tab-item" data-tab="mall">商城</button>
+        <button id="profileTab" class="tab-item" data-tab="profile">我的</button>
+      </nav>
+    </div>
+
+    <section id="publishSheet" class="publish-sheet hidden">
+      <div class="publish-card">
+        <h3>快捷发布</h3>
+        <p>发布商品并一键分享到当前会话或消息列表。</p>
+        <button id="publishProductBtn" class="primary">发布商品卡</button>
+        <button id="closePublishSheetBtn">取消</button>
+      </div>
+    </section>
+
+    <section id="callPanel" class="call-panel hidden">
+      <h3 id="callTitle">通话中</h3>
+      <video id="remoteVideo" autoplay playsinline></video>
+      <video id="localVideo" autoplay playsinline muted></video>
+      <div class="call-actions">
+        <button id="acceptCallBtn" class="primary hidden">接听</button>
+        <button id="rejectCallBtn">拒绝</button>
+        <button id="hangupBtn">挂断</button>
+      </div>
+    </section>
+
+    <template id="textMessageTemplate">
+      <article class="message-row">
+        <div class="avatar"></div>
+        <div class="content-wrap">
+          <div class="sender"></div>
+          <div class="bubble"></div>
+        </div>
+      </article>
+    </template>
+
+    <template id="imageMessageTemplate">
+      <article class="message-row">
+        <div class="avatar"></div>
+        <div class="content-wrap">
+          <div class="sender"></div>
+          <div class="bubble image-bubble"><img alt="图片" /></div>
+        </div>
+      </article>
+    </template>
+
+    <template id="cardMessageTemplate">
+      <article class="message-row">
+        <div class="avatar"></div>
+        <div class="content-wrap">
+          <div class="sender"></div>
+          <div class="card">
+            <header><span class="chip"></span><strong class="title"></strong></header>
+            <p class="description"></p>
+            <div class="meta"></div>
+            <div class="actions"></div>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
