@@ -38,6 +38,7 @@ function loadDb() {
           lastOrderStep: -1,
           lastRead: { [alice]: now, [bob]: now },
           createdAt: now,
+          lastMessageAt: now,
         },
       ],
       messages: [
@@ -50,25 +51,127 @@ function loadDb() {
   }
   const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   if (!loaded.friendships) loaded.friendships = [];
+  if (!loaded.messages) loaded.messages = [];
+  if (!loaded.conversations) loaded.conversations = [];
+  if (!loaded.users) loaded.users = [];
   return loaded;
 }
 
 let db = loadDb();
-const sseClients = new Set();
 
-function saveDb() {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+const index = {
+  usersById: new Map(),
+  usersByName: new Map(),
+  convById: new Map(),
+  convByUser: new Map(),
+  messagesByConv: new Map(),
+  friendshipsByUser: new Map(),
+};
+
+function addToMapArray(map, key, value) {
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
 }
 
-function broadcastEvent(event, payload) {
-  const data = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-  for (const client of sseClients) {
-    try {
-      client.write(data);
-    } catch (e) {
-      sseClients.delete(client);
+function rebuildIndexes() {
+  index.usersById.clear();
+  index.usersByName.clear();
+  index.convById.clear();
+  index.convByUser.clear();
+  index.messagesByConv.clear();
+  index.friendshipsByUser.clear();
+
+  for (const user of db.users) {
+    index.usersById.set(user.id, user);
+    index.usersByName.set(user.username, user);
+  }
+
+  for (const conv of db.conversations) {
+    if (!conv.lastRead) conv.lastRead = {};
+    if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
+    if (!conv.lastMessageAt) conv.lastMessageAt = conv.createdAt || Date.now();
+    index.convById.set(conv.id, conv);
+    for (const memberId of conv.members || []) addToMapArray(index.convByUser, memberId, conv);
+  }
+
+  for (const msg of db.messages) {
+    addToMapArray(index.messagesByConv, msg.conversationId, msg);
+    const conv = index.convById.get(msg.conversationId);
+    if (conv && msg.createdAt > (conv.lastMessageAt || 0)) conv.lastMessageAt = msg.createdAt;
+  }
+
+  for (const rel of db.friendships) addToMapArray(index.friendshipsByUser, rel.userId, rel);
+}
+
+rebuildIndexes();
+
+let persistTimer = null;
+let persistInFlight = false;
+let persistDirty = false;
+
+async function flushPersist() {
+  if (persistInFlight) {
+    persistDirty = true;
+    return;
+  }
+  persistInFlight = true;
+  try {
+    await fs.promises.writeFile(DB_FILE, JSON.stringify(db, null, 2));
+  } finally {
+    persistInFlight = false;
+    if (persistDirty) {
+      persistDirty = false;
+      setTimeout(flushPersist, 10);
     }
   }
+}
+
+function schedulePersist() {
+  if (persistTimer) return;
+  persistTimer = setTimeout(async () => {
+    persistTimer = null;
+    await flushPersist();
+  }, 80);
+}
+
+const sseClientsByUser = new Map();
+
+function addSseClient(userId, res) {
+  if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
+  sseClientsByUser.get(userId).add(res);
+}
+
+function removeSseClient(userId, res) {
+  const set = sseClientsByUser.get(userId);
+  if (!set) return;
+  set.delete(res);
+  if (!set.size) sseClientsByUser.delete(userId);
+}
+
+function sendSse(res, event, payload) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastToUser(userId, event, payload) {
+  const clients = sseClientsByUser.get(userId);
+  if (!clients) return;
+  for (const client of clients) {
+    try {
+      sendSse(client, event, payload);
+    } catch {
+      clients.delete(client);
+    }
+  }
+}
+
+function broadcastToConversation(conversationId, event, payload) {
+  const conv = index.convById.get(conversationId);
+  if (!conv) return;
+  for (const userId of conv.members) broadcastToUser(userId, event, payload);
+}
+
+function broadcastAll(event, payload) {
+  for (const userId of sseClientsByUser.keys()) broadcastToUser(userId, event, payload);
 }
 
 function sendJson(res, status, payload) {
@@ -96,22 +199,19 @@ function parseBody(req) {
 }
 
 function getUserSafe(user) {
+  if (!user) return null;
   return { id: user.id, username: user.username, displayName: user.displayName, createdAt: user.createdAt };
-}
-
-function userById(userId) {
-  return db.users.find((u) => u.id === userId);
 }
 
 function conversationTitle(conv, userId) {
   if (conv.type === 'group') return conv.name;
   const peerId = conv.members.find((id) => id !== userId);
-  return db.users.find((u) => u.id === peerId)?.displayName || '未知用户';
+  return index.usersById.get(peerId)?.displayName || '未知用户';
 }
 
 function conversationPreview(conv) {
-  const msgs = db.messages.filter((m) => m.conversationId === conv.id).sort((a, b) => a.createdAt - b.createdAt);
-  const last = msgs.at(-1);
+  const list = index.messagesByConv.get(conv.id) || [];
+  const last = list[list.length - 1];
   if (!last) return '暂无消息';
   if (last.type === 'image') return '[图片]';
   if (last.type === 'card') return `[${last.card?.cardType || '卡片'}]`;
@@ -120,7 +220,14 @@ function conversationPreview(conv) {
 
 function unreadCount(conv, userId) {
   const lastRead = conv.lastRead?.[userId] || 0;
-  return db.messages.filter((m) => m.conversationId === conv.id && m.senderId !== userId && m.createdAt > lastRead).length;
+  const list = index.messagesByConv.get(conv.id) || [];
+  let unread = 0;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const m = list[i];
+    if (m.createdAt <= lastRead) break;
+    if (m.senderId !== userId) unread += 1;
+  }
+  return unread;
 }
 
 function canAccessConversation(conv, userId) {
@@ -128,9 +235,19 @@ function canAccessConversation(conv, userId) {
 }
 
 function ensureFriend(userId, friendId, group = '我的好友') {
-  if (!db.friendships.some((f) => f.userId === userId && f.friendId === friendId)) {
-    db.friendships.push({ id: uid('f'), userId, friendId, group });
+  const existing = (index.friendshipsByUser.get(userId) || []).find((f) => f.friendId === friendId);
+  if (!existing) {
+    const rel = { id: uid('f'), userId, friendId, group };
+    db.friendships.push(rel);
+    addToMapArray(index.friendshipsByUser, userId, rel);
   }
+}
+
+function addMessage(msg) {
+  db.messages.push(msg);
+  addToMapArray(index.messagesByConv, msg.conversationId, msg);
+  const conv = index.convById.get(msg.conversationId);
+  if (conv) conv.lastMessageAt = msg.createdAt;
 }
 
 function serveStatic(req, res, pathname) {
@@ -164,14 +281,16 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (pathname === '/api/events' && req.method === 'GET') {
+      const userId = searchParams.get('userId');
+      if (!userId) return sendJson(res, 400, { error: 'missing_userId' });
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       });
-      res.write('event: ready\ndata: {}\n\n');
-      sseClients.add(res);
-      req.on('close', () => sseClients.delete(res));
+      sendSse(res, 'ready', {});
+      addSseClient(userId, res);
+      req.on('close', () => removeSseClient(userId, res));
       return;
     }
 
@@ -181,11 +300,13 @@ const server = http.createServer(async (req, res) => {
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
       if (!displayName || !username || password.length < 4) return sendJson(res, 400, { error: 'invalid_input' });
-      if (db.users.some((u) => u.username === username)) return sendJson(res, 409, { error: 'username_exists' });
+      if (index.usersByName.has(username)) return sendJson(res, 409, { error: 'username_exists' });
       const user = { id: uid('u'), username, password, displayName, createdAt: Date.now() };
       db.users.push(user);
-      saveDb();
-      broadcastEvent('users_updated', { userId: user.id });
+      index.usersById.set(user.id, user);
+      index.usersByName.set(user.username, user);
+      schedulePersist();
+      broadcastAll('users_updated', { userId: user.id });
       return sendJson(res, 201, { user: getUserSafe(user) });
     }
 
@@ -193,8 +314,8 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const username = String(body.username || '').trim();
       const password = String(body.password || '');
-      const user = db.users.find((u) => u.username === username && u.password === password);
-      if (!user) return sendJson(res, 401, { error: 'invalid_credentials' });
+      const user = index.usersByName.get(username);
+      if (!user || user.password !== password) return sendJson(res, 401, { error: 'invalid_credentials' });
       return sendJson(res, 200, { user: getUserSafe(user) });
     }
 
@@ -209,10 +330,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/friends' && req.method === 'GET') {
       const userId = searchParams.get('userId');
       if (!userId) return sendJson(res, 400, { error: 'missing_userId' });
-      const friends = db.friendships
-        .filter((f) => f.userId === userId)
-        .map((f) => ({ ...f, friend: getUserSafe(userById(f.friendId) || {}) }))
-        .filter((f) => f.friend.id);
+      const friends = (index.friendshipsByUser.get(userId) || [])
+        .map((f) => ({ ...f, friend: getUserSafe(index.usersById.get(f.friendId)) }))
+        .filter((f) => f.friend);
       return sendJson(res, 200, { friends });
     }
 
@@ -222,13 +342,13 @@ const server = http.createServer(async (req, res) => {
       const friendUsername = String(body.friendUsername || '').trim();
       const group = String(body.group || '我的好友').trim() || '我的好友';
       if (!userId || !friendUsername) return sendJson(res, 400, { error: 'invalid_input' });
-      const friend = db.users.find((u) => u.username === friendUsername);
+      const friend = index.usersByName.get(friendUsername);
       if (!friend || friend.id === userId) return sendJson(res, 404, { error: 'friend_not_found' });
       ensureFriend(userId, friend.id, group);
       ensureFriend(friend.id, userId, '我的好友');
-      saveDb();
-      broadcastEvent('friends_updated', { userId });
-      broadcastEvent('friends_updated', { userId: friend.id });
+      schedulePersist();
+      broadcastToUser(userId, 'friends_updated', { userId });
+      broadcastToUser(friend.id, 'friends_updated', { userId: friend.id });
       return sendJson(res, 201, { ok: true, friend: getUserSafe(friend) });
     }
 
@@ -237,25 +357,20 @@ const server = http.createServer(async (req, res) => {
       const userId = String(body.userId || '');
       const friendId = String(body.friendId || '');
       const group = String(body.group || '我的好友').trim() || '我的好友';
-      const rel = db.friendships.find((f) => f.userId === userId && f.friendId === friendId);
+      const rel = (index.friendshipsByUser.get(userId) || []).find((f) => f.friendId === friendId);
       if (!rel) return sendJson(res, 404, { error: 'friendship_not_found' });
       rel.group = group;
-      saveDb();
-      broadcastEvent('friends_updated', { userId });
+      schedulePersist();
+      broadcastToUser(userId, 'friends_updated', { userId });
       return sendJson(res, 200, { ok: true });
     }
 
     if (pathname === '/api/conversations' && req.method === 'GET') {
       const userId = searchParams.get('userId');
       if (!userId) return sendJson(res, 400, { error: 'missing_userId' });
-      const convs = db.conversations
-        .filter((c) => c.members.includes(userId))
+      const convs = (index.convByUser.get(userId) || [])
         .map((c) => ({ ...c, title: conversationTitle(c, userId), preview: conversationPreview(c), unread: unreadCount(c, userId) }))
-        .sort((a, b) => {
-          const ta = db.messages.filter((m) => m.conversationId === a.id).at(-1)?.createdAt || a.createdAt;
-          const tb = db.messages.filter((m) => m.conversationId === b.id).at(-1)?.createdAt || b.createdAt;
-          return tb - ta;
-        });
+        .sort((a, b) => (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0));
       return sendJson(res, 200, { conversations: convs });
     }
 
@@ -269,19 +384,26 @@ const server = http.createServer(async (req, res) => {
       if (type === 'direct') {
         const peerId = memberIds[0];
         if (!peerId) return sendJson(res, 400, { error: 'missing_peer' });
-        const existed = db.conversations.find((c) => c.type === 'direct' && c.members.includes(creatorId) && c.members.includes(peerId));
+        const existed = (index.convByUser.get(creatorId) || []).find((c) => c.type === 'direct' && c.members.includes(peerId));
         if (existed) return sendJson(res, 200, { conversation: existed });
+
         const conv = {
-          id: uid('c'), type, name: '', ownerId: null, members: [creatorId, peerId], announcement: '', mutedBy: [],
-          lastOrderStep: -1, lastRead: { [creatorId]: Date.now(), [peerId]: 0 }, createdAt: Date.now(),
+          id: uid('c'), type: 'direct', name: '', ownerId: null, members: [creatorId, peerId], announcement: '', mutedBy: [],
+          lastOrderStep: -1, lastRead: { [creatorId]: Date.now(), [peerId]: 0 }, createdAt: Date.now(), lastMessageAt: Date.now(),
         };
         db.conversations.push(conv);
+        index.convById.set(conv.id, conv);
+        addToMapArray(index.convByUser, creatorId, conv);
+        addToMapArray(index.convByUser, peerId, conv);
+
         ensureFriend(creatorId, peerId);
         ensureFriend(peerId, creatorId);
-        saveDb();
-        broadcastEvent('conversation_updated', { conversationId: conv.id });
-        broadcastEvent('friends_updated', { userId: creatorId });
-        broadcastEvent('friends_updated', { userId: peerId });
+
+        schedulePersist();
+        broadcastToUser(creatorId, 'conversation_updated', { conversationId: conv.id });
+        broadcastToUser(peerId, 'conversation_updated', { conversationId: conv.id });
+        broadcastToUser(creatorId, 'friends_updated', { userId: creatorId });
+        broadcastToUser(peerId, 'friends_updated', { userId: peerId });
         return sendJson(res, 201, { conversation: conv });
       }
 
@@ -289,12 +411,17 @@ const server = http.createServer(async (req, res) => {
       const unique = [...new Set([creatorId, ...memberIds])];
       const conv = {
         id: uid('c'), type: 'group', name: groupName, ownerId: creatorId, members: unique, announcement: '', mutedBy: [],
-        lastOrderStep: -1, lastRead: Object.fromEntries(unique.map((id) => [id, id === creatorId ? Date.now() : 0])), createdAt: Date.now(),
+        lastOrderStep: -1, lastRead: Object.fromEntries(unique.map((id) => [id, id === creatorId ? Date.now() : 0])),
+        createdAt: Date.now(), lastMessageAt: Date.now(),
       };
       db.conversations.push(conv);
-      db.messages.push({ id: uid('m'), conversationId: conv.id, senderId: creatorId, type: 'system', text: `已创建群聊 ${groupName}`, createdAt: Date.now() });
-      saveDb();
-      broadcastEvent('conversation_updated', { conversationId: conv.id });
+      index.convById.set(conv.id, conv);
+      for (const member of unique) addToMapArray(index.convByUser, member, conv);
+
+      const systemMsg = { id: uid('m'), conversationId: conv.id, senderId: creatorId, type: 'system', text: `已创建群聊 ${groupName}`, createdAt: Date.now() };
+      addMessage(systemMsg);
+      schedulePersist();
+      broadcastToConversation(conv.id, 'conversation_updated', { conversationId: conv.id });
       return sendJson(res, 201, { conversation: conv });
     }
 
@@ -302,14 +429,13 @@ const server = http.createServer(async (req, res) => {
     if (convMatch) {
       const conversationId = convMatch[1];
       const action = convMatch[2] || '';
-      const conv = db.conversations.find((c) => c.id === conversationId);
+      const conv = index.convById.get(conversationId);
       if (!conv) return sendJson(res, 404, { error: 'conversation_not_found' });
 
       if (action === '/messages' && req.method === 'GET') {
         const userId = searchParams.get('userId');
         if (!userId || !canAccessConversation(conv, userId)) return sendJson(res, 403, { error: 'forbidden' });
-        const messages = db.messages.filter((m) => m.conversationId === conversationId).sort((a, b) => a.createdAt - b.createdAt);
-        return sendJson(res, 200, { conversation: conv, messages });
+        return sendJson(res, 200, { conversation: conv, messages: index.messagesByConv.get(conversationId) || [] });
       }
 
       if (action === '/messages' && req.method === 'POST') {
@@ -318,15 +444,18 @@ const server = http.createServer(async (req, res) => {
         if (!senderId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
         const type = body.type || 'text';
         const msg = {
-          id: uid('m'), conversationId, senderId, type,
+          id: uid('m'),
+          conversationId,
+          senderId,
+          type,
           text: type === 'text' || type === 'system' ? String(body.text || '') : undefined,
           imageUrl: type === 'image' ? String(body.imageUrl || '') : undefined,
           card: type === 'card' ? body.card || null : undefined,
           createdAt: Date.now(),
         };
-        db.messages.push(msg);
-        saveDb();
-        broadcastEvent('message_created', { conversationId, messageId: msg.id });
+        addMessage(msg);
+        schedulePersist();
+        broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: msg.id });
         return sendJson(res, 201, { message: msg });
       }
 
@@ -335,8 +464,8 @@ const server = http.createServer(async (req, res) => {
         const userId = String(body.userId || '');
         if (!userId || !canAccessConversation(conv, userId)) return sendJson(res, 403, { error: 'forbidden' });
         conv.lastRead[userId] = Date.now();
-        saveDb();
-        broadcastEvent('conversation_updated', { conversationId });
+        schedulePersist();
+        broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
         return sendJson(res, 200, { ok: true });
       }
 
@@ -346,8 +475,8 @@ const server = http.createServer(async (req, res) => {
         if (!userId || !canAccessConversation(conv, userId)) return sendJson(res, 403, { error: 'forbidden' });
         const idx = conv.mutedBy.indexOf(userId);
         if (idx >= 0) conv.mutedBy.splice(idx, 1); else conv.mutedBy.push(userId);
-        saveDb();
-        broadcastEvent('conversation_updated', { conversationId });
+        schedulePersist();
+        broadcastToUser(userId, 'conversation_updated', { conversationId });
         return sendJson(res, 200, { muted: conv.mutedBy.includes(userId) });
       }
 
@@ -360,9 +489,9 @@ const server = http.createServer(async (req, res) => {
         if (op === 'announcement') {
           if (conv.ownerId !== userId) return sendJson(res, 403, { error: 'owner_only' });
           conv.announcement = String(body.announcement || '');
-          db.messages.push({ id: uid('m'), conversationId, senderId: userId, type: 'system', text: `群公告：${conv.announcement || '（空）'}`, createdAt: Date.now() });
-          saveDb();
-          broadcastEvent('message_created', { conversationId });
+          addMessage({ id: uid('m'), conversationId, senderId: userId, type: 'system', text: `群公告：${conv.announcement || '（空）'}`, createdAt: Date.now() });
+          schedulePersist();
+          broadcastToConversation(conversationId, 'message_created', { conversationId });
           return sendJson(res, 200, { ok: true });
         }
 
@@ -371,9 +500,10 @@ const server = http.createServer(async (req, res) => {
           if (!targetUserId || conv.members.includes(targetUserId)) return sendJson(res, 400, { error: 'invalid_target' });
           conv.members.push(targetUserId);
           conv.lastRead[targetUserId] = 0;
-          db.messages.push({ id: uid('m'), conversationId, senderId: userId, type: 'system', text: `${nameOfUser(userId)} 邀请新成员加入群聊`, createdAt: Date.now() });
-          saveDb();
-          broadcastEvent('conversation_updated', { conversationId });
+          addToMapArray(index.convByUser, targetUserId, conv);
+          addMessage({ id: uid('m'), conversationId, senderId: userId, type: 'system', text: `${nameOfUser(userId)} 邀请新成员加入群聊`, createdAt: Date.now() });
+          schedulePersist();
+          broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
           return sendJson(res, 200, { ok: true });
         }
 
@@ -381,8 +511,10 @@ const server = http.createServer(async (req, res) => {
           if (conv.ownerId === userId && conv.members.length > 1) return sendJson(res, 400, { error: 'owner_cannot_leave' });
           conv.members = conv.members.filter((id) => id !== userId);
           delete conv.lastRead[userId];
-          saveDb();
-          broadcastEvent('conversation_updated', { conversationId });
+          const arr = index.convByUser.get(userId) || [];
+          index.convByUser.set(userId, arr.filter((c) => c.id !== conv.id));
+          schedulePersist();
+          broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
           return sendJson(res, 200, { ok: true });
         }
 
@@ -394,7 +526,7 @@ const server = http.createServer(async (req, res) => {
         const senderId = String(body.senderId || '');
         const targetUserId = String(body.targetUserId || '');
         if (!senderId || !targetUserId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
-        broadcastEvent('webrtc_signal', {
+        broadcastToUser(targetUserId, 'webrtc_signal', {
           conversationId,
           senderId,
           targetUserId,
@@ -411,13 +543,22 @@ const server = http.createServer(async (req, res) => {
         const event = String(body.event || '');
         const mode = body.mode === 'video' ? 'video' : 'voice';
         if (!senderId || !targetUserId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
-        broadcastEvent('call_event', { conversationId, senderId, targetUserId, event, mode });
+        broadcastToUser(targetUserId, 'call_event', { conversationId, senderId, targetUserId, event, mode });
         return sendJson(res, 200, { ok: true });
       }
     }
 
-    if (!pathname.startsWith('/api/')) return serveStatic(req, res, pathname);
+    if (pathname === '/api/health' && req.method === 'GET') {
+      return sendJson(res, 200, {
+        ok: true,
+        users: db.users.length,
+        conversations: db.conversations.length,
+        messages: db.messages.length,
+        sseClients: [...sseClientsByUser.values()].reduce((n, set) => n + set.size, 0),
+      });
+    }
 
+    if (!pathname.startsWith('/api/')) return serveStatic(req, res, pathname);
     return sendJson(res, 404, { error: 'not_found' });
   } catch (error) {
     console.error(error);
@@ -426,7 +567,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 function nameOfUser(userId) {
-  return db.users.find((u) => u.id === userId)?.displayName || '用户';
+  return index.usersById.get(userId)?.displayName || '用户';
 }
 
 server.listen(PORT, () => {

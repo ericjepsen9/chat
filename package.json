@@ -4,8 +4,8 @@
   "description": "这个版本不是前端 demo，而是**前后端一体的可运行版本**：",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node scripts/smoke-test.js"
   },
   "keywords": [],
   "author": "",

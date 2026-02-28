@@ -592,7 +592,7 @@ async function moreMenu() {
 
 function connectRealtime() {
   if (state.eventSource) state.eventSource.close();
-  state.eventSource = new EventSource('/api/events');
+  state.eventSource = new EventSource(`/api/events?userId=${encodeURIComponent(state.currentUser.id)}`);
 
   const onUpdate = async () => {
     if (!state.currentUser || state.refreshing) return;
