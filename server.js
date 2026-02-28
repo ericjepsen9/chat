@@ -22,6 +22,10 @@ function loadDb() {
         { id: alice, username: 'alice', password: '1234', displayName: 'Alice', createdAt: now },
         { id: bob, username: 'bob', password: '1234', displayName: 'Bob', createdAt: now },
       ],
+      friendships: [
+        { id: uid('f'), userId: alice, friendId: bob, group: '同事' },
+        { id: uid('f'), userId: bob, friendId: alice, group: '同事' },
+      ],
       conversations: [
         {
           id: conv,
@@ -44,7 +48,9 @@ function loadDb() {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
     return db;
   }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  if (!loaded.friendships) loaded.friendships = [];
+  return loaded;
 }
 
 let db = loadDb();
@@ -93,6 +99,10 @@ function getUserSafe(user) {
   return { id: user.id, username: user.username, displayName: user.displayName, createdAt: user.createdAt };
 }
 
+function userById(userId) {
+  return db.users.find((u) => u.id === userId);
+}
+
 function conversationTitle(conv, userId) {
   if (conv.type === 'group') return conv.name;
   const peerId = conv.members.find((id) => id !== userId);
@@ -115,6 +125,12 @@ function unreadCount(conv, userId) {
 
 function canAccessConversation(conv, userId) {
   return conv.members.includes(userId);
+}
+
+function ensureFriend(userId, friendId, group = '我的好友') {
+  if (!db.friendships.some((f) => f.userId === userId && f.friendId === friendId)) {
+    db.friendships.push({ id: uid('f'), userId, friendId, group });
+  }
 }
 
 function serveStatic(req, res, pathname) {
@@ -147,7 +163,6 @@ const server = http.createServer(async (req, res) => {
   const { pathname, searchParams } = parsed;
 
   try {
-
     if (pathname === '/api/events' && req.method === 'GET') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -191,17 +206,51 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { users: users.map(getUserSafe) });
     }
 
+    if (pathname === '/api/friends' && req.method === 'GET') {
+      const userId = searchParams.get('userId');
+      if (!userId) return sendJson(res, 400, { error: 'missing_userId' });
+      const friends = db.friendships
+        .filter((f) => f.userId === userId)
+        .map((f) => ({ ...f, friend: getUserSafe(userById(f.friendId) || {}) }))
+        .filter((f) => f.friend.id);
+      return sendJson(res, 200, { friends });
+    }
+
+    if (pathname === '/api/friends' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const userId = String(body.userId || '');
+      const friendUsername = String(body.friendUsername || '').trim();
+      const group = String(body.group || '我的好友').trim() || '我的好友';
+      if (!userId || !friendUsername) return sendJson(res, 400, { error: 'invalid_input' });
+      const friend = db.users.find((u) => u.username === friendUsername);
+      if (!friend || friend.id === userId) return sendJson(res, 404, { error: 'friend_not_found' });
+      ensureFriend(userId, friend.id, group);
+      ensureFriend(friend.id, userId, '我的好友');
+      saveDb();
+      broadcastEvent('friends_updated', { userId });
+      broadcastEvent('friends_updated', { userId: friend.id });
+      return sendJson(res, 201, { ok: true, friend: getUserSafe(friend) });
+    }
+
+    if (pathname === '/api/friends/group' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const userId = String(body.userId || '');
+      const friendId = String(body.friendId || '');
+      const group = String(body.group || '我的好友').trim() || '我的好友';
+      const rel = db.friendships.find((f) => f.userId === userId && f.friendId === friendId);
+      if (!rel) return sendJson(res, 404, { error: 'friendship_not_found' });
+      rel.group = group;
+      saveDb();
+      broadcastEvent('friends_updated', { userId });
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (pathname === '/api/conversations' && req.method === 'GET') {
       const userId = searchParams.get('userId');
       if (!userId) return sendJson(res, 400, { error: 'missing_userId' });
       const convs = db.conversations
         .filter((c) => c.members.includes(userId))
-        .map((c) => ({
-          ...c,
-          title: conversationTitle(c, userId),
-          preview: conversationPreview(c),
-          unread: unreadCount(c, userId),
-        }))
+        .map((c) => ({ ...c, title: conversationTitle(c, userId), preview: conversationPreview(c), unread: unreadCount(c, userId) }))
         .sort((a, b) => {
           const ta = db.messages.filter((m) => m.conversationId === a.id).at(-1)?.createdAt || a.createdAt;
           const tb = db.messages.filter((m) => m.conversationId === b.id).at(-1)?.createdAt || b.createdAt;
@@ -223,36 +272,24 @@ const server = http.createServer(async (req, res) => {
         const existed = db.conversations.find((c) => c.type === 'direct' && c.members.includes(creatorId) && c.members.includes(peerId));
         if (existed) return sendJson(res, 200, { conversation: existed });
         const conv = {
-          id: uid('c'),
-          type,
-          name: '',
-          ownerId: null,
-          members: [creatorId, peerId],
-          announcement: '',
-          mutedBy: [],
-          lastOrderStep: -1,
-          lastRead: { [creatorId]: Date.now(), [peerId]: 0 },
-          createdAt: Date.now(),
+          id: uid('c'), type, name: '', ownerId: null, members: [creatorId, peerId], announcement: '', mutedBy: [],
+          lastOrderStep: -1, lastRead: { [creatorId]: Date.now(), [peerId]: 0 }, createdAt: Date.now(),
         };
         db.conversations.push(conv);
+        ensureFriend(creatorId, peerId);
+        ensureFriend(peerId, creatorId);
         saveDb();
         broadcastEvent('conversation_updated', { conversationId: conv.id });
+        broadcastEvent('friends_updated', { userId: creatorId });
+        broadcastEvent('friends_updated', { userId: peerId });
         return sendJson(res, 201, { conversation: conv });
       }
 
       const groupName = String(body.name || '新群聊').trim() || '新群聊';
       const unique = [...new Set([creatorId, ...memberIds])];
       const conv = {
-        id: uid('c'),
-        type: 'group',
-        name: groupName,
-        ownerId: creatorId,
-        members: unique,
-        announcement: '',
-        mutedBy: [],
-        lastOrderStep: -1,
-        lastRead: Object.fromEntries(unique.map((id) => [id, id === creatorId ? Date.now() : 0])),
-        createdAt: Date.now(),
+        id: uid('c'), type: 'group', name: groupName, ownerId: creatorId, members: unique, announcement: '', mutedBy: [],
+        lastOrderStep: -1, lastRead: Object.fromEntries(unique.map((id) => [id, id === creatorId ? Date.now() : 0])), createdAt: Date.now(),
       };
       db.conversations.push(conv);
       db.messages.push({ id: uid('m'), conversationId: conv.id, senderId: creatorId, type: 'system', text: `已创建群聊 ${groupName}`, createdAt: Date.now() });
@@ -261,7 +298,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { conversation: conv });
     }
 
-    const convMatch = pathname.match(/^\/api\/conversations\/([^/]+)(\/messages|\/read|\/group|\/mute)?$/);
+    const convMatch = pathname.match(/^\/api\/conversations\/([^/]+)(\/messages|\/read|\/group|\/mute|\/signal|\/call)?$/);
     if (convMatch) {
       const conversationId = convMatch[1];
       const action = convMatch[2] || '';
@@ -281,10 +318,7 @@ const server = http.createServer(async (req, res) => {
         if (!senderId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
         const type = body.type || 'text';
         const msg = {
-          id: uid('m'),
-          conversationId,
-          senderId,
-          type,
+          id: uid('m'), conversationId, senderId, type,
           text: type === 'text' || type === 'system' ? String(body.text || '') : undefined,
           imageUrl: type === 'image' ? String(body.imageUrl || '') : undefined,
           card: type === 'card' ? body.card || null : undefined,
@@ -353,6 +387,32 @@ const server = http.createServer(async (req, res) => {
         }
 
         return sendJson(res, 400, { error: 'unknown_op' });
+      }
+
+      if (action === '/signal' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const senderId = String(body.senderId || '');
+        const targetUserId = String(body.targetUserId || '');
+        if (!senderId || !targetUserId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
+        broadcastEvent('webrtc_signal', {
+          conversationId,
+          senderId,
+          targetUserId,
+          signal: body.signal || null,
+          mode: body.mode || 'voice',
+        });
+        return sendJson(res, 200, { ok: true });
+      }
+
+      if (action === '/call' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const senderId = String(body.senderId || '');
+        const targetUserId = String(body.targetUserId || '');
+        const event = String(body.event || '');
+        const mode = body.mode === 'video' ? 'video' : 'voice';
+        if (!senderId || !targetUserId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
+        broadcastEvent('call_event', { conversationId, senderId, targetUserId, event, mode });
+        return sendJson(res, 200, { ok: true });
       }
     }
 

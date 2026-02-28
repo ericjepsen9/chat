@@ -40,12 +40,25 @@
         <button id="moreBtn" class="icon-btn">⋯</button>
       </header>
 
+      <div class="main-tabs">
+        <button id="messagesTab" class="active">消息</button>
+        <button id="friendsTab">好友</button>
+      </div>
+
       <section id="chatListView" class="chat-list-view">
         <div class="toolbar">
           <input id="searchInput" placeholder="搜索" />
           <button id="newChatBtn">＋</button>
         </div>
         <div id="chatList" class="chat-list"></div>
+      </section>
+
+      <section id="friendListView" class="chat-list-view hidden">
+        <div class="toolbar">
+          <input id="friendSearchInput" placeholder="搜索好友" />
+          <button id="addFriendBtn">添加</button>
+        </div>
+        <div id="friendList" class="friend-list"></div>
       </section>
 
       <main id="chatView" class="messages hidden"></main>
@@ -59,6 +72,8 @@
           <button type="button" data-action="order"><img src="icons/order.svg" alt="" /><span>订单卡</span></button>
           <button type="button" data-action="wallet"><img src="icons/wallet.svg" alt="" /><span>钱包卡</span></button>
           <button type="button" data-action="mall"><img src="icons/mall.svg" alt="" /><span>商城卡</span></button>
+          <button type="button" data-action="voice"><img src="icons/voice.svg" alt="" /><span>语音通话</span></button>
+          <button type="button" data-action="video"><img src="icons/video.svg" alt="" /><span>视频通话</span></button>
         </div>
         <form id="composer" class="composer">
           <button id="toggleActionsBtn" type="button" class="plus-btn">＋</button>
@@ -68,6 +83,17 @@
         <input id="imageInput" type="file" accept="image/*" class="hidden" />
       </section>
     </div>
+
+    <section id="callPanel" class="call-panel hidden">
+      <h3 id="callTitle">通话中</h3>
+      <video id="remoteVideo" autoplay playsinline></video>
+      <video id="localVideo" autoplay playsinline muted></video>
+      <div class="call-actions">
+        <button id="acceptCallBtn" class="primary hidden">接听</button>
+        <button id="rejectCallBtn">拒绝</button>
+        <button id="hangupBtn">挂断</button>
+      </div>
+    </section>
 
     <template id="textMessageTemplate">
       <article class="message-row">
