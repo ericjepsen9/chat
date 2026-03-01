@@ -451,10 +451,18 @@ function renderMessages() {
 async function sendMessage(payload) {
   if (!state.activeConversation) return;
   const clientMessageId = `cm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  await api(`/api/conversations/${state.activeConversation.id}/messages`, {
+  const data = await api(`/api/conversations/${state.activeConversation.id}/messages`, {
     method: "POST",
     body: JSON.stringify({ senderId: state.currentUser.id, clientMessageId, ...payload }),
   });
+  // 发送后立即更新当前会话，避免依赖 SSE 才看到自己消息
+  if (data?.message && state.activeConversation?.id === data.message.conversationId) {
+    const exists = state.messages.some((m) => m.id === data.message.id);
+    if (!exists) {
+      state.messages.push(data.message);
+      renderMessages();
+    }
+  }
 }
 
 
