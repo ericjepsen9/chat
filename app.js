@@ -491,6 +491,22 @@ function stopCall() {
   remoteVideo.srcObject = null;
   callPanel.classList.add('hidden');
   acceptCallBtn.classList.add('hidden');
+  rejectCallBtn.classList.add('hidden');
+  hangupBtn.classList.add('hidden');
+}
+
+function setCallActionLayout(layout) {
+  // incoming: 接听 + 拒绝； outgoing/connected: 挂断
+  acceptCallBtn.classList.toggle('hidden', layout !== 'incoming');
+  rejectCallBtn.classList.toggle('hidden', layout !== 'incoming');
+  hangupBtn.classList.toggle('hidden', layout === 'incoming');
+}
+
+async function ensureConversationOpen(conversationId) {
+  if (state.activeConversation?.id === conversationId) return;
+  const exists = state.conversations.some((c) => c.id === conversationId);
+  if (!exists) await loadConversations();
+  await openConversation(conversationId);
 }
 
 async function startCall(mode) {
@@ -503,7 +519,7 @@ async function startCall(mode) {
     await state.rtc.pc.setLocalDescription(offer);
     callTitle.textContent = `${mode === 'video' ? '视频' : '语音'}通话中（呼叫中）`;
     callPanel.classList.remove('hidden');
-    acceptCallBtn.classList.add('hidden');
+    setCallActionLayout('outgoing');
     await api(`/api/conversations/${state.activeConversation.id}/call`, {
       method: 'POST',
       body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode }),
@@ -535,7 +551,7 @@ async function acceptCall() {
     body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: senderId, event: 'accept', mode }),
   });
   callTitle.textContent = `${mode === 'video' ? '视频' : '语音'}通话中`;
-  acceptCallBtn.classList.add('hidden');
+  setCallActionLayout('connected');
   state.rtc.pendingOffer = null;
 }
 
@@ -561,7 +577,8 @@ async function hangupCall() {
 
 async function handleSignalEvent(payload) {
   if (!state.currentUser || payload.targetUserId !== state.currentUser.id) return;
-  if (!state.activeConversation || payload.conversationId !== state.activeConversation.id) return;
+
+  await ensureConversationOpen(payload.conversationId);
 
   const signal = payload.signal;
   if (!signal) return;
@@ -569,7 +586,7 @@ async function handleSignalEvent(payload) {
   if (signal.type === 'offer') {
     state.rtc.pendingOffer = payload;
     callPanel.classList.remove('hidden');
-    acceptCallBtn.classList.remove('hidden');
+    setCallActionLayout('incoming');
     callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
     return;
   }
@@ -591,11 +608,12 @@ async function handleSignalEvent(payload) {
 
 function handleCallEvent(payload) {
   if (!state.currentUser || payload.targetUserId !== state.currentUser.id) return;
-  if (!state.activeConversation || payload.conversationId !== state.activeConversation.id) return;
   if (payload.event === 'start') {
-    callPanel.classList.remove('hidden');
-    acceptCallBtn.classList.remove('hidden');
-    callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
+    ensureConversationOpen(payload.conversationId).then(() => {
+      callPanel.classList.remove('hidden');
+      setCallActionLayout('incoming');
+      callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
+    }).catch(() => {});
   }
   if (payload.event === 'reject' || payload.event === 'end') {
     stopCall();
