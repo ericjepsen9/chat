@@ -101,6 +101,7 @@ const state = {
     localStream: null,
     remoteStream: null,
     mode: null,
+    conversationId: null,
     peerId: null,
     pendingOffer: null,
     incomingMeta: null,
@@ -539,7 +540,9 @@ async function createPeerConnection(mode) {
 
   pc.onicecandidate = async (event) => {
     if (!event.candidate || !state.rtc.peerId) return;
-    await api(`/api/conversations/${state.activeConversation.id}/signal`, {
+    const conversationId = state.rtc.conversationId || state.activeConversation?.id;
+    if (!conversationId) return;
+    await api(`/api/conversations/${conversationId}/signal`, {
       method: 'POST',
       body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: state.rtc.peerId, mode, signal: { type: 'candidate', candidate: event.candidate } }),
     });
@@ -559,7 +562,7 @@ function stopCall() {
   if (state.rtc.pc) state.rtc.pc.close();
   if (state.rtc.localStream) state.rtc.localStream.getTracks().forEach((t) => t.stop());
   if (state.rtc.remoteStream) state.rtc.remoteStream.getTracks().forEach((t) => t.stop());
-  state.rtc = { pc: null, localStream: null, remoteStream: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false };
+  state.rtc = { pc: null, localStream: null, remoteStream: null, mode: null, conversationId: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false };
   localVideo.srcObject = null;
   remoteVideo.srcObject = null;
   callPanel.classList.add('hidden');
@@ -586,6 +589,7 @@ async function startCall(mode) {
   const peerId = getPeerId();
   if (!peerId) return alert('仅支持单聊语音/视频通话');
   try {
+    state.rtc.conversationId = state.activeConversation.id;
     state.rtc.peerId = peerId;
     await createPeerConnection(mode);
     const offer = await state.rtc.pc.createOffer();
@@ -593,11 +597,11 @@ async function startCall(mode) {
     callTitle.textContent = `${mode === 'video' ? '视频' : '语音'}通话中（呼叫中）`;
     callPanel.classList.remove('hidden');
     setCallActionLayout('outgoing');
-    await api(`/api/conversations/${state.activeConversation.id}/call`, {
+    await api(`/api/conversations/${state.rtc.conversationId}/call`, {
       method: 'POST',
       body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode }),
     });
-    await api(`/api/conversations/${state.activeConversation.id}/signal`, {
+    await api(`/api/conversations/${state.rtc.conversationId}/signal`, {
       method: 'POST',
       body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, mode, signal: { type: 'offer', sdp: offer } }),
     });
@@ -608,12 +612,14 @@ async function startCall(mode) {
 }
 
 async function acceptCall() {
-  if (!state.activeConversation) return;
+  const conversationId = state.rtc.pendingOffer?.conversationId || state.rtc.incomingMeta?.conversationId || state.activeConversation?.id;
+  if (!conversationId) return;
+  state.rtc.conversationId = conversationId;
   if (!state.rtc.pendingOffer) {
-    if (state.rtc.incomingMeta) {
-      state.rtc.pendingAccept = true;
-      callTitle.textContent = `${state.rtc.incomingMeta.mode === 'video' ? '视频' : '语音'}通话连接中...`;
-    }
+    state.rtc.pendingAccept = true;
+    const mode = state.rtc.incomingMeta?.mode || 'voice';
+    callTitle.textContent = `${mode === 'video' ? '视频' : '语音'}通话连接中...`;
+    ensureConversationOpen(conversationId).catch(() => {});
     return;
   }
   const { senderId, mode, signal } = state.rtc.pendingOffer;
@@ -623,11 +629,11 @@ async function acceptCall() {
   await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
   const answer = await state.rtc.pc.createAnswer();
   await state.rtc.pc.setLocalDescription(answer);
-  await api(`/api/conversations/${state.activeConversation.id}/signal`, {
+  await api(`/api/conversations/${conversationId}/signal`, {
     method: 'POST',
     body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: senderId, mode, signal: { type: 'answer', sdp: answer } }),
   });
-  await api(`/api/conversations/${state.activeConversation.id}/call`, {
+  await api(`/api/conversations/${conversationId}/call`, {
     method: 'POST',
     body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: senderId, event: 'accept', mode }),
   });
@@ -637,8 +643,9 @@ async function acceptCall() {
 }
 
 async function rejectCall() {
-  if (state.rtc.pendingOffer && state.activeConversation) {
-    await api(`/api/conversations/${state.activeConversation.id}/call`, {
+  const conversationId = state.rtc.pendingOffer?.conversationId || state.rtc.incomingMeta?.conversationId || state.activeConversation?.id;
+  if (state.rtc.pendingOffer && conversationId) {
+    await api(`/api/conversations/${conversationId}/call`, {
       method: 'POST',
       body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: state.rtc.pendingOffer.senderId, event: 'reject', mode: state.rtc.pendingOffer.mode }),
     }).catch(() => {});
@@ -647,8 +654,9 @@ async function rejectCall() {
 }
 
 async function hangupCall() {
-  if (state.rtc.peerId && state.activeConversation) {
-    await api(`/api/conversations/${state.activeConversation.id}/call`, {
+  const conversationId = state.rtc.conversationId || state.activeConversation?.id;
+  if (state.rtc.peerId && conversationId) {
+    await api(`/api/conversations/${conversationId}/call`, {
       method: 'POST',
       body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: state.rtc.peerId, event: 'end', mode: state.rtc.mode || 'voice' }),
     }).catch(() => {});
@@ -659,17 +667,17 @@ async function hangupCall() {
 async function handleSignalEvent(payload) {
   if (!state.currentUser || payload.targetUserId !== state.currentUser.id) return;
 
-  await ensureConversationOpen(payload.conversationId);
-
   const signal = payload.signal;
   if (!signal) return;
 
   if (signal.type === 'offer') {
+    state.rtc.conversationId = payload.conversationId;
     state.rtc.incomingMeta = { senderId: payload.senderId, mode: payload.mode, conversationId: payload.conversationId };
     state.rtc.pendingOffer = payload;
     callPanel.classList.remove('hidden');
     setCallActionLayout('incoming');
     callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
+    ensureConversationOpen(payload.conversationId).catch(() => {});
     if (state.rtc.pendingAccept) {
       await acceptCall();
     }
@@ -702,13 +710,13 @@ function notifyIncomingCall(payload) {
 function handleCallEvent(payload) {
   if (!state.currentUser || payload.targetUserId !== state.currentUser.id) return;
   if (payload.event === 'start') {
+    state.rtc.conversationId = payload.conversationId;
     state.rtc.incomingMeta = { senderId: payload.senderId, mode: payload.mode, conversationId: payload.conversationId };
-    ensureConversationOpen(payload.conversationId).then(() => {
-      callPanel.classList.remove('hidden');
-      setCallActionLayout('incoming');
-      callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
-      notifyIncomingCall(payload);
-    }).catch(() => {});
+    callPanel.classList.remove('hidden');
+    setCallActionLayout('incoming');
+    callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
+    notifyIncomingCall(payload);
+    ensureConversationOpen(payload.conversationId).catch(() => {});
   }
   if (payload.event === 'reject' || payload.event === 'end') {
     stopCall();
