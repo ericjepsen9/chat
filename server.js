@@ -648,7 +648,7 @@ const server = http.createServer(async (req, res) => {
         addMessage(msg);
         if (clientMessageId) rememberClientMessageId(conversationId, senderId, clientMessageId, msg.id);
         schedulePersist();
-        broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: msg.id });
+        broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: msg.id, message: msg });
         return sendJson(res, 201, { message: msg });
       }
 
@@ -773,6 +773,16 @@ const server = http.createServer(async (req, res) => {
             invitedAt: Date.now(),
             acceptedAt: null,
           });
+          const systemMsg = addMessage({
+            id: uid('m'),
+            conversationId,
+            senderId,
+            type: 'system',
+            text: `${modeLabel}发起`,
+            createdAt: Date.now(),
+          });
+          schedulePersist();
+          broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: systemMsg.id, message: systemMsg });
         }
 
         if (event === 'accept') {
@@ -785,10 +795,20 @@ const server = http.createServer(async (req, res) => {
           };
           session.acceptedAt = Date.now();
           activeCallSessions.set(key, session);
+          const systemMsg = addMessage({
+            id: uid('m'),
+            conversationId,
+            senderId,
+            type: 'system',
+            text: `${modeLabel}已接通`,
+            createdAt: Date.now(),
+          });
+          schedulePersist();
+          broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: systemMsg.id, message: systemMsg });
         }
 
         if (event === 'reject') {
-          addMessage({
+          const systemMsg = addMessage({
             id: uid('m'),
             conversationId,
             senderId,
@@ -797,7 +817,7 @@ const server = http.createServer(async (req, res) => {
             createdAt: Date.now(),
           });
           schedulePersist();
-          broadcastToConversation(conversationId, 'message_created', { conversationId });
+          broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: systemMsg.id, message: systemMsg });
           activeCallSessions.delete(key);
         }
 
@@ -807,7 +827,7 @@ const server = http.createServer(async (req, res) => {
           const text = hasAccepted
             ? `${modeLabel}通话时长 ${formatDuration(Date.now() - session.acceptedAt)}`
             : `${modeLabel}未接听`;
-          addMessage({
+          const systemMsg = addMessage({
             id: uid('m'),
             conversationId,
             senderId,
@@ -816,7 +836,7 @@ const server = http.createServer(async (req, res) => {
             createdAt: Date.now(),
           });
           schedulePersist();
-          broadcastToConversation(conversationId, 'message_created', { conversationId });
+          broadcastToConversation(conversationId, 'message_created', { conversationId, messageId: systemMsg.id, message: systemMsg });
           activeCallSessions.delete(key);
         }
 

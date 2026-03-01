@@ -37,6 +37,8 @@ const quickShareMallBtn = $("quickShareMallBtn");
 const mallCardBtn = $("mallCardBtn");
 const profileDisplayName = $("profileDisplayName");
 const profileUsername = $("profileUsername");
+const myProfileCard = $("myProfileCard");
+const myProfileAvatar = $("myProfileAvatar");
 const globalNotifyBtn = $("globalNotifyBtn");
 const clearCacheBtn = $("clearCacheBtn");
 const logoutBtn = $("logoutBtn");
@@ -281,6 +283,9 @@ function showHome() {
   homeTabbar.classList.remove("hidden");
   profileDisplayName.textContent = state.currentUser?.displayName || "未登录";
   profileUsername.textContent = `@${state.currentUser?.username || "guest"}`;
+  if (state.currentUser) {
+    fillAvatar(myProfileAvatar, state.currentUser.displayName || state.currentUser.username, () => openUserProfile(state.currentUser.id, state.currentUser.displayName || state.currentUser.username));
+  }
   setMainTab(state.currentView);
   renderChatList();
   renderFriendList();
@@ -922,7 +927,7 @@ function connectRealtime() {
   if (state.eventSource) state.eventSource.close();
   state.eventSource = new EventSource(`/api/events?userId=${encodeURIComponent(state.currentUser.id)}`);
 
-  const onUpdate = async () => {
+  const onUpdate = async ({ includeFriends = false } = {}) => {
     if (!state.currentUser) return;
     if (state.refreshing) {
       state.refreshQueued = true;
@@ -932,7 +937,9 @@ function connectRealtime() {
     try {
       do {
         state.refreshQueued = false;
-        await Promise.all([loadConversations(), loadFriends()]);
+        const tasks = [loadConversations()];
+        if (includeFriends) tasks.push(loadFriends());
+        await Promise.all(tasks);
         if (state.activeConversation) {
           const data = await api(`/api/conversations/${state.activeConversation.id}/messages?userId=${encodeURIComponent(state.currentUser.id)}`);
           state.activeConversation = data.conversation;
@@ -945,12 +952,29 @@ function connectRealtime() {
     }
   };
 
-  state.eventSource.addEventListener('message_created', onUpdate);
-  state.eventSource.addEventListener('conversation_updated', onUpdate);
-  state.eventSource.addEventListener('users_updated', onUpdate);
-  state.eventSource.addEventListener('friends_updated', onUpdate);
+  state.eventSource.addEventListener('message_created', (event) => {
+    const payload = JSON.parse(event.data || '{}');
+    if (payload?.message && state.activeConversation?.id === payload.message.conversationId) {
+      const exists = state.messages.some((m) => m.id === payload.message.id);
+      if (!exists) {
+        state.messages.push(payload.message);
+        renderMessages();
+      }
+    }
+    onUpdate();
+  });
+  state.eventSource.addEventListener('conversation_updated', () => onUpdate());
+  state.eventSource.addEventListener('users_updated', () => onUpdate({ includeFriends: true }));
+  state.eventSource.addEventListener('friends_updated', () => onUpdate({ includeFriends: true }));
   state.eventSource.addEventListener('webrtc_signal', (event) => handleSignalEvent(JSON.parse(event.data)));
   state.eventSource.addEventListener('call_event', (event) => handleCallEvent(JSON.parse(event.data)));
+  state.eventSource.onerror = () => {
+    if (!state.currentUser) return;
+    disconnectRealtime();
+    setTimeout(() => {
+      if (state.currentUser && !state.eventSource) connectRealtime();
+    }, 1000);
+  };
 }
 
 function disconnectRealtime() {
@@ -1039,6 +1063,10 @@ function bindEvents() {
   clearCacheBtn.addEventListener('click', () => {
     localStorage.removeItem(SESSION_KEY);
     alert('本地会话缓存已清理，重新登录后继续使用。');
+  });
+  myProfileCard.addEventListener('click', () => {
+    if (!state.currentUser) return;
+    openUserProfile(state.currentUser.id, state.currentUser.displayName || state.currentUser.username);
   });
   moreBtn.addEventListener("click", moreMenu);
   toggleActionsBtn.addEventListener("click", () => actionPanel.classList.toggle("hidden"));
