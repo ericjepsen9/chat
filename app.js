@@ -48,7 +48,6 @@ const scanAddFriendBtn = $("scanAddFriendBtn");
 const createGroupBtn = $("createGroupBtn");
 const quickAddFriendBtn = $("quickAddFriendBtn");
 const closePlusMenuBtn = $("closePlusMenuBtn");
-const userProfilePanel = $("userProfilePanel");
 const profileAvatar = $("profileAvatar");
 const profileRemarkName = $("profileRemarkName");
 const profileNickName = $("profileNickName");
@@ -56,15 +55,14 @@ const profileSignature = $("profileSignature");
 const profilePhone = $("profilePhone");
 const profileAppId = $("profileAppId");
 const profileProducts = $("profileProducts");
-const closeProfilePanelBtn = $("closeProfilePanelBtn");
-const messageSettingsSheet = $("messageSettingsSheet");
+const profileDetailPage = $("profileDetailPage");
+const messageSettingsPage = $("messageSettingsPage");
 const searchHistoryBtn = $("searchHistoryBtn");
 const muteSettingBtn = $("muteSettingBtn");
 const pinConversationBtn = $("pinConversationBtn");
 const blacklistBtn = $("blacklistBtn");
 const deleteFriendBtn = $("deleteFriendBtn");
 const clearChatBtn = $("clearChatBtn");
-const closeMessageSettingsBtn = $("closeMessageSettingsBtn");
 const composer = $("composer");
 const messageInput = $("messageInput");
 const imageInput = $("imageInput");
@@ -96,6 +94,8 @@ const state = {
   settings: {
     globalNotify: true,
   },
+  secondaryPage: null,
+  secondaryReturn: "home",
   rtc: {
     pc: null,
     localStream: null,
@@ -171,7 +171,50 @@ async function openUserProfile(userId, fallbackName = '用户') {
       profileProducts.appendChild(card);
     });
   }
-  userProfilePanel.classList.remove('hidden');
+  openSecondaryPage('profile', state.activeConversation ? 'chat' : 'home');
+}
+
+function openSecondaryPage(page, backTo = 'home') {
+  state.secondaryPage = page;
+  state.secondaryReturn = backTo;
+  chatListView.classList.add('hidden');
+  friendListView.classList.add('hidden');
+  mallView.classList.add('hidden');
+  profileView.classList.add('hidden');
+  chatView.classList.add('hidden');
+  composerPanel.classList.add('hidden');
+  actionPanel.classList.add('hidden');
+  homeTabbar.classList.add('hidden');
+  profileDetailPage.classList.toggle('hidden', page !== 'profile');
+  messageSettingsPage.classList.toggle('hidden', page !== 'settings');
+  backBtn.classList.remove('hidden');
+  if (page === 'profile') {
+    chatTitle.textContent = '个人主页';
+    chatSubtitle.textContent = '用户信息';
+  }
+  if (page === 'settings') {
+    chatTitle.textContent = '消息设置';
+    chatSubtitle.textContent = '会话管理';
+  }
+}
+
+function closeSecondaryPage() {
+  if (!state.secondaryPage) return false;
+  const backTo = state.secondaryReturn;
+  state.secondaryPage = null;
+  profileDetailPage.classList.add('hidden');
+  messageSettingsPage.classList.add('hidden');
+  if (backTo === 'chat' && state.activeConversation) {
+    backBtn.classList.remove('hidden');
+    chatView.classList.remove('hidden');
+    composerPanel.classList.remove('hidden');
+    homeTabbar.classList.add('hidden');
+    chatTitle.textContent = state.conversations.find((c) => c.id === state.activeConversation.id)?.title || '会话';
+    chatSubtitle.textContent = state.activeConversation.type === 'group' ? `${state.activeConversation.members.length}人群聊` : '单聊';
+    return true;
+  }
+  showHome();
+  return true;
 }
 
 function setMainTab(tab) {
@@ -218,8 +261,8 @@ function showAuth() {
   appScreen.classList.add("hidden");
   authScreen.classList.remove("hidden");
   plusMenuSheet.classList.add('hidden');
-  userProfilePanel.classList.add('hidden');
-  messageSettingsSheet.classList.add('hidden');
+  profileDetailPage.classList.add('hidden');
+  messageSettingsPage.classList.add('hidden');
   renderAuth(true);
 }
 
@@ -230,7 +273,9 @@ function showHome() {
   chatView.classList.add("hidden");
   composerPanel.classList.add("hidden");
   actionPanel.classList.add("hidden");
-  messageSettingsSheet.classList.add('hidden');
+  profileDetailPage.classList.add('hidden');
+  messageSettingsPage.classList.add('hidden');
+  state.secondaryPage = null;
   homeTabbar.classList.remove("hidden");
   profileDisplayName.textContent = state.currentUser?.displayName || "未登录";
   profileUsername.textContent = `@${state.currentUser?.username || "guest"}`;
@@ -351,7 +396,9 @@ async function openConversation(conversationId) {
   chatView.classList.remove("hidden");
   composerPanel.classList.remove("hidden");
   actionPanel.classList.add("hidden");
-  messageSettingsSheet.classList.add('hidden');
+  profileDetailPage.classList.add('hidden');
+  messageSettingsPage.classList.add('hidden');
+  state.secondaryPage = null;
   homeTabbar.classList.add("hidden");
 
   renderMessages();
@@ -636,6 +683,14 @@ async function handleSignalEvent(payload) {
   }
 }
 
+function notifyIncomingCall(payload) {
+  if (!state.settings.globalNotify) return;
+  if (typeof Notification === "undefined") return;
+  const show = () => new Notification(`${payload.mode === "video" ? "视频" : "语音"}来电`, { body: "请返回聊天页处理来电" });
+  if (Notification.permission === "granted") return show();
+  if (Notification.permission === "default") Notification.requestPermission().then((p) => { if (p === "granted") show(); });
+}
+
 function handleCallEvent(payload) {
   if (!state.currentUser || payload.targetUserId !== state.currentUser.id) return;
   if (payload.event === 'start') {
@@ -644,6 +699,7 @@ function handleCallEvent(payload) {
       callPanel.classList.remove('hidden');
       setCallActionLayout('incoming');
       callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
+      notifyIncomingCall(payload);
     }).catch(() => {});
   }
   if (payload.event === 'reject' || payload.event === 'end') {
@@ -756,7 +812,7 @@ async function moreMenu() {
 
   const conv = state.activeConversation;
   if (conv.type === 'direct') {
-    messageSettingsSheet.classList.remove('hidden');
+    openSecondaryPage('settings', 'chat');
     return;
   }
   if (conv.type === "group") {
@@ -936,15 +992,16 @@ function bindEvents() {
     const hidden = keyword && !"商城热卖 蓝牙耳机".toLowerCase().includes(keyword);
     mallCardBtn.classList.toggle("hidden", hidden);
   });
-  backBtn.addEventListener("click", showHome);
+  backBtn.addEventListener("click", () => {
+    if (closeSecondaryPage()) return;
+    showHome();
+  });
   newChatBtn.addEventListener("click", () => plusMenuSheet.classList.remove("hidden"));
   addFriendBtn.addEventListener('click', addFriendFlow);
   closePlusMenuBtn.addEventListener('click', () => plusMenuSheet.classList.add('hidden'));
   scanAddFriendBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await scanAddFriendFlow(); });
   createGroupBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await createConversationFlow('group'); });
   quickAddFriendBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await addFriendFlow(); });
-  closeProfilePanelBtn.addEventListener('click', () => userProfilePanel.classList.add('hidden'));
-  closeMessageSettingsBtn.addEventListener('click', () => messageSettingsSheet.classList.add('hidden'));
   searchHistoryBtn.addEventListener('click', () => openMessageSettingsAction('search'));
   muteSettingBtn.addEventListener('click', () => openMessageSettingsAction('mute'));
   pinConversationBtn.addEventListener('click', () => openMessageSettingsAction('pin'));

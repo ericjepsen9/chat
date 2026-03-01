@@ -90,6 +90,36 @@
 
       <main id="chatView" class="messages hidden"></main>
 
+      <section id="profileDetailPage" class="chat-list-view hidden">
+        <div class="friend-list">
+          <div class="chat-item">
+            <div id="profileAvatar" class="avatar profile-avatar"></div>
+            <div>
+              <strong id="profileRemarkName">-</strong>
+              <div class="preview" id="profileNickName">昵称：-</div>
+            </div>
+          </div>
+          <div class="chat-item"><div><strong>个性签名</strong><div class="preview" id="profileSignature">-</div></div></div>
+          <div class="chat-item"><div><strong>手机号</strong><div class="preview" id="profilePhone">-</div></div></div>
+          <div class="chat-item"><div><strong>号码ID</strong><div class="preview" id="profileAppId">-</div></div></div>
+          <div>
+            <strong>TA发布的商品</strong>
+            <div id="profileProducts" class="friend-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="messageSettingsPage" class="chat-list-view hidden">
+        <div class="friend-list">
+          <button id="searchHistoryBtn">查找聊天记录</button>
+          <button id="muteSettingBtn">消息提醒设置（静音）</button>
+          <button id="pinConversationBtn">消息置顶</button>
+          <button id="blacklistBtn">加入黑名单</button>
+          <button id="deleteFriendBtn">删除好友</button>
+          <button id="clearChatBtn">清除所有聊天记录</button>
+        </div>
+      </section>
+
       <section id="composerPanel" class="composer-panel hidden">
         <div id="actionPanel" class="action-panel hidden">
           <button type="button" data-action="emoji"><img src="icons/emoji.svg" alt="" /><span>表情</span></button>
@@ -135,39 +165,6 @@
         <button id="createGroupBtn">创建群聊</button>
         <button id="quickAddFriendBtn">添加好友</button>
         <button id="closePlusMenuBtn">取消</button>
-      </div>
-    </section>
-
-    <section id="userProfilePanel" class="publish-sheet hidden">
-      <div class="publish-card profile-card">
-        <div class="profile-header">
-          <div id="profileAvatar" class="avatar profile-avatar"></div>
-          <div>
-            <h3 id="profileRemarkName">-</h3>
-            <p id="profileNickName">昵称：-</p>
-          </div>
-        </div>
-        <p id="profileSignature">签名：-</p>
-        <p id="profilePhone">手机号：-</p>
-        <p id="profileAppId">号码ID：-</p>
-        <div>
-          <strong>TA发布的商品</strong>
-          <div id="profileProducts" class="friend-list"></div>
-        </div>
-        <button id="closeProfilePanelBtn">关闭</button>
-      </div>
-    </section>
-
-    <section id="messageSettingsSheet" class="publish-sheet hidden">
-      <div class="publish-card">
-        <h3>消息设置</h3>
-        <button id="searchHistoryBtn">查找聊天记录</button>
-        <button id="muteSettingBtn">消息提醒设置（静音）</button>
-        <button id="pinConversationBtn">消息置顶</button>
-        <button id="blacklistBtn">加入黑名单</button>
-        <button id="deleteFriendBtn">删除好友</button>
-        <button id="clearChatBtn">清除所有聊天记录</button>
-        <button id="closeMessageSettingsBtn">关闭</button>
       </div>
     </section>
 
