@@ -74,8 +74,8 @@ button.primary, .auth-tabs .active, .send-btn, .card .actions button.primary, .h
 }
 .group-title { font-size:.78rem; color:#64748b; padding:6px 4px; }
 
-.messages { overflow:auto; padding:12px; display:grid; gap:10px; background:#f0f3f7; }
-.message-row { display:flex; gap:8px; max-width:94%; align-items:flex-start; }
+.messages { overflow:auto; padding:10px 12px; display:grid; gap:6px; background:#f0f3f7; }
+.message-row { display:flex; gap:6px; max-width:94%; align-items:flex-start; }
 .message-row.me { margin-left:auto; flex-direction:row-reverse; }
 .avatar {
   width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#93c5fd,#60a5fa);
@@ -83,10 +83,10 @@ button.primary, .auth-tabs .active, .send-btn, .card .actions button.primary, .h
 }
 .message-row.me .avatar { background:linear-gradient(135deg,#86efac,#22c55e); }
 .clickable-avatar { cursor:pointer; }
-.content-wrap { display:grid; gap:3px; }
-.sender { font-size:.7rem; color:var(--muted); }
+.content-wrap { display:grid; gap:2px; }
+.sender { font-size:.68rem; color:var(--muted); }
 .message-row.me .sender { text-align:right; }
-.bubble,.card { background:#fff; border:1px solid #e4e9f2; border-radius:12px; padding:9px 11px; }
+.bubble,.card { background:#fff; border:1px solid #e4e9f2; border-radius:12px; padding:8px 10px; }
 .message-row.me .bubble { background:var(--bubble-me); border-color:#85d35f; }
 .image-bubble { padding:4px !important; }
 .image-bubble img { width:170px; max-width:56vw; border-radius:8px; display:block; }
