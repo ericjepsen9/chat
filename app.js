@@ -41,6 +41,20 @@ const logoutBtn = $("logoutBtn");
 const publishSheet = $("publishSheet");
 const publishProductBtn = $("publishProductBtn");
 const closePublishSheetBtn = $("closePublishSheetBtn");
+const plusMenuSheet = $("plusMenuSheet");
+const scanAddFriendBtn = $("scanAddFriendBtn");
+const createGroupBtn = $("createGroupBtn");
+const quickAddFriendBtn = $("quickAddFriendBtn");
+const closePlusMenuBtn = $("closePlusMenuBtn");
+const userProfilePanel = $("userProfilePanel");
+const profileAvatar = $("profileAvatar");
+const profileRemarkName = $("profileRemarkName");
+const profileNickName = $("profileNickName");
+const profileSignature = $("profileSignature");
+const profilePhone = $("profilePhone");
+const profileAppId = $("profileAppId");
+const profileProducts = $("profileProducts");
+const closeProfilePanelBtn = $("closeProfilePanelBtn");
 const composer = $("composer");
 const messageInput = $("messageInput");
 const imageInput = $("imageInput");
@@ -68,6 +82,7 @@ const state = {
   eventSource: null,
   refreshing: false,
   currentView: "messages",
+  profileCache: new Map(),
   rtc: {
     pc: null,
     localStream: null,
@@ -86,6 +101,62 @@ async function api(path, options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "request_failed");
   return data;
+}
+
+
+
+function firstChar(text = '') {
+  return String(text).trim().charAt(0) || '?';
+}
+
+function conversationPeerId(conv) {
+  if (!conv || conv.type !== 'direct') return null;
+  return (conv.members || []).find((id) => id !== state.currentUser.id) || null;
+}
+
+function fillAvatar(el, name, onClick) {
+  if (!el) return;
+  el.textContent = firstChar(name);
+  if (onClick) {
+    el.classList.add('clickable-avatar');
+    el.onclick = onClick;
+  } else {
+    el.classList.remove('clickable-avatar');
+    el.onclick = null;
+  }
+}
+
+async function openUserProfile(userId, fallbackName = '用户') {
+  if (!userId) return;
+  const cacheKey = `${state.currentUser.id}:${userId}`;
+  let profile = state.profileCache.get(cacheKey);
+  if (!profile) {
+    const data = await api(`/api/users/${encodeURIComponent(userId)}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
+    profile = data.profile;
+    state.profileCache.set(cacheKey, profile);
+  }
+  profileAvatar.textContent = profile.avatarText || firstChar(profile.remarkName || fallbackName);
+  profileRemarkName.textContent = profile.remarkName || fallbackName;
+  profileNickName.textContent = `昵称：${profile.nickname || '-'} `;
+  profileSignature.textContent = `个性签名：${profile.signature || '未填写'}`;
+  profilePhone.textContent = `手机号：${profile.phone || '未公开'}`;
+  profileAppId.textContent = `号码ID：${profile.appNumberId || '-'}`;
+  profileProducts.innerHTML = '';
+  const products = profile.products || [];
+  if (!products.length) {
+    const empty = document.createElement('div');
+    empty.className = 'preview';
+    empty.textContent = '暂无发布商品';
+    profileProducts.appendChild(empty);
+  } else {
+    products.forEach((item) => {
+      const card = document.createElement('div');
+      card.className = 'chat-item';
+      card.innerHTML = `<div class="avatar">${firstChar(item.title)}</div><div><strong>${item.title}</strong><div class="preview">￥${item.price || 0} · ${item.desc || ''}</div></div>`;
+      profileProducts.appendChild(card);
+    });
+  }
+  userProfilePanel.classList.remove('hidden');
 }
 
 function setMainTab(tab) {
@@ -131,6 +202,8 @@ function renderAuth(isLogin = true) {
 function showAuth() {
   appScreen.classList.add("hidden");
   authScreen.classList.remove("hidden");
+  plusMenuSheet.classList.add('hidden');
+  userProfilePanel.classList.add('hidden');
   renderAuth(true);
 }
 
@@ -177,6 +250,12 @@ function renderChatList() {
         </div>
         ${conv.unread ? `<span class="badge">${conv.unread}</span>` : ""}
       `;
+      const avatar = node.querySelector(".avatar");
+      const peerId = conversationPeerId(conv);
+      fillAvatar(avatar, conv.title, peerId ? (event) => {
+        event.stopPropagation();
+        openUserProfile(peerId, conv.title);
+      } : null);
       node.addEventListener("click", () => openConversation(conv.id));
       chatList.appendChild(node);
     });
@@ -210,6 +289,8 @@ function renderFriendList() {
         </div>
         <span>聊天</span>
       `;
+      const avatar = item.querySelector(".avatar");
+      fillAvatar(avatar, friend.friend.displayName, (e) => { e.stopPropagation(); openUserProfile(friend.friend.id, friend.friend.displayName); });
       item.addEventListener("click", () => createDirectFromFriend(friend.friend.id));
       item.addEventListener("contextmenu", async (event) => {
         event.preventDefault();
@@ -292,7 +373,11 @@ function renderMessages() {
       if (msg.type === "system") node.querySelector(".bubble").style.background = "#fef3c7";
     }
     node.classList.toggle("me", msg.senderId === state.currentUser.id);
-    node.querySelector(".sender").textContent = senderName(msg);
+    const sender = senderName(msg);
+    node.querySelector(".sender").textContent = sender;
+    const avatar = node.querySelector(".avatar");
+    if (msg.senderId === state.currentUser.id) fillAvatar(avatar, "我");
+    else fillAvatar(avatar, sender, () => openUserProfile(msg.senderId, sender));
     chatView.appendChild(node);
   });
   chatView.scrollTop = chatView.scrollHeight;
@@ -541,12 +626,12 @@ async function quickAction(action) {
   }
 }
 
-async function createConversationFlow() {
+async function createConversationFlow(prefer = "ask") {
   const usersData = await api(`/api/users?currentUserId=${encodeURIComponent(state.currentUser.id)}`);
   const users = usersData.users;
   if (!users.length) return alert("暂无其他用户");
 
-  const mode = prompt("输入1建单聊，2建群聊", "1");
+  const mode = prefer === 'group' ? '2' : (prefer === 'direct' ? '1' : prompt("输入1建单聊，2建群聊", "1"));
   if (mode === "1") {
     const username = prompt(`输入用户名：${users.map((u) => u.username).join("/")}`);
     const target = users.find((u) => u.username === username);
@@ -580,6 +665,19 @@ async function addFriendFlow() {
   } catch {
     alert('添加失败（用户名不存在或输入非法）');
   }
+}
+
+
+
+async function scanAddFriendFlow() {
+  const appNumberId = prompt('请输入对方号码ID（扫一扫结果）');
+  if (!appNumberId) return;
+  const usersData = await api(`/api/users?currentUserId=${encodeURIComponent(state.currentUser.id)}&q=${encodeURIComponent(appNumberId)}`);
+  const target = (usersData.users || [])[0];
+  if (!target) return alert('未找到该用户');
+  await api('/api/friends', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: target.username, group: '扫一扫' }) });
+  await loadFriends();
+  alert(`已添加好友：${target.displayName}`);
 }
 
 async function moreMenu() {
@@ -734,8 +832,13 @@ function bindEvents() {
     mallCardBtn.classList.toggle("hidden", hidden);
   });
   backBtn.addEventListener("click", showHome);
-  newChatBtn.addEventListener("click", createConversationFlow);
+  newChatBtn.addEventListener("click", () => plusMenuSheet.classList.remove("hidden"));
   addFriendBtn.addEventListener('click', addFriendFlow);
+  closePlusMenuBtn.addEventListener('click', () => plusMenuSheet.classList.add('hidden'));
+  scanAddFriendBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await scanAddFriendFlow(); });
+  createGroupBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await createConversationFlow('group'); });
+  quickAddFriendBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await addFriendFlow(); });
+  closeProfilePanelBtn.addEventListener('click', () => userProfilePanel.classList.add('hidden'));
   moreBtn.addEventListener("click", moreMenu);
   toggleActionsBtn.addEventListener("click", () => actionPanel.classList.toggle("hidden"));
   closePublishSheetBtn.addEventListener('click', () => publishSheet.classList.add('hidden'));

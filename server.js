@@ -46,8 +46,28 @@ function loadDb() {
     const now = Date.now();
     const db = {
       users: [
-        { id: alice, username: 'alice', password: '1234', displayName: 'Alice', createdAt: now },
-        { id: bob, username: 'bob', password: '1234', displayName: 'Bob', createdAt: now },
+        {
+          id: alice,
+          username: 'alice',
+          password: '1234',
+          displayName: 'Alice',
+          signature: '热爱好物分享',
+          phone: '13800000001',
+          appNumberId: 'CT10001',
+          products: [{ id: uid('p'), title: '闲置相机', price: 1299, desc: '成色95新，支持验货' }],
+          createdAt: now,
+        },
+        {
+          id: bob,
+          username: 'bob',
+          password: '1234',
+          displayName: 'Bob',
+          signature: '专注数码与潮玩',
+          phone: '13800000002',
+          appNumberId: 'CT10002',
+          products: [{ id: uid('p'), title: '机械键盘', price: 299, desc: '红轴，支持蓝牙' }],
+          createdAt: now,
+        },
       ],
       friendships: [
         { id: uid('f'), userId: alice, friendId: bob, group: '同事' },
@@ -81,6 +101,13 @@ function loadDb() {
   if (!loaded.messages) loaded.messages = [];
   if (!loaded.conversations) loaded.conversations = [];
   if (!loaded.users) loaded.users = [];
+  loaded.users = loaded.users.map((u, i) => ({
+    signature: u.signature || '这个人很懒，暂未填写签名',
+    phone: u.phone || '',
+    appNumberId: u.appNumberId || `CT${10000 + i}`,
+    products: Array.isArray(u.products) ? u.products : [],
+    ...u,
+  }));
   return loaded;
 }
 
@@ -355,7 +382,17 @@ const server = http.createServer(async (req, res) => {
       const password = String(body.password || '');
       if (!displayName || !username || password.length < 4) return sendJson(res, 400, { error: 'invalid_input' });
       if (index.usersByName.has(username)) return sendJson(res, 409, { error: 'username_exists' });
-      const user = { id: uid('u'), username, password, displayName, createdAt: Date.now() };
+      const user = {
+        id: uid('u'),
+        username,
+        password,
+        displayName,
+        signature: '这个人很懒，暂未填写签名',
+        phone: '',
+        appNumberId: `CT${Date.now().toString().slice(-8)}`,
+        products: [],
+        createdAt: Date.now(),
+      };
       db.users.push(user);
       index.usersById.set(user.id, user);
       index.usersByName.set(user.username, user);
@@ -377,8 +414,33 @@ const server = http.createServer(async (req, res) => {
       const currentUserId = searchParams.get('currentUserId');
       const q = (searchParams.get('q') || '').toLowerCase();
       let users = db.users.filter((u) => u.id !== currentUserId);
-      if (q) users = users.filter((u) => u.username.toLowerCase().includes(q) || u.displayName.toLowerCase().includes(q));
+      if (q) users = users.filter((u) =>
+        u.username.toLowerCase().includes(q)
+        || u.displayName.toLowerCase().includes(q)
+        || String(u.appNumberId || '').toLowerCase().includes(q));
       return sendJson(res, 200, { users: users.map(getUserSafe) });
+    }
+
+    const profileMatch = pathname.match(/^\/api\/users\/([^/]+)\/profile$/);
+    if (profileMatch && req.method === 'GET') {
+      const targetUserId = profileMatch[1];
+      const viewerId = String(searchParams.get('viewerId') || '');
+      const target = index.usersById.get(targetUserId);
+      if (!target) return sendJson(res, 404, { error: 'user_not_found' });
+      const relation = (index.friendshipsByUser.get(viewerId) || []).find((f) => f.friendId === targetUserId);
+      const remarkName = relation?.remark || target.displayName;
+      return sendJson(res, 200, {
+        profile: {
+          id: target.id,
+          avatarText: (remarkName || target.displayName || target.username).slice(0, 1),
+          nickname: target.displayName,
+          remarkName,
+          signature: target.signature || '',
+          phone: target.phone || '',
+          appNumberId: target.appNumberId || '',
+          products: target.products || [],
+        },
+      });
     }
 
     if (pathname === '/api/friends' && req.method === 'GET') {
@@ -414,6 +476,19 @@ const server = http.createServer(async (req, res) => {
       const rel = (index.friendshipsByUser.get(userId) || []).find((f) => f.friendId === friendId);
       if (!rel) return sendJson(res, 404, { error: 'friendship_not_found' });
       rel.group = group;
+      schedulePersist();
+      broadcastToUser(userId, 'friends_updated', { userId });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (pathname === '/api/friends/remark' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const userId = String(body.userId || '');
+      const friendId = String(body.friendId || '');
+      const remark = String(body.remark || '').trim();
+      const rel = (index.friendshipsByUser.get(userId) || []).find((f) => f.friendId === friendId);
+      if (!rel) return sendJson(res, 404, { error: 'friendship_not_found' });
+      rel.remark = remark;
       schedulePersist();
       broadcastToUser(userId, 'friends_updated', { userId });
       return sendJson(res, 200, { ok: true });

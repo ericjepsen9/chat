@@ -70,8 +70,12 @@ button.primary, .auth-tabs .active, .send-btn, .card .actions button.primary, .h
 .messages { overflow:auto; padding:12px; display:grid; gap:10px; background:#f0f3f7; }
 .message-row { display:flex; gap:8px; max-width:94%; align-items:flex-start; }
 .message-row.me { margin-left:auto; flex-direction:row-reverse; }
-.avatar { width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#93c5fd,#60a5fa); }
+.avatar {
+  width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,#93c5fd,#60a5fa);
+  color:#fff; display:grid; place-items:center; font-weight:700;
+}
 .message-row.me .avatar { background:linear-gradient(135deg,#86efac,#22c55e); }
+.clickable-avatar { cursor:pointer; }
 .content-wrap { display:grid; gap:3px; }
 .sender { font-size:.7rem; color:var(--muted); }
 .message-row.me .sender { text-align:right; }
@@ -137,6 +141,10 @@ button.primary, .auth-tabs .active, .send-btn, .card .actions button.primary, .h
 }
 .publish-card h3 { margin: 0; }
 .publish-card p { margin: 0; color: var(--muted); font-size:.86rem; }
+
+.profile-card { max-height: 72vh; overflow: auto; }
+.profile-header { display:grid; grid-template-columns:48px 1fr; gap:10px; align-items:center; }
+.profile-avatar { width:48px; height:48px; border-radius:14px; font-size:1.15rem; }
 
 .call-panel {
   position: fixed;
