@@ -248,7 +248,7 @@ function renderChatList() {
           <strong>${conv.title}</strong>
           <div class="preview">${conv.preview}</div>
         </div>
-        ${conv.unread ? `<span class="badge">${conv.unread}</span>` : ""}
+        ${conv.unread ? `<button class="unread-btn" type="button">${conv.unread}条未读</button>` : ""}
       `;
       const avatar = node.querySelector(".avatar");
       const peerId = conversationPeerId(conv);

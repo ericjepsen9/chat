@@ -215,6 +215,23 @@ function schedulePersist() {
 }
 
 const sseClientsByUser = new Map();
+const activeCallSessions = new Map();
+
+function callSessionKey(conversationId, senderId, targetUserId, mode = 'voice') {
+  const [a, b] = [senderId, targetUserId].sort();
+  return `${conversationId}:${a}:${b}:${mode}`;
+}
+
+function callModeLabel(mode) {
+  return mode === 'video' ? '视频通话' : '语音通话';
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const m = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+  const s = String(totalSeconds % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
 
 function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
@@ -685,6 +702,65 @@ const server = http.createServer(async (req, res) => {
         const event = String(body.event || '');
         const mode = body.mode === 'video' ? 'video' : 'voice';
         if (!senderId || !targetUserId || !canAccessConversation(conv, senderId)) return sendJson(res, 403, { error: 'forbidden' });
+
+        const key = callSessionKey(conversationId, senderId, targetUserId, mode);
+        const modeLabel = callModeLabel(mode);
+
+        if (event === 'start') {
+          activeCallSessions.set(key, {
+            inviterId: senderId,
+            targetUserId,
+            mode,
+            invitedAt: Date.now(),
+            acceptedAt: null,
+          });
+        }
+
+        if (event === 'accept') {
+          const session = activeCallSessions.get(key) || {
+            inviterId: targetUserId,
+            targetUserId: senderId,
+            mode,
+            invitedAt: Date.now(),
+            acceptedAt: null,
+          };
+          session.acceptedAt = Date.now();
+          activeCallSessions.set(key, session);
+        }
+
+        if (event === 'reject') {
+          addMessage({
+            id: uid('m'),
+            conversationId,
+            senderId,
+            type: 'system',
+            text: `${modeLabel}已取消`,
+            createdAt: Date.now(),
+          });
+          schedulePersist();
+          broadcastToConversation(conversationId, 'message_created', { conversationId });
+          activeCallSessions.delete(key);
+        }
+
+        if (event === 'end') {
+          const session = activeCallSessions.get(key);
+          const hasAccepted = !!session?.acceptedAt;
+          const text = hasAccepted
+            ? `${modeLabel}通话时长 ${formatDuration(Date.now() - session.acceptedAt)}`
+            : `${modeLabel}未接听`;
+          addMessage({
+            id: uid('m'),
+            conversationId,
+            senderId,
+            type: 'system',
+            text,
+            createdAt: Date.now(),
+          });
+          schedulePersist();
+          broadcastToConversation(conversationId, 'message_created', { conversationId });
+          activeCallSessions.delete(key);
+        }
+
         broadcastToUser(targetUserId, 'call_event', { conversationId, senderId, targetUserId, event, mode });
         return sendJson(res, 200, { ok: true });
       }

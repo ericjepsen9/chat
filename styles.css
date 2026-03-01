@@ -65,6 +65,13 @@ button.primary, .auth-tabs .active, .send-btn, .card .actions button.primary, .h
 }
 .chat-item .preview, .friend-item .preview { color:var(--muted); font-size:.78rem; margin-top:3px; }
 .badge { background:#ef4444; color:#fff; border-radius:999px; font-size:.72rem; padding:2px 7px; }
+.unread-btn {
+  background:#ef4444;
+  color:#fff;
+  border-radius:999px;
+  font-size:.72rem;
+  padding:4px 8px;
+}
 .group-title { font-size:.78rem; color:#64748b; padding:6px 4px; }
 
 .messages { overflow:auto; padding:12px; display:grid; gap:10px; background:#f0f3f7; }
