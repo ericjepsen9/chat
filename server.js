@@ -106,6 +106,7 @@ function loadDb() {
     phone: u.phone || '',
     appNumberId: u.appNumberId || `CT${10000 + i}`,
     products: Array.isArray(u.products) ? u.products : [],
+    blacklist: Array.isArray(u.blacklist) ? u.blacklist : [],
     ...u,
   }));
   return loaded;
@@ -149,6 +150,7 @@ function rebuildIndexes() {
   for (const conv of db.conversations) {
     if (!conv.lastRead) conv.lastRead = {};
     if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
+    if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
     if (!conv.lastMessageAt) conv.lastMessageAt = conv.createdAt || Date.now();
     index.convById.set(conv.id, conv);
     for (const memberId of conv.members || []) addToMapArray(index.convByUser, memberId, conv);
@@ -408,6 +410,7 @@ const server = http.createServer(async (req, res) => {
         phone: '',
         appNumberId: `CT${Date.now().toString().slice(-8)}`,
         products: [],
+        blacklist: [],
         createdAt: Date.now(),
       };
       db.users.push(user);
@@ -469,6 +472,34 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { friends });
     }
 
+    if (pathname === '/api/friends/delete' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const userId = String(body.userId || '');
+      const friendId = String(body.friendId || '');
+      if (!userId || !friendId) return sendJson(res, 400, { error: 'invalid_input' });
+      db.friendships = db.friendships.filter((f) => !((f.userId === userId && f.friendId === friendId) || (f.userId === friendId && f.friendId === userId)));
+      rebuildIndexes();
+      schedulePersist();
+      broadcastToUser(userId, 'friends_updated', { userId });
+      broadcastToUser(friendId, 'friends_updated', { userId: friendId });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (pathname === '/api/friends/blacklist' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const userId = String(body.userId || '');
+      const friendId = String(body.friendId || '');
+      const blocked = body.blocked !== false;
+      const user = index.usersById.get(userId);
+      if (!user || !friendId) return sendJson(res, 400, { error: 'invalid_input' });
+      if (!Array.isArray(user.blacklist)) user.blacklist = [];
+      const idx = user.blacklist.indexOf(friendId);
+      if (blocked && idx < 0) user.blacklist.push(friendId);
+      if (!blocked && idx >= 0) user.blacklist.splice(idx, 1);
+      schedulePersist();
+      return sendJson(res, 200, { blocked: user.blacklist.includes(friendId) });
+    }
+
     if (pathname === '/api/friends' && req.method === 'POST') {
       const body = await parseBody(req);
       const userId = String(body.userId || '');
@@ -515,8 +546,11 @@ const server = http.createServer(async (req, res) => {
       const userId = searchParams.get('userId');
       if (!userId) return sendJson(res, 400, { error: 'missing_userId' });
       const convs = (index.convByUser.get(userId) || [])
-        .map((c) => ({ ...c, title: conversationTitle(c, userId), preview: conversationPreview(c), unread: unreadCount(c, userId) }))
-        .sort((a, b) => (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0));
+        .map((c) => ({ ...c, title: conversationTitle(c, userId), preview: conversationPreview(c), unread: unreadCount(c, userId), pinned: (c.pinnedBy || []).includes(userId) }))
+        .sort((a, b) => {
+          if (Number(b.pinned) !== Number(a.pinned)) return Number(b.pinned) - Number(a.pinned);
+          return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
+        });
       return sendJson(res, 200, { conversations: convs });
     }
 
@@ -534,7 +568,7 @@ const server = http.createServer(async (req, res) => {
         if (existed) return sendJson(res, 200, { conversation: existed });
 
         const conv = {
-          id: uid('c'), type: 'direct', name: '', ownerId: null, members: [creatorId, peerId], announcement: '', mutedBy: [],
+          id: uid('c'), type: 'direct', name: '', ownerId: null, members: [creatorId, peerId], announcement: '', mutedBy: [], pinnedBy: [],
           lastOrderStep: -1, lastRead: { [creatorId]: Date.now(), [peerId]: 0 }, createdAt: Date.now(), lastMessageAt: Date.now(),
         };
         db.conversations.push(conv);
@@ -556,7 +590,7 @@ const server = http.createServer(async (req, res) => {
       const groupName = String(body.name || '新群聊').trim() || '新群聊';
       const unique = [...new Set([creatorId, ...memberIds])];
       const conv = {
-        id: uid('c'), type: 'group', name: groupName, ownerId: creatorId, members: unique, announcement: '', mutedBy: [],
+        id: uid('c'), type: 'group', name: groupName, ownerId: creatorId, members: unique, announcement: '', mutedBy: [], pinnedBy: [],
         lastOrderStep: -1, lastRead: Object.fromEntries(unique.map((id) => [id, id === creatorId ? Date.now() : 0])),
         createdAt: Date.now(), lastMessageAt: Date.now(),
       };
@@ -571,7 +605,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { conversation: conv });
     }
 
-    const convMatch = pathname.match(/^\/api\/conversations\/([^/]+)(\/messages|\/read|\/group|\/mute|\/signal|\/call)?$/);
+    const convMatch = pathname.match(/^\/api\/conversations\/([^/]+)(\/messages|\/read|\/group|\/mute|\/signal|\/call|\/clear|\/pin)?$/);
     if (convMatch) {
       const conversationId = convMatch[1];
       const action = convMatch[2] || '';
@@ -637,6 +671,31 @@ const server = http.createServer(async (req, res) => {
         schedulePersist();
         broadcastToUser(userId, 'conversation_updated', { conversationId });
         return sendJson(res, 200, { muted: conv.mutedBy.includes(userId) });
+      }
+
+      if (action === '/pin' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const userId = String(body.userId || '');
+        if (!userId || !canAccessConversation(conv, userId)) return sendJson(res, 403, { error: 'forbidden' });
+        const idx = (conv.pinnedBy || []).indexOf(userId);
+        if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
+        if (idx >= 0) conv.pinnedBy.splice(idx, 1); else conv.pinnedBy.push(userId);
+        schedulePersist();
+        broadcastToUser(userId, 'conversation_updated', { conversationId });
+        return sendJson(res, 200, { pinned: conv.pinnedBy.includes(userId) });
+      }
+
+      if (action === '/clear' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const userId = String(body.userId || '');
+        if (!userId || !canAccessConversation(conv, userId)) return sendJson(res, 403, { error: 'forbidden' });
+        db.messages = db.messages.filter((m) => m.conversationId !== conversationId);
+        index.messagesByConv.set(conversationId, []);
+        conv.lastMessageAt = Date.now();
+        conv.lastRead[userId] = Date.now();
+        schedulePersist();
+        broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
+        return sendJson(res, 200, { ok: true });
       }
 
       if (action === '/group' && req.method === 'POST') {

@@ -37,6 +37,8 @@ const quickShareMallBtn = $("quickShareMallBtn");
 const mallCardBtn = $("mallCardBtn");
 const profileDisplayName = $("profileDisplayName");
 const profileUsername = $("profileUsername");
+const globalNotifyBtn = $("globalNotifyBtn");
+const clearCacheBtn = $("clearCacheBtn");
 const logoutBtn = $("logoutBtn");
 const publishSheet = $("publishSheet");
 const publishProductBtn = $("publishProductBtn");
@@ -55,6 +57,14 @@ const profilePhone = $("profilePhone");
 const profileAppId = $("profileAppId");
 const profileProducts = $("profileProducts");
 const closeProfilePanelBtn = $("closeProfilePanelBtn");
+const messageSettingsSheet = $("messageSettingsSheet");
+const searchHistoryBtn = $("searchHistoryBtn");
+const muteSettingBtn = $("muteSettingBtn");
+const pinConversationBtn = $("pinConversationBtn");
+const blacklistBtn = $("blacklistBtn");
+const deleteFriendBtn = $("deleteFriendBtn");
+const clearChatBtn = $("clearChatBtn");
+const closeMessageSettingsBtn = $("closeMessageSettingsBtn");
 const composer = $("composer");
 const messageInput = $("messageInput");
 const imageInput = $("imageInput");
@@ -83,6 +93,9 @@ const state = {
   refreshing: false,
   currentView: "messages",
   profileCache: new Map(),
+  settings: {
+    globalNotify: true,
+  },
   rtc: {
     pc: null,
     localStream: null,
@@ -206,6 +219,7 @@ function showAuth() {
   authScreen.classList.remove("hidden");
   plusMenuSheet.classList.add('hidden');
   userProfilePanel.classList.add('hidden');
+  messageSettingsSheet.classList.add('hidden');
   renderAuth(true);
 }
 
@@ -216,6 +230,7 @@ function showHome() {
   chatView.classList.add("hidden");
   composerPanel.classList.add("hidden");
   actionPanel.classList.add("hidden");
+  messageSettingsSheet.classList.add('hidden');
   homeTabbar.classList.remove("hidden");
   profileDisplayName.textContent = state.currentUser?.displayName || "未登录";
   profileUsername.textContent = `@${state.currentUser?.username || "guest"}`;
@@ -336,6 +351,7 @@ async function openConversation(conversationId) {
   chatView.classList.remove("hidden");
   composerPanel.classList.remove("hidden");
   actionPanel.classList.add("hidden");
+  messageSettingsSheet.classList.add('hidden');
   homeTabbar.classList.add("hidden");
 
   renderMessages();
@@ -739,6 +755,10 @@ async function moreMenu() {
   }
 
   const conv = state.activeConversation;
+  if (conv.type === 'direct') {
+    messageSettingsSheet.classList.remove('hidden');
+    return;
+  }
   if (conv.type === "group") {
     const mode = prompt("群菜单：1公告 2邀请成员 3退群 4静音", "1");
     if (mode === "1") {
@@ -771,6 +791,58 @@ async function moreMenu() {
 
   const data = await api(`/api/conversations/${conv.id}/mute`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
   alert(data.muted ? "已静音" : "已取消静音");
+}
+
+function getDirectPeerId(conv = state.activeConversation) {
+  if (!conv || conv.type !== 'direct') return null;
+  return conv.members.find((id) => id !== state.currentUser.id) || null;
+}
+
+async function openMessageSettingsAction(action) {
+  const conv = state.activeConversation;
+  if (!conv) return;
+  if (action === 'search') {
+    const q = prompt('输入关键词搜索聊天记录');
+    if (!q) return;
+    const hit = state.messages.filter((m) => (m.text || m.card?.title || '').includes(q));
+    alert(hit.length ? `找到 ${hit.length} 条匹配记录` : '未找到匹配记录');
+    return;
+  }
+  if (action === 'mute') {
+    const data = await api(`/api/conversations/${conv.id}/mute`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
+    alert(data.muted ? '已静音此会话' : '已取消静音');
+    return;
+  }
+  if (action === 'pin') {
+    const data = await api(`/api/conversations/${conv.id}/pin`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
+    alert(data.pinned ? '已置顶该会话' : '已取消置顶');
+    await loadConversations();
+    return;
+  }
+  if (action === 'blacklist') {
+    const friendId = getDirectPeerId(conv);
+    if (!friendId) return;
+    const data = await api('/api/friends/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId, blocked: true }) });
+    alert(data.blocked ? '已加入黑名单' : '黑名单状态未变化');
+    return;
+  }
+  if (action === 'deleteFriend') {
+    const friendId = getDirectPeerId(conv);
+    if (!friendId) return;
+    if (!confirm('确认删除该好友？')) return;
+    await api('/api/friends/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId }) });
+    await loadFriends();
+    alert('已删除好友');
+    return;
+  }
+  if (action === 'clear') {
+    if (!confirm('确认清除该会话所有聊天记录？')) return;
+    await api(`/api/conversations/${conv.id}/clear`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
+    const data = await api(`/api/conversations/${conv.id}/messages?userId=${encodeURIComponent(state.currentUser.id)}`);
+    state.messages = data.messages;
+    renderMessages();
+    await loadConversations();
+  }
 }
 
 function connectRealtime() {
@@ -872,6 +944,21 @@ function bindEvents() {
   createGroupBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await createConversationFlow('group'); });
   quickAddFriendBtn.addEventListener('click', async () => { plusMenuSheet.classList.add('hidden'); await addFriendFlow(); });
   closeProfilePanelBtn.addEventListener('click', () => userProfilePanel.classList.add('hidden'));
+  closeMessageSettingsBtn.addEventListener('click', () => messageSettingsSheet.classList.add('hidden'));
+  searchHistoryBtn.addEventListener('click', () => openMessageSettingsAction('search'));
+  muteSettingBtn.addEventListener('click', () => openMessageSettingsAction('mute'));
+  pinConversationBtn.addEventListener('click', () => openMessageSettingsAction('pin'));
+  blacklistBtn.addEventListener('click', () => openMessageSettingsAction('blacklist'));
+  deleteFriendBtn.addEventListener('click', () => openMessageSettingsAction('deleteFriend'));
+  clearChatBtn.addEventListener('click', () => openMessageSettingsAction('clear'));
+  globalNotifyBtn.addEventListener('click', () => {
+    state.settings.globalNotify = !state.settings.globalNotify;
+    globalNotifyBtn.textContent = `全局消息提醒：${state.settings.globalNotify ? '开启' : '关闭'}`;
+  });
+  clearCacheBtn.addEventListener('click', () => {
+    localStorage.removeItem(SESSION_KEY);
+    alert('本地会话缓存已清理，重新登录后继续使用。');
+  });
   moreBtn.addEventListener("click", moreMenu);
   toggleActionsBtn.addEventListener("click", () => actionPanel.classList.toggle("hidden"));
   closePublishSheetBtn.addEventListener('click', () => publishSheet.classList.add('hidden'));
