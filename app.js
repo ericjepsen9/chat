@@ -90,6 +90,8 @@ const state = {
     mode: null,
     peerId: null,
     pendingOffer: null,
+    incomingMeta: null,
+    pendingAccept: false,
   },
 };
 
@@ -486,7 +488,7 @@ function stopCall() {
   if (state.rtc.pc) state.rtc.pc.close();
   if (state.rtc.localStream) state.rtc.localStream.getTracks().forEach((t) => t.stop());
   if (state.rtc.remoteStream) state.rtc.remoteStream.getTracks().forEach((t) => t.stop());
-  state.rtc = { pc: null, localStream: null, remoteStream: null, mode: null, peerId: null, pendingOffer: null };
+  state.rtc = { pc: null, localStream: null, remoteStream: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false };
   localVideo.srcObject = null;
   remoteVideo.srcObject = null;
   callPanel.classList.add('hidden');
@@ -535,8 +537,16 @@ async function startCall(mode) {
 }
 
 async function acceptCall() {
-  if (!state.rtc.pendingOffer || !state.activeConversation) return;
+  if (!state.activeConversation) return;
+  if (!state.rtc.pendingOffer) {
+    if (state.rtc.incomingMeta) {
+      state.rtc.pendingAccept = true;
+      callTitle.textContent = `${state.rtc.incomingMeta.mode === 'video' ? '视频' : '语音'}通话连接中...`;
+    }
+    return;
+  }
   const { senderId, mode, signal } = state.rtc.pendingOffer;
+  state.rtc.pendingAccept = false;
   state.rtc.peerId = senderId;
   await createPeerConnection(mode);
   await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
@@ -584,10 +594,14 @@ async function handleSignalEvent(payload) {
   if (!signal) return;
 
   if (signal.type === 'offer') {
+    state.rtc.incomingMeta = { senderId: payload.senderId, mode: payload.mode, conversationId: payload.conversationId };
     state.rtc.pendingOffer = payload;
     callPanel.classList.remove('hidden');
     setCallActionLayout('incoming');
     callTitle.textContent = `${payload.mode === 'video' ? '视频' : '语音'}来电`;
+    if (state.rtc.pendingAccept) {
+      await acceptCall();
+    }
     return;
   }
 
@@ -609,6 +623,7 @@ async function handleSignalEvent(payload) {
 function handleCallEvent(payload) {
   if (!state.currentUser || payload.targetUserId !== state.currentUser.id) return;
   if (payload.event === 'start') {
+    state.rtc.incomingMeta = { senderId: payload.senderId, mode: payload.mode, conversationId: payload.conversationId };
     ensureConversationOpen(payload.conversationId).then(() => {
       callPanel.classList.remove('hidden');
       setCallActionLayout('incoming');
