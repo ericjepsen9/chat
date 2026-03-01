@@ -89,6 +89,7 @@ const state = {
   friends: [],
   eventSource: null,
   refreshing: false,
+  refreshQueued: false,
   currentView: "messages",
   profileCache: new Map(),
   settings: {
@@ -442,7 +443,7 @@ function renderMessages() {
     const sender = senderName(msg);
     node.querySelector(".sender").textContent = sender;
     const avatar = node.querySelector(".avatar");
-    if (msg.senderId === state.currentUser.id) fillAvatar(avatar, "我");
+    if (msg.senderId === state.currentUser.id) fillAvatar(avatar, "我", () => openUserProfile(state.currentUser.id, state.currentUser.displayName || '我'));
     else fillAvatar(avatar, sender, () => openUserProfile(msg.senderId, sender));
     chatView.appendChild(node);
   });
@@ -922,16 +923,23 @@ function connectRealtime() {
   state.eventSource = new EventSource(`/api/events?userId=${encodeURIComponent(state.currentUser.id)}`);
 
   const onUpdate = async () => {
-    if (!state.currentUser || state.refreshing) return;
+    if (!state.currentUser) return;
+    if (state.refreshing) {
+      state.refreshQueued = true;
+      return;
+    }
     state.refreshing = true;
     try {
-      await Promise.all([loadConversations(), loadFriends()]);
-      if (state.activeConversation) {
-        const data = await api(`/api/conversations/${state.activeConversation.id}/messages?userId=${encodeURIComponent(state.currentUser.id)}`);
-        state.activeConversation = data.conversation;
-        state.messages = data.messages;
-        renderMessages();
-      }
+      do {
+        state.refreshQueued = false;
+        await Promise.all([loadConversations(), loadFriends()]);
+        if (state.activeConversation) {
+          const data = await api(`/api/conversations/${state.activeConversation.id}/messages?userId=${encodeURIComponent(state.currentUser.id)}`);
+          state.activeConversation = data.conversation;
+          state.messages = data.messages;
+          renderMessages();
+        }
+      } while (state.refreshQueued);
     } finally {
       state.refreshing = false;
     }
