@@ -1,0 +1,42 @@
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f7fb;color:#0f172a}
+.admin-shell{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+.admin-sidebar{background:#111827;color:#fff;padding:20px;display:flex;flex-direction:column;gap:18px}
+.admin-brand{font-size:20px;font-weight:800;line-height:1.2}
+.admin-nav{display:flex;flex-direction:column;gap:8px}
+.admin-nav button{border:0;background:transparent;color:#cbd5e1;text-align:left;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer}
+.admin-nav button.active,.admin-nav button:hover{background:#1f2937;color:#fff}
+.admin-side-footer{margin-top:auto;display:flex;flex-direction:column;gap:10px}
+.admin-side-footer button,.admin-side-footer a{min-height:42px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:#1f2937;color:#fff;text-decoration:none;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer}
+.admin-main{padding:24px}
+.admin-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.admin-header h1{margin:0;font-size:28px;line-height:1.2}
+.admin-header p{margin:6px 0 0;color:#64748b}
+.admin-header-actions button{min-height:42px;border-radius:12px;border:1px solid #dbe2ea;background:#fff;padding:0 14px;font-weight:700;cursor:pointer}
+.admin-tab{display:none}
+.admin-tab.active{display:block}
+.stats-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.stat-card{background:#fff;border-radius:18px;padding:16px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
+.stat-label{font-size:12px;color:#64748b}
+.stat-value{margin-top:8px;font-size:30px;font-weight:800}
+.panel-row{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}
+.panel{background:#fff;border-radius:18px;padding:16px;box-shadow:0 1px 3px rgba(15,23,42,.06)}
+.panel-title{font-size:16px;font-weight:800;margin-bottom:12px}
+.row-card{padding:12px 0;border-bottom:1px solid #eef2f7}
+.row-card:last-child{border-bottom:0}
+.row-title{font-size:14px;font-weight:700;line-height:1.35}
+.row-sub{margin-top:4px;font-size:12px;color:#64748b;line-height:1.45}
+.row-line{margin-top:8px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.badge{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:800;background:#eff6ff;color:#2563eb}
+.badge.warn{background:#fff7ed;color:#ea580c}
+.table{width:100%;display:flex;flex-direction:column}
+.table-row{display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr;gap:10px;padding:12px 0;border-bottom:1px solid #eef2f7;align-items:center}
+.table-row.header{font-size:12px;font-weight:800;color:#64748b;padding-top:0}
+.table-row > div{min-width:0;font-size:13px;line-height:1.4}
+.admin-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+input,textarea{width:100%;border:1px solid #dbe2ea;background:#fff;border-radius:12px;min-height:42px;padding:0 12px;font-size:14px}
+textarea{min-height:120px;padding:12px;margin-top:10px;resize:vertical}
+.toolbar{display:flex;gap:10px;margin-top:10px}
+.toolbar button{min-height:42px;padding:0 14px;border-radius:12px;border:1px solid #dbe2ea;background:#fff;font-weight:700;cursor:pointer}
+.toolbar button.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.empty{padding:18px 0;color:#94a3b8;font-size:14px}
+@media (max-width: 980px){.admin-shell{grid-template-columns:1fr}.admin-sidebar{position:sticky;top:0;z-index:5}.stats-grid,.panel-row{grid-template-columns:1fr}.table-row{grid-template-columns:1.6fr 1fr .8fr .8fr}}

@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>ChatTrade</title>
+    <link rel="stylesheet" href="styles.css?v=38.0" />
+  </head>
+  <body>
+    <div id="authScreen" class="auth-screen hidden">
+      <div class="auth-card">
+        <h1 style="color:var(--brand); margin-bottom:10px;">ChatTrade</h1>
+        <p style="color:var(--text-muted); font-size:14px; margin-bottom:30px;">记录生活，发现好物</p>
+        <div class="auth-tabs">
+          <button id="loginTab" class="auth-tab-btn active" type="button">登录</button>
+          <button id="registerTab" class="auth-tab-btn" type="button">注册新用户</button>
+        </div>
+        <div id="loginForm" class="auth-form">
+          <input id="loginUsername" placeholder="账号 (如 alice)" autocomplete="off" />
+          <input id="loginPassword" type="password" placeholder="密码" />
+          <button id="doLoginBtn" type="button" class="primary-btn" style="width:100%; padding:14px; font-size:16px;">立即登录</button>
+        </div>
+        <div id="registerForm" class="auth-form hidden">
+          <input id="registerDisplayName" placeholder="昵称 (如 隔壁老王)" autocomplete="off" />
+          <input id="registerUsername" placeholder="设置登录账号 (限英文/数字)" autocomplete="off" />
+          <input id="registerPassword" type="password" placeholder="设置密码" />
+          <button id="doRegisterBtn" type="button" class="primary-btn" style="width:100%; background:#ff9500; padding:14px; font-size:16px;">注册并登录</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="appScreen" class="mobile-shell hidden">
+      <header class="topbar">
+        <div class="top-left"><button id="backBtn" class="icon-btn hidden"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg></button></div>
+        <div class="topbar-title"><h2 id="chatTitle">微信</h2><p id="chatSubtitle"></p></div>
+        <div class="top-right">
+          <button id="homeMoreBtn" class="icon-btn"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
+          <button id="chatSettingsBtn" class="icon-btn hidden"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>
+        </div>
+      </header>
+
+      <div class="main-content-wrapper">
+        <section id="chatListView" class="chat-list-view">
+          <div class="toolbar"><input id="searchInput" placeholder="搜索聊天" /></div>
+          <div id="chatList" style="flex:1; overflow-y:auto;"></div>
+        </section>
+        
+        <section id="friendListView" class="chat-list-view hidden">
+          <div class="toolbar"><input id="friendSearchInput" placeholder="搜索联系人" /></div>
+          <button class="chat-item" id="openGroupManageBtn" style="background:#fff; border-bottom: 1px solid #f2f2f6; justify-content:space-between;">
+            <span>分组管理</span><span style="color:#b2b2b2;">⚙️</span>
+          </button>
+          <button class="chat-item" id="openFriendRequestsBtn" style="background:#fff; border-bottom: 8px solid #f2f2f6;">
+            <div class="avatar" style="background:#ff9500;">新</div>
+            <div style="flex:1;min-width:0;text-align:left;"><strong style="line-height:24px;">新的朋友</strong></div>
+            <span id="friendRequestBadge" class="unread-btn hidden">新</span>
+          </button>
+          <div id="friendList" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
+        </section>
+
+        <section id="mallView" class="chat-list-view hidden">
+          <div class="toolbar" style="display:flex; gap:10px;">
+             <input id="mallSearchInput" placeholder="搜索闲置商品..." style="flex:1;" />
+             <button id="publishProductEntryBtn" class="primary-btn" style="background:#ff9500;">发布闲置</button>
+          </div>
+          <div id="mallList" style="flex:1; overflow-y:auto; background:#f2f2f6; padding-bottom: 20px;"></div>
+        </section>
+        
+        <section id="profileView" class="chat-list-view hidden">
+          <div class="chat-item" id="myProfileCard" style="padding: 24px 16px; border-bottom: 8px solid #f2f2f6; cursor: pointer;">
+            <div class="avatar" id="myProfileAvatar" style="width: 64px; height: 64px; font-size: 28px;"></div>
+            <div style="flex:1; text-align:left;">
+              <strong id="profileDisplayName" style="font-size: 20px;">-</strong>
+              <div class="preview" id="profileUsername" style="margin-top: 8px; font-family: monospace;">ID: -</div>
+            </div>
+          </div>
+          <button id="myProductsBtn" class="chat-item" style="justify-content:space-between;">
+            <span>我的闲置发布</span> <span style="color:#b2b2b2;">📦</span>
+          </button>
+          <button id="myQrCodeBtn" class="chat-item" style="justify-content:space-between;">
+            <span>我的二维码名片</span> <span style="color:#b2b2b2;">📱</span>
+          </button>
+          <button id="myBuyerOrdersBtn" class="chat-item" style="justify-content:space-between;">
+            <span>我购买的订单</span> <span style="color:#b2b2b2;">🧾</span>
+          </button>
+          <button id="sellerCenterBtn" class="chat-item" style="justify-content:space-between; border-bottom: 8px solid #f2f2f6;">
+            <span>卖家中心</span> <span style="color:#b2b2b2;">🏪</span>
+          </button>
+          <button id="openSettingsBtn" class="chat-item" style="justify-content:space-between;">
+            <span>设置</span> <span style="color:#b2b2b2;">⚙️</span>
+          </button>
+        </section>
+
+        <main id="chatView" class="messages hidden"></main>
+
+        <section id="settingsPage" class="chat-list-view hidden" style="background:#f2f2f6;">
+          <button id="privacySettingsBtn" class="chat-item" style="justify-content:space-between; margin-top:8px;">隐私与黑名单 <span>▶</span></button>
+          <button id="globalNotifyBtn" class="chat-item" style="justify-content:space-between;">新消息通知提醒 <span style="color:var(--brand)">已开启</span></button>
+          <button id="clearCacheBtn" class="chat-item" style="justify-content:space-between; margin-top:8px;">清理本地缓存 <span>▶</span></button>
+          <button id="logoutBtn" class="chat-item" style="color:#ff3b30; text-align:center; justify-content:center; margin-top:20px; font-weight:bold;">退出当前账号</button>
+        </section>
+
+        <section id="groupManagePage" class="chat-list-view hidden" style="background:#f2f2f6;">
+          <div class="toolbar" style="background:#fff; border-bottom: 1px solid var(--line); display:flex; padding:12px 16px;">
+            <input id="newGroupInput" placeholder="输入新分组名称" style="background:#f2f2f6; flex:1;" />
+            <button id="doAddGroupBtn" class="primary-btn" style="margin-left:10px;">添加</button>
+          </div>
+          <div class="group-title">管理我的分组 (默认分组不可删)</div>
+          <div id="groupManageList" style="flex:1; overflow-y:auto; background:#fff;"></div>
+        </section>
+
+        <section id="myProductsPage" class="chat-list-view hidden">
+          <div class="group-title">我发布的商品 (点击可下架)</div>
+          <div id="myProductsList" style="flex:1; overflow-y:auto; background:#f2f2f6; padding-bottom: 20px;"></div>
+        </section>
+
+        <section id="publishProductPage" class="chat-list-view hidden" style="background:#f2f2f6;">
+          <div style="background:#fff; padding:16px;">
+             <input id="productTitleInput" type="text" placeholder="商品名称 (如：二手AirPods)" style="width:100%; border:none; border-bottom:1px solid var(--line); padding:10px 0; font-size:18px; outline:none;" />
+             <textarea id="productDescInput" placeholder="描述一下商品转让原因、新旧程度..." rows="4" style="width:100%; border:none; outline:none; padding:10px 0; font-size:15px; margin-top:10px; resize:none;"></textarea>
+             <input id="productPriceInput" type="number" placeholder="价格 (¥)" style="width:100%; border:none; border-bottom:1px solid var(--line); padding:10px 0; font-size:18px; outline:none; margin-bottom:10px;" />
+             <div id="productImagePreview" style="width:100px; height:100px; background:#f2f2f6; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#b2b2b2; font-size:30px; cursor:pointer; overflow:hidden;">+</div>
+             <input type="file" id="productImageInput" accept="image/*" class="hidden" />
+          </div>
+          <div style="padding: 30px 20px;">
+             <button id="submitProductBtn" class="primary-btn" style="width:100%; padding:12px; font-size:16px; background:#ff9500;">立即发布到商城</button>
+          </div>
+        </section>
+
+        <section id="editProfilePage" class="chat-list-view hidden" style="background:#f2f2f6;">
+          <div style="text-align:center; padding: 40px 0 20px;">
+             <div id="editAvatarPreview" class="avatar" style="width:80px; height:80px; margin: 0 auto 10px; font-size:30px; border-radius:12px; cursor:pointer; position:relative; overflow:hidden;"></div>
+             <input type="file" id="editAvatarInput" accept="image/*" class="hidden" />
+          </div>
+          <div style="background:#fff; padding:0 16px;">
+             <div style="display:flex; padding:16px 0; border-bottom:0.5px solid var(--line); align-items:center;">
+                <span style="width:80px; font-size:16px;">系统 ID</span><span id="editAppIdDisplay" style="flex:1; color:var(--text-muted); font-family:monospace; font-size:16px;"></span>
+             </div>
+             <div style="display:flex; padding:16px 0; border-bottom:0.5px solid var(--line); align-items:center;">
+                <span style="width:80px; font-size:16px;">名字</span><input id="editNameInput" type="text" style="flex:1; border:none; outline:none; font-size:16px;" placeholder="请输入昵称" />
+             </div>
+             <div style="display:flex; padding:16px 0; align-items:center;">
+                <span style="width:80px; font-size:16px;">签名</span><input id="editSignatureInput" type="text" style="flex:1; border:none; outline:none; font-size:16px;" placeholder="请输入个性签名" />
+             </div>
+          </div>
+          <div style="padding: 30px 20px;"><button id="saveProfileBtn" class="primary-btn" style="width:100%; padding:12px; font-size:16px;">保存修改</button></div>
+        </section>
+
+        <section id="qrCodePage" class="chat-list-view hidden" style="background: #333; justify-content:center; align-items:center; flex-direction:column;">
+          <div style="background:#fff; padding:30px; border-radius:16px; text-align:center; width:80%; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+             <img id="myQrCodeImg" src="" style="width:100%; height:auto; margin-bottom:20px;" />
+             <p style="color:#8e8e93; font-size:14px; margin:0;">扫一扫加我好友</p>
+             <p id="myQrCodeIdTxt" style="font-family:monospace; margin-top:10px; font-weight:bold; color:#000;"></p>
+          </div>
+        </section>
+
+        <section id="privacyPage" class="chat-list-view hidden">
+          <div class="group-title">黑名单成员 (点击即可移出)</div>
+          <div id="blacklistContainer" style="flex:1; overflow-y:auto;"></div>
+        </section>
+
+        <section id="messageSettingsPage" class="chat-list-view hidden">
+          <div id="chatSettingsPeerProfile" class="chat-item" style="padding: 24px 16px; border-bottom: 8px solid #f2f2f6; cursor: pointer;"></div>
+          <button id="muteSettingBtn" class="chat-item" style="justify-content:center;">切换消息免打扰</button>
+          <button id="pinConversationBtn" class="chat-item" style="justify-content:center;">切换置顶聊天</button>
+          <button id="btnSettingsMoveGroup" class="chat-item" style="justify-content:center;">移动好友分组</button>
+          <button id="blacklistBtn" class="chat-item" style="border-top: 8px solid #f2f2f6; justify-content:center; color:#ff9500;">将此人加入黑名单</button>
+          <button id="clearChatBtn" class="chat-item" style="color: #ff3b30; justify-content:center;">清空聊天记录</button>
+          <button id="deleteFriendBtn" class="chat-item" style="color: #ff3b30; border-top: 8px solid #f2f2f6; justify-content:center;">删除该好友</button>
+        </section>
+
+        <section id="friendRequestsView" class="chat-list-view hidden">
+          <div class="group-title">好友通知</div>
+          <div id="requestsList" style="flex:1; overflow-y:auto;"></div>
+        </section>
+
+        <section id="addFriendPage" class="chat-list-view hidden">
+          <div class="toolbar" style="background:#fff; border-bottom: 1px solid var(--line); display:flex; padding:12px 16px;">
+            <input id="addFriendSearchInput" placeholder="输入对方 ChatTrade ID" style="background:#f2f2f6; flex:1;" />
+            <button id="doSearchFriendBtn" class="primary-btn" style="margin-left:10px;">搜索</button>
+          </div>
+          <div style="text-align:center; padding:20px; color:var(--text-muted); font-size:14px;">我的专属ID: <strong id="myProfileIdDisplay" style="color:#000; font-family:monospace; font-size:16px;"></strong></div>
+        </section>
+
+        <section id="scanPage" class="chat-list-view hidden scan-container">
+          <div id="scanCameraWrap" class="scan-camera-wrap">
+            <video id="scanVideo" class="scan-video hidden" autoplay playsinline muted></video>
+            <div id="scanFallbackBox" class="scan-fallback-box">
+              <div class="scan-box"><div class="scan-line"></div></div>
+            </div>
+          </div>
+          <input id="scanCaptureInput" type="file" accept="image/*" capture="environment" class="hidden" />
+          <div class="scan-entry-actions">
+            <button id="startCameraScanBtn" class="primary-btn">扫码</button>
+            <button id="toggleManualScanBtn" class="secondary-btn">输入</button>
+          </div>
+
+          <div id="scanManualPanel" class="scan-manual-panel hidden">
+             <input id="scanIdInput" placeholder="输入对方 ChatTrade ID" />
+             <button id="scanSubmitBtn" class="primary-btn">发送好友请求</button>
+          </div>
+        </section>
+
+        
+        <section id="buyerOrdersManagePage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head"><strong>我购买的订单</strong><span>全部订单</span></div>
+          <div id="buyerOrdersManageList" class="profile-orders-list"></div>
+        </section>
+
+        <section id="sellerCenterPage" class="chat-list-view hidden order-flow-page">
+          <div class="seller-center-hero">
+            <strong>卖家中心</strong>
+            <span>订单管理 / 商品管理 / 广播管理</span>
+          </div>
+          <div class="seller-center-grid">
+            <button id="sellerOrderManageBtn" class="seller-center-card" type="button">
+              <strong>订单管理</strong>
+              <span>查看所有买家订单，改价与完成</span>
+            </button>
+            <button id="sellerProductManageBtn" class="seller-center-card" type="button">
+              <strong>商品管理</strong>
+              <span>管理商品上下架、详情与规格</span>
+            </button>
+            <button id="broadcastManageEntryBtn" class="seller-center-card" type="button">
+              <strong>广播管理</strong>
+              <span>发送图文系统消息给用户</span>
+            </button>
+          </div>
+        </section>
+
+        <section id="sellerOrdersPage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head"><strong>卖家订单管理</strong><span>已下单 / 已完成</span></div>
+          <div id="sellerOrdersList" class="profile-orders-list"></div>
+        </section>
+
+        <section id="sellerProductsPage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head"><strong>商品管理</strong><span>商品详情 / 规格 / 状态</span></div>
+          <div id="sellerProductsList" class="profile-store-list"></div>
+        </section>
+
+        <section id="productDetailPage" class="chat-list-view hidden order-flow-page">
+          <div class="product-detail-card">
+            <img id="productDetailImage" class="product-detail-image" alt="" />
+            <div class="product-detail-body">
+              <strong id="productDetailTitle" class="product-detail-title">商品</strong>
+              <div id="productDetailDesc" class="product-detail-desc">-</div>
+              <div id="productDetailPrice" class="product-detail-price">¥0.00</div>
+              <div id="productDetailSpecs" class="product-detail-specs"></div>
+            </div>
+            <div class="product-detail-actions">
+              <button id="productDetailAddCartBtn" type="button" class="primary-btn">加入购物车</button>
+              <button id="productDetailOpenSellerBtn" type="button" class="secondary-btn">卖家管理</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="orderDetailPage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head"><strong>订单详情</strong><span id="orderDetailStatus">已下单</span></div>
+          <div id="orderDetailCard" class="profile-order-card"></div>
+          <div class="order-detail-actions">
+            <button id="orderDetailEditPriceBtn" type="button" class="secondary-btn">修改价格</button>
+            <button id="orderDetailCompleteBtn" type="button" class="primary-btn">标记已完成</button>
+          </div>
+        </section>
+
+        <section id="broadcastManagePage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head"><strong>广播管理</strong><span>后台编辑图文消息</span></div>
+          <div class="broadcast-manage-actions">
+            <button id="createBroadcastBtn" type="button" class="primary-btn">新建广播</button>
+          </div>
+          <div id="broadcastDraftList" class="profile-orders-list"></div>
+        </section>
+
+        <section id="broadcastEditorPage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head"><strong>广播编辑</strong><span>标题 / 摘要 / 目标用户</span></div>
+          <div class="broadcast-editor-card">
+            <input id="broadcastTitleInput" class="ui-input" placeholder="广播标题" />
+            <textarea id="broadcastSummaryInput" class="ui-input" rows="4" placeholder="广播摘要或正文"></textarea>
+            <input id="broadcastTargetInput" class="ui-input" placeholder="目标用户（留空默认全部相关用户）" />
+            <button id="saveBroadcastDraftBtn" type="button" class="primary-btn">保存广播草稿</button>
+          </div>
+        </section>
+
+        <section id="profileDetailPage" class="chat-list-view hidden profile-detail-page">
+          <div class="profile-hero">
+            <div class="profile-hero-backdrop"></div>
+            <div class="profile-hero-main">
+              <div id="profileAvatar" class="avatar profile-hero-avatar" style="width: 72px; height: 72px; font-size: 28px;"></div>
+              <div class="profile-hero-info">
+                <strong id="profileRemarkName" class="profile-hero-name">-</strong>
+                <div class="profile-hero-id" id="profileAppId">ID：-</div>
+              </div>
+            </div>
+            <div class="profile-hero-signature" id="profileSignature">-</div>
+          </div>
+
+          <div class="profile-detail-card">
+            <button id="profileShareEntryBtn" class="profile-detail-row" type="button">
+              <span>分享主页</span><span class="profile-detail-arrow">›</span>
+            </button>
+            <button id="setRemarkBtn" class="profile-detail-row" type="button">
+              <span>设置备注名</span><span class="profile-detail-arrow">›</span>
+            </button>
+            <button id="setFriendGroupBtn" class="profile-detail-row" type="button">
+              <span>移动好友分组</span><span class="profile-detail-arrow">›</span>
+            </button>
+            <div class="profile-detail-meta">
+              <div class="profile-meta-title">昵称</div>
+              <div class="profile-meta-value" id="profileNickName">-</div>
+            </div>
+            <div id="profileStrangerHint" class="profile-stranger-hint hidden">对方还不是你的好友，可先发送消息并添加好友</div>
+          </div>
+
+          <div class="profile-primary-actions">
+            <button id="profileSendMsgBtn" class="primary-btn profile-primary-btn" type="button">发消息</button>
+            <button id="profileAddFriendBtn" class="secondary-btn profile-secondary-btn hidden" type="button">加好友</button>
+          </div>
+
+          <section id="profileStoreSection" class="profile-store-section">
+            <div class="store-toolbar">
+              <div class="store-toolbar-title">在售商品</div>
+              <button id="profileOrdersEntryBtn" type="button" class="store-toolbar-link">订单</button>
+            </div>
+            <div id="profileStoreList" class="profile-store-list"></div>
+          </section>
+
+          <div id="profileCartBar" class="profile-cart-bar hidden">
+            <div class="profile-cart-meta">
+              <strong id="profileCartCount">0 件商品</strong>
+              <span id="profileCartTotal">¥0.00</span>
+            </div>
+            <button id="openProfileCartBtn" type="button" class="primary-btn">购物车结账</button>
+          </div>
+        </section>
+
+        <section id="cartHubPage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head">
+            <strong>购物车</strong>
+            <span>按商家分组</span>
+          </div>
+          <div id="cartHubList" class="profile-orders-list"></div>
+        </section>
+
+        <section id="profileCartPage"  class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head">
+            <strong>购物车</strong>
+            <span id="profileCartSummaryText">0 件商品</span>
+          </div>
+          <div id="profileCartList" class="order-cart-list"></div>
+          <div class="order-flow-footer">
+            <div class="order-total-line">
+              <span>合计</span><strong id="profileCartPageTotal">¥0.00</strong>
+            </div>
+            <button id="submitProfileOrderBtn" type="button" class="primary-btn">提交订单</button>
+          </div>
+        </section>
+
+        <section id="profileOrdersPage" class="chat-list-view hidden order-flow-page">
+          <div class="order-flow-head">
+            <strong>订单状态</strong>
+            <span>已下单 / 已完成</span>
+          </div>
+          <div id="profileOrdersList" class="profile-orders-list"></div>
+        </section>
+
+        <div id="productSpecSheet" class="profile-action-sheet hidden">
+          <div class="profile-action-sheet-card product-spec-card">
+            <div class="product-spec-top">
+              <img id="specSheetImage" class="product-spec-image" alt="" />
+              <div class="product-spec-meta">
+                <strong id="specSheetTitle">商品</strong>
+                <div id="specSheetDesc" class="product-spec-desc">-</div>
+                <div id="specSheetPrice" class="product-spec-price">¥0.00</div>
+              </div>
+            </div>
+            <div class="product-spec-options">
+              <div class="product-spec-label">选择规格</div>
+              <div id="specOptionsList" class="spec-options-list"></div>
+            </div>
+            <div class="product-spec-actions">
+              <button id="closeSpecSheetBtn" type="button" class="secondary-btn">取消</button>
+              <button id="confirmAddToCartBtn" type="button" class="primary-btn">加入购物车</button>
+            </div>
+          </div>
+        </div>
+      </div> 
+
+      <section id="composerPanel" class="composer-panel hidden">
+        <div class="composer-wrapper">
+          <button id="voiceToggleBtn" type="button" class="icon-btn">🎙️</button>
+          <textarea id="messageInput" placeholder="输入消息..." rows="1"></textarea>
+          <button id="pttBtn" class="ptt-btn hidden" type="button">按住 说话</button>
+          <button id="emojiBtn" type="button" class="icon-btn">😊</button>
+          <button id="toggleActionsBtn" type="button" class="icon-btn">⊕</button>
+          <button id="sendMsgBtn" type="button" class="send-btn hidden">发送</button>
+        </div>
+        <div id="emojiPanel" class="emoji-panel hidden"></div>
+        <div id="actionPanel" class="action-panel hidden">
+           <button type="button" id="btnSendImage"><span style="font-size:26px;">🖼️</span>相册</button>
+           <button type="button" id="btnTakePhoto"><span style="font-size:26px;">📸</span>拍照</button>
+           <button type="button" id="btnCallVoice"><span style="font-size:26px;">📞</span>语音通话</button>
+           <button type="button" id="btnCallVideo"><span style="font-size:26px;">📹</span>视频通话</button>
+        </div>
+      </section>
+      <input id="imageInput" type="file" accept="image/*" class="hidden" />
+      <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" />
+
+      <nav id="homeTabbar" class="home-tabbar">
+        <button id="messagesTab" class="tab-item active" style="position:relative;"><span id="messagesTabBadge" class="hidden unread-badge"></span><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg><span>微信</span></button>
+        <button id="friendsTab" class="tab-item" style="position:relative;"><span id="friendsTabBadge" class="hidden unread-badge"></span><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg><span>通讯录</span></button>
+        <button id="mallTab" class="tab-item"><svg viewBox="0 0 24 24"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4v14c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2V6zm-10-2h4v2h-4V4zm0 12H8v-2h2v2zm6 0h-2v-2h2v2z"/></svg><span>发现(商城)</span></button>
+        <button id="profileTab" class="tab-item"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>我</span></button>
+      </nav>
+    </div>
+
+    <div id="plusMenuSheet" class="hidden">
+       <div class="popover-overlay" id="closePlusMenuBtn"></div>
+       <div class="popover-menu">
+         <button id="menuAddFriend">👤 添加朋友</button>
+         <button id="menuScan">📷 扫一扫</button>
+       </div>
+    </div>
+    
+    <section id="forwardModal" class="publish-sheet hidden"><div class="publish-card" style="max-height: 70vh; display:flex; flex-direction:column;"><h3 style="color:#000; padding-bottom:10px;">选择转发对象</h3><div id="forwardList" class="friend-list" style="overflow-y:auto; flex:1; margin-bottom: 10px;"></div><button id="closeForwardModalBtn">取消</button></div></section>
+    
+    <section id="groupSelectSheet" class="publish-sheet hidden">
+      <div class="publish-card">
+        <h3 style="margin:0; padding-bottom:10px; border-bottom:1px solid #eee; color:#000; text-align:center;">选择要移入的分组</h3>
+        <div id="groupSelectList" style="max-height:50vh; overflow-y:auto; display:flex; flex-direction:column; gap:10px; margin-top:10px;"></div>
+        <button id="closeGroupSelectSheetBtn" style="margin-top:10px; color:#8e8e93; background: #fff; border:none; padding: 16px; border-radius: 14px; font-size:17px; width: 100%;">取消</button>
+      </div>
+    </section>
+
+    
+    <section id="profileActionSheet" class="publish-sheet hidden">
+      <div class="publish-card profile-action-card">
+        <button id="profileActionShareBtn" class="profile-action-btn" type="button">分享</button>
+        <button id="profileActionBlacklistBtn" class="profile-action-btn" type="button">加入黑名单</button>
+        <button id="profileActionReportBtn" class="profile-action-btn danger" type="button">举报</button>
+        <button id="closeProfileActionSheetBtn" class="profile-action-cancel-btn" type="button">取消</button>
+      </div>
+    </section>
+
+    <div id="imageViewer" class="image-viewer hidden"><img id="viewerImage" src="" /></div>
+    <div id="contextMenu" class="context-menu hidden"></div>
+
+    <section id="callPanel" class="call-panel hidden">
+      <div class="call-info" id="callInfo">
+        <div id="callAvatar" class="avatar" style="width: 100px; height: 100px; font-size: 40px; margin: 0 auto 20px;"></div>
+        <h2 id="callName" style="margin: 0; font-size: 24px; font-weight: 500;"></h2>
+        <p id="callTitle" style="margin: 10px 0 0; font-size: 16px; color: rgba(255,255,255,0.7);">通话中</p>
+        <p id="callDuration" class="hidden" style="margin: 8px 0 0; font-size: 18px; color: #fff; font-variant-numeric: tabular-nums;">00:00</p>
+      </div>
+      <div class="video-container hidden" id="videoContainer"><video id="remoteVideo" autoplay playsinline></video><video id="localVideo" autoplay playsinline muted></video></div>
+      <div class="call-bottom-area">
+        <div class="call-controls hidden" id="callControls">
+          <button id="toggleMuteBtn" class="control-btn"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg><span id="muteText">静音</span></button>
+          <button id="toggleCameraBtn" class="control-btn hidden"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg><span id="cameraText">关镜头</span></button>
+          <button id="toggleSpeakerBtn" class="control-btn active"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg><span id="speakerText">免提</span></button>
+        </div>
+        <div class="call-actions">
+          <button id="rejectCallBtn" class="hidden" style="background:#ff3b30;"><svg viewBox="0 0 24 24" width="32" height="32" fill="#fff"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg></button>
+          <button id="acceptCallBtn" class="hidden" style="background:#34c759;"><svg viewBox="0 0 24 24" width="32" height="32" fill="#fff"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></button>
+          <button id="hangupBtn" class="hidden" style="background:#ff3b30;"><svg viewBox="0 0 24 24" width="32" height="32" fill="#fff"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg></button>
+        </div>
+      </div>
+    </section>
+
+    <script src="app.js?v=38.0"></script>
+  
+      <section id="productEditorPage" class="chat-list-view hidden order-flow-page">
+        <div class="order-flow-head"><strong>商品编辑</strong><span>新增 / 编辑商品</span></div>
+        <div class="order-cart-item">
+          <div class="order-cart-title">商品标题</div>
+          <input id="productEditorTitle" class="order-price-input" placeholder="输入商品标题" />
+          <div class="order-cart-sub">价格</div>
+          <input id="productEditorPrice" class="order-price-input" placeholder="输入价格" />
+          <div class="order-cart-sub">描述</div>
+          <textarea id="productEditorDesc" class="ui-input" style="min-height:88px;padding:10px 12px;" placeholder="输入商品描述"></textarea>
+          <div class="profile-order-actions">
+            <button id="saveProductEditorBtn" class="primary-btn" type="button">保存商品</button>
+          </div>
+        </div>
+              <div class="profile-order-actions" style="padding:0 12px 12px;">
+          <button id="sendBroadcastNowBtn" class="primary-btn" type="button">发送到聊天</button>
+        </div>
+      </section>
+
+      <section id="chatOrderDetailPage" class="chat-list-view hidden order-flow-page">
+        <div class="order-flow-head"><strong>订单详情</strong><span>聊天中的订单卡片</span></div>
+        <div id="chatOrderDetailCard" class="profile-order-card"></div>
+      </section>
+
+      <section id="broadcastDetailPage"  class="chat-list-view hidden order-flow-page">
+        <div class="order-flow-head"><strong>广播详情</strong><span>图文通知</span></div>
+        <div class="profile-order-card">
+          <div id="broadcastDetailTitle" class="profile-order-title">广播标题</div>
+          <div id="broadcastDetailSummary" class="profile-order-sub">广播摘要</div>
+        </div>
+      </section></body>
+</html>
