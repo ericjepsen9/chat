@@ -192,7 +192,7 @@ const persistence = createPersistence({
     console.error(`[persistence] ${stage} failed`, error);
   },
 });
-const { appendWal, schedulePersist, ensureWalFile, flushNow: flushPersistenceNow, getStats: getPersistenceStats } = persistence;
+const { appendWal, schedulePersist, schedulePersistCritical, ensureWalFile, flushNow: flushPersistenceNow, getStats: getPersistenceStats } = persistence;
 
 function loadDb() {
   const store = getSqliteStore();
@@ -859,7 +859,7 @@ const server = http.createServer(async (req, res) => {
       recordLoginAttempt(attemptKey, true);
       if (!user.password.includes(':')) {
         user.password = await hashPasswordAsync(body.password);
-        schedulePersist('migrate_password', { userId: user.id });
+        await schedulePersistCritical('migrate_password', { userId: user.id });
       }
       const token = issueSession(user.id);
       return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
@@ -908,7 +908,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
       user.password = await hashPasswordAsync(nextPassword);
-      schedulePersist('password_forgot_reset', { userId: user.id });
+      await schedulePersistCritical('password_forgot_reset', { userId: user.id });
       return sendJson(res, 200, { ok: true });
     }
 
@@ -925,7 +925,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
       authUser.password = await hashPasswordAsync(nextPassword);
-      schedulePersist('password_change', { userId: authUser.id });
+      await schedulePersistCritical('password_change', { userId: authUser.id });
       return sendJson(res, 200, { ok: true });
     }
 
@@ -973,7 +973,7 @@ const server = http.createServer(async (req, res) => {
       };
       db.users.push(user);
       rebuildIndexes();
-      schedulePersist('register', { userId: user.id });
+      await schedulePersistCritical('register', { userId: user.id });
       const token = issueSession(user.id);
       broadcastAll('users_updated', { userId: user.id });
       return sendJson(res, 201, { token, user: sanitizePublicUser(user) });
@@ -1118,6 +1118,7 @@ const server = http.createServer(async (req, res) => {
         orderId: orderPriceMatch[1],
         body: context.body,
         db,
+        usersById: index.usersById,
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
@@ -1135,6 +1136,7 @@ const server = http.createServer(async (req, res) => {
         orderId: orderPriceRequestMatch[1],
         body: context.body,
         db,
+        usersById: index.usersById,
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
@@ -1152,6 +1154,7 @@ const server = http.createServer(async (req, res) => {
         orderId: orderPriceConfirmMatch[1],
         body: context.body,
         db,
+        usersById: index.usersById,
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
@@ -1169,6 +1172,7 @@ const server = http.createServer(async (req, res) => {
         orderId: orderStatusMatch[1],
         body: context.body,
         db,
+        usersById: index.usersById,
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
@@ -1197,7 +1201,7 @@ const server = http.createServer(async (req, res) => {
       db.systemMessages.unshift(item);
       if (db.systemMessages.length > 100) db.systemMessages.length = 100;
       broadcastAll('system_message', { message: item });
-      schedulePersist('system_message_create', { id: item.id });
+      await schedulePersistCritical('system_message_create', { id: item.id });
       return sendJson(res, 201, { item });
     }
 

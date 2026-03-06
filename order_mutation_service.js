@@ -26,6 +26,25 @@ function assertOrderVersion(order, expectedUpdatedAtRaw) {
 }
 
 
+function isUserBlockedByCounterparty(userA, userB) {
+  const aBlacklist = Array.isArray(userA?.blacklist) ? userA.blacklist : [];
+  const bBlacklist = Array.isArray(userB?.blacklist) ? userB.blacklist : [];
+  if (!userA || !userB) return false;
+  return aBlacklist.includes(userB.id) || bBlacklist.includes(userA.id);
+}
+
+function validateOrderActor(order, authUser, usersById, { allowBuyer = true, allowSeller = true } = {}) {
+  const isBuyer = order.buyerId === authUser.id;
+  const isSeller = order.sellerId === authUser.id;
+  if (!isBuyer && !isSeller) return { ok: false, status: 403, error: 'forbidden' };
+  if (isBuyer && !allowBuyer) return { ok: false, status: 403, error: 'forbidden' };
+  if (isSeller && !allowSeller) return { ok: false, status: 403, error: 'forbidden' };
+  const buyer = usersById?.get(order.buyerId);
+  const seller = usersById?.get(order.sellerId);
+  if (isUserBlockedByCounterparty(buyer, seller)) return { ok: false, status: 403, error: 'trade_blocked' };
+  return { ok: true, isBuyer, isSeller, buyer, seller };
+}
+
 function buildOrderCardPayload(order, extras = {}) {
   return {
     id: order.id,
@@ -44,6 +63,7 @@ function buildOrderCardPayload(order, extras = {}) {
 function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
+  if (isUserBlockedByCounterparty(authUser, seller)) return { ok: false, status: 403, error: 'trade_blocked' };
   const items = Array.isArray(body.items) ? body.items : [];
   if (!items.length) return { ok: false, status: 400, error: 'empty_items' };
 
@@ -89,10 +109,11 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   return { ok: true, status: 201, payload: { order, deduplicated: false } };
 }
 
-function updateOrderPrice({ authUser, orderId, body, db, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
+function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
   const order = (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
-  if (order.sellerId !== authUser.id && order.buyerId !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
+  if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
@@ -119,10 +140,11 @@ function updateOrderPrice({ authUser, orderId, body, db, getOrCreateDirectConver
   return { ok: true, status: 200, payload: { order } };
 }
 
-function updateOrderStatus({ authUser, orderId, body, db, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
+function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
   const order = (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
-  if (order.sellerId !== authUser.id && order.buyerId !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: false });
+  if (!actor.ok) return actor;
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
 
@@ -150,10 +172,11 @@ function updateOrderStatus({ authUser, orderId, body, db, getOrCreateDirectConve
 }
 
 
-function requestOrderPriceChange({ authUser, orderId, body, db, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
+function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
   const order = (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
-  if (order.sellerId !== authUser.id && order.buyerId !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: false });
+  if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'pending_price_request_exists' };
@@ -175,10 +198,11 @@ function requestOrderPriceChange({ authUser, orderId, body, db, getOrCreateDirec
   return { ok: true, status: 200, payload: { order } };
 }
 
-function confirmOrderPriceChange({ authUser, orderId, body, db, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
+function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
   const order = (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
-  if (order.sellerId !== authUser.id && order.buyerId !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
+  if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (!order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'no_pending_price_request' };

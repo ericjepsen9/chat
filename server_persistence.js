@@ -19,11 +19,19 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     if (typeof onError === 'function') onError(stage, error);
   }
 
-  function runWalTask(task, stage) {
-    walQueue = walQueue.then(task).catch((error) => {
+  function runWalTask(task, stage, { propagate = false } = {}) {
+    const taskPromise = walQueue.then(task);
+    walQueue = taskPromise.catch(() => {});
+    if (!propagate) {
+      taskPromise.catch((error) => {
+        reportError(stage, error);
+      });
+      return walQueue;
+    }
+    return taskPromise.catch((error) => {
       reportError(stage, error);
+      throw error;
     });
-    return walQueue;
   }
 
   function appendWal(event, payload = {}) {
@@ -31,6 +39,13 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     runWalTask(async () => {
       await fs.promises.appendFile(msgWalFile, `${line}\n`);
     }, 'append_wal');
+  }
+
+  async function appendWalGuaranteed(event, payload = {}) {
+    const line = JSON.stringify({ ts: Date.now(), event, payload });
+    await runWalTask(async () => {
+      await fs.promises.appendFile(msgWalFile, `${line}\n`);
+    }, 'append_wal_guaranteed', { propagate: true });
   }
 
   function truncateWalIfLarge(maxBytes = 5 * 1024 * 1024) {
@@ -91,6 +106,16 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     }, 150);
   }
 
+  async function schedulePersistCritical(reason = 'critical_update', payload = {}) {
+    await appendWalGuaranteed(reason, payload);
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    await flushPersist();
+    await walQueue.catch(() => {});
+  }
+
   async function flushNow() {
     await walQueue.catch(() => {});
     await flushPersist();
@@ -108,7 +133,9 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
 
   return {
     appendWal,
+    appendWalGuaranteed,
     schedulePersist,
+    schedulePersistCritical,
     ensureWalFile,
     flushNow,
     getStats,
