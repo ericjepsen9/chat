@@ -2715,7 +2715,7 @@ function bindAllEvents() {
 
   on("loginPhone", "keydown", (e) => { if(e.key === 'Enter') $("doLoginBtn").click(); });
   on("loginPassword", "keydown", (e) => { if(e.key === 'Enter') $("doLoginBtn").click(); });
-  on("loginCodePhone", "keydown", (e) => { if(e.key === 'Enter') $("doLoginCodeBtn").click(); });
+  on("loginCodePhone", "keydown", (e) => { if(e.key === 'Enter') $("sendLoginCodeBtn").click(); });
   on("loginCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("doLoginCodeBtn").click(); });
   on("registerPassword", "keydown", (e) => { if(e.key === 'Enter') $("doRegisterBtn").click(); });
   on("forgotCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
