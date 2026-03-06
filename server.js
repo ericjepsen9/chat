@@ -654,6 +654,13 @@ function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
   return token;
 }
 
+function revokeSessionsForUser(userId) {
+  if (!userId) return;
+  for (const [token, session] of sessions.entries()) {
+    if (session?.userId === userId) sessions.delete(token);
+  }
+}
+
 function issueSseSessionToken(userId, ttlMs = 10 * 60 * 1000) {
   const token = crypto.randomBytes(24).toString('hex');
   sseSessionTokens.set(token, { userId, expiresAt: Date.now() + ttlMs });
@@ -949,6 +956,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
       user.password = await hashPasswordAsync(nextPassword);
+      revokeSessionsForUser(user.id);
       await schedulePersistCritical('password_forgot_reset', { userId: user.id });
       return sendJson(res, 200, { ok: true });
     }
@@ -966,8 +974,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
       authUser.password = await hashPasswordAsync(nextPassword);
+      revokeSessionsForUser(authUser.id);
+      const token = issueSession(authUser.id);
       await schedulePersistCritical('password_change', { userId: authUser.id });
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, { ok: true, token });
     }
 
 
