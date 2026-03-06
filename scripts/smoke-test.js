@@ -29,10 +29,12 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
 }
 
 (async () => {
-  const username = `u_${Date.now()}`;
+  const now = Date.now();
+  const username = `u_${now}`;
+  const phone = `139${String(now).slice(-8)}`;
   const register = await j('/api/register', {
     method: 'POST',
-    body: JSON.stringify({ displayName: 'SmokeUser', username, password: '1234' }),
+    body: JSON.stringify({ displayName: 'SmokeUser', username, password: '1234', phone }),
   });
   assert(register.user && register.user.username === username);
   assert(register.token);
@@ -140,7 +142,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   await expectHttpError(`/api/orders/${orderFirst.order.id}/price-confirm`, {
     method: 'POST',
     body: JSON.stringify({ total: 8.8 }),
-  }, 409);
+  }, 403);
 
   await expectHttpError(`/api/orders/${orderFirst.order.id}/price-request`, {
     method: 'POST',

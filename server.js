@@ -77,7 +77,10 @@ async function verifyPasswordAsync(password, stored) {
 
 const phoneCodeStore = new Map();
 const phoneCodeCooldownStore = new Map();
+const phoneCodeVerifyAttempts = new Map();
 const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
+const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
+const PHONE_CODE_VERIFY_BLOCK_MS = 10 * 60 * 1000;
 const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
 
 function normalizePhone(phone) {
@@ -101,6 +104,11 @@ function cleanupExpiredPhoneCodeState() {
   for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
     if (!cooldownUntil || cooldownUntil < now) phoneCodeCooldownStore.delete(key);
   }
+  for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
+  }
 }
 
 function issuePhoneCode(phone, scene = 'login') {
@@ -113,23 +121,46 @@ function issuePhoneCode(phone, scene = 'login') {
   if (cooldownUntil > now) {
     return { ok: false, error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((cooldownUntil - now) / 1000) };
   }
-  const code = '1234';
+  const code = String(Math.floor(1000 + Math.random() * 9000));
   phoneCodeStore.set(key, { code, expiresAt: now + 5 * 60 * 1000 });
   phoneCodeCooldownStore.set(key, now + PHONE_CODE_COOLDOWN_MS);
+  phoneCodeVerifyAttempts.delete(key);
   return { ok: true, code, expiresInSec: 300 };
 }
 
 function consumePhoneCode(phone, code, scene = 'login') {
   cleanupExpiredPhoneCodeState();
   const normalized = normalizePhone(phone);
-  if (!normalized) return false;
+  if (!normalized) return { ok: false, error: '验证码错误或已过期' };
   const key = `${scene}:${normalized}`;
+  const now = Date.now();
+  const attemptState = phoneCodeVerifyAttempts.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
+  if (attemptState.blockedUntil && attemptState.blockedUntil > now) {
+    return { ok: false, error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((attemptState.blockedUntil - now) / 1000) };
+  }
+  if (now - Number(attemptState.windowStart || now) > 10 * 60 * 1000) {
+    attemptState.count = 0;
+    attemptState.windowStart = now;
+    attemptState.blockedUntil = 0;
+  }
   const record = phoneCodeStore.get(key);
-  if (!record) return false;
-  if (record.expiresAt < Date.now()) { phoneCodeStore.delete(key); return false; }
-  if (String(record.code) !== String(code || '').trim()) return false;
+  if (!record || record.expiresAt < now) {
+    phoneCodeStore.delete(key);
+    return { ok: false, error: '验证码错误或已过期' };
+  }
+  if (String(record.code) !== String(code || '').trim()) {
+    const nextCount = Number(attemptState.count || 0) + 1;
+    const next = { ...attemptState, count: nextCount, windowStart: attemptState.windowStart || now };
+    if (nextCount >= PHONE_CODE_MAX_VERIFY_ATTEMPTS) {
+      next.blockedUntil = now + PHONE_CODE_VERIFY_BLOCK_MS;
+      phoneCodeStore.delete(key);
+    }
+    phoneCodeVerifyAttempts.set(key, next);
+    return { ok: false, error: '验证码错误或已过期' };
+  }
   phoneCodeStore.delete(key);
-  return true;
+  phoneCodeVerifyAttempts.delete(key);
+  return { ok: true };
 }
 
 function sanitizePublicUser(user) {
@@ -692,6 +723,14 @@ function cleanupAuthState() {
   for (const [key, record] of phoneCodeStore.entries()) {
     if (!record?.expiresAt || Number(record.expiresAt) < now) phoneCodeStore.delete(key);
   }
+  for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
+    if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeCooldownStore.delete(key);
+  }
+  for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
+  }
 }
 
 function ensureActingUser(body, authUser, ...candidateKeys) {
@@ -887,7 +926,8 @@ const server = http.createServer(async (req, res) => {
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      if (!consumePhoneCode(phone, code, 'login')) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      const codeResult = consumePhoneCode(phone, code, 'login');
+      if (!codeResult.ok) return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
       const token = issueSession(user.id);
       return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
     }
@@ -903,7 +943,8 @@ const server = http.createServer(async (req, res) => {
       if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      if (!consumePhoneCode(phone, code, 'reset')) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      const codeResult = consumePhoneCode(phone, code, 'reset');
+      if (!codeResult.ok) return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
       if (await verifyPasswordAsync(nextPassword, user.password)) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
