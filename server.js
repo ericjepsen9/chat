@@ -886,7 +886,7 @@ const server = http.createServer(async (req, res) => {
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
       const user = findUserByPhone(phone);
-      if (!user) return sendJson(res, 404, { error: '手机号未注册' });
+      if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       if (!consumePhoneCode(phone, code, 'login')) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const token = issueSession(user.id);
       return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
@@ -902,7 +902,7 @@ const server = http.createServer(async (req, res) => {
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
       if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
       const user = findUserByPhone(phone);
-      if (!user) return sendJson(res, 404, { error: '手机号未注册' });
+      if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       if (!consumePhoneCode(phone, code, 'reset')) return sendJson(res, 400, { error: '验证码错误或已过期' });
       if (await verifyPasswordAsync(nextPassword, user.password)) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
