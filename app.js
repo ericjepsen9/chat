@@ -2691,9 +2691,9 @@ function bindAllEvents() {
 
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'profile'));
   on("submitChangePasswordBtn", "click", async () => {
-    const oldPassword = ($("oldPasswordInput")?.value || '').trim();
-    const newPassword = ($("newPasswordInput")?.value || '').trim();
-    if(!oldPassword || !newPassword) return alert('请填写旧密码和新密码');
+    const oldPassword = $("oldPasswordInput")?.value || '';
+    const newPassword = $("newPasswordInput")?.value || '';
+    if(!oldPassword.trim() || !newPassword.trim()) return alert('请填写旧密码和新密码');
     if(oldPassword === newPassword) return alert('新密码不能与旧密码相同');
     if((newPassword || '').length < 4) return alert('新密码至少4位');
     const submitBtn = $("submitChangePasswordBtn");
