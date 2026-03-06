@@ -2718,6 +2718,7 @@ function bindAllEvents() {
   on("loginCodePhone", "keydown", (e) => { if(e.key === 'Enter') $("sendLoginCodeBtn").click(); });
   on("loginCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("doLoginCodeBtn").click(); });
   on("registerPassword", "keydown", (e) => { if(e.key === 'Enter') $("doRegisterBtn").click(); });
+  on("forgotPhoneInput", "keydown", (e) => { if(e.key === 'Enter') $("sendForgotCodeBtn").click(); });
   on("forgotCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
   on("forgotNewPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
   on("oldPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
