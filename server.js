@@ -78,6 +78,7 @@ async function verifyPasswordAsync(password, stored) {
 const phoneCodeStore = new Map();
 const phoneCodeCooldownStore = new Map();
 const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
+const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
 
 function normalizePhone(phone) {
   const raw = String(phone || '').trim();
@@ -875,7 +876,7 @@ const server = http.createServer(async (req, res) => {
       if (!issueResult.ok) {
         return sendJson(res, 429, { error: issueResult.error || '发送验证码失败', retryAfterSec: issueResult.retryAfterSec || 0 });
       }
-      return sendJson(res, 200, { ok: true, mockCode: issueResult.code, expiresInSec: issueResult.expiresInSec });
+      return sendJson(res, 200, EXPOSE_MOCK_PHONE_CODE ? { ok: true, mockCode: issueResult.code, expiresInSec: issueResult.expiresInSec } : { ok: true, expiresInSec: issueResult.expiresInSec });
     }
 
     if (matchRoute(pathname, '/api/login/phone-code') && req.method === 'POST') {

@@ -2592,7 +2592,7 @@ function bindAllEvents() {
       sendBtn.textContent = '发送中...';
       try {
         const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'login' }) });
-        alert('验证码已发送（测试验证码：1234）');
+        alert('验证码已发送，请注意查收');
       } catch (e) {
         const waitSec = Number(e?.data?.retryAfterSec || 0);
         if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
@@ -2655,7 +2655,7 @@ function bindAllEvents() {
     sendBtn.textContent = '发送中...';
     try {
       const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
-      alert('验证码已发送（测试验证码：1234）');
+      alert('验证码已发送，请注意查收');
     } catch (e) {
       const waitSec = Number(e?.data?.retryAfterSec || 0);
       if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
