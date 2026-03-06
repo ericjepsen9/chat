@@ -934,7 +934,10 @@ const server = http.createServer(async (req, res) => {
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'login');
-      if (!codeResult.ok) return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
+      if (!codeResult.ok) {
+        const statusCode = codeResult.retryAfterSec ? 429 : 400;
+        return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
+      }
       const token = issueSession(user.id);
       return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
     }
@@ -951,7 +954,10 @@ const server = http.createServer(async (req, res) => {
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'reset');
-      if (!codeResult.ok) return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
+      if (!codeResult.ok) {
+        const statusCode = codeResult.retryAfterSec ? 429 : 400;
+        return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
+      }
       if (await verifyPasswordAsync(nextPassword, user.password)) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
