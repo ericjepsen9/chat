@@ -411,13 +411,25 @@ function getProfileStoreItemCartQuantity(item){
     .reduce((sum, entry) => sum + (Number(entry.quantity) || 0), 0);
 }
 
+function getItemAvailableStock(item){
+  const stock = Number(item?.stock ?? 0);
+  if (!Number.isFinite(stock)) return 0;
+  return Math.max(0, Math.floor(stock));
+}
+
 function adjustProfileStoreItemQuantity(item, delta){
   if(!item || !delta) return;
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
   const defaultSpec = (Array.isArray(item.specs) && item.specs.length ? item.specs[0] : '默认规格') || '默认规格';
   const key = `${item.id}__${defaultSpec}`;
   const found = cart.find(i => i.key === key);
+  const inCartQty = getProfileStoreItemCartQuantity(item);
+  const availableStock = getItemAvailableStock(item);
   if(delta > 0){
+    if (availableStock > 0 && inCartQty >= availableStock) {
+      showToast('库存不足');
+      return;
+    }
     if(found){
       found.quantity = (Number(found.quantity) || 0) + 1;
     }else{
@@ -492,7 +504,10 @@ function renderProfileStore(){
     const price = document.createElement('div');
     price.className = 'profile-store-price';
     price.textContent = formatMoney(item.price);
-    info.append(title, desc, price);
+    const stock = document.createElement('div');
+    stock.className = 'profile-store-desc';
+    stock.textContent = `库存：${getItemAvailableStock(item)}`;
+    info.append(title, desc, price, stock);
 
     const side = document.createElement('div');
     side.className = 'profile-store-side';
@@ -581,6 +596,12 @@ function addSelectedProductToCart(){
   const key = `${item.id}__${spec}`;
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
   const found = cart.find(i => i.key === key);
+  const inCartQty = getProfileStoreItemCartQuantity(item);
+  const availableStock = getItemAvailableStock(item);
+  if (availableStock > 0 && inCartQty >= availableStock) {
+    showToast('库存不足');
+    return;
+  }
   if(found){
     found.quantity = (Number(found.quantity) || 0) + 1;
   }else{
@@ -2167,6 +2188,7 @@ function buildMallItemSignature(product) {
     id: product.id,
     title: product.title || '',
     price: product.price,
+    stock: product.stock,
     image: product.image || '',
     sellerId: product.sellerId || '',
     sellerName: product.sellerName || '',
@@ -2205,6 +2227,9 @@ function patchMallCard(card, product) {
   const price = document.createElement('div');
   price.className = 'product-price';
   price.textContent = `¥${product.price}`;
+  const stock = document.createElement('div');
+  stock.className = 'preview';
+  stock.textContent = `库存 ${Math.max(0, Math.floor(Number(product.stock || 0)))}`;
   const seller = document.createElement('div');
   seller.className = 'product-seller';
   seller.appendChild(createAvatarNode({avatarUrl: product.sellerAvatarUrl || product.sellerAvatar, displayName: product.sellerName}, product.sellerName));
@@ -2213,6 +2238,7 @@ function patchMallCard(card, product) {
   seller.appendChild(sellerName);
   info.appendChild(title);
   info.appendChild(price);
+  info.appendChild(stock);
   info.appendChild(seller);
   replacement.appendChild(info);
   if (card.parentNode) card.replaceWith(replacement);
@@ -2974,7 +3000,7 @@ function bindAllEvents() {
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
-  on("publishProductEntryBtn", "click", () => { window.openSecondaryPage("publishProductPage"); $("productTitleInput").value = ""; $("productCategoryInput").value = ""; $("productDescInput").value = ""; $("productPriceInput").value = ""; $("productSpecsInput").value = ""; $("productImagePreview").textContent = "+"; $("productImageInput").value = ""; state.tempProductImage = null; if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; } setPublishProductHint("可发布多个商品，买家可在你的主页直接多选下单", "muted"); });
+  on("publishProductEntryBtn", "click", () => { window.openSecondaryPage("publishProductPage"); $("productTitleInput").value = ""; $("productCategoryInput").value = ""; $("productDescInput").value = ""; $("productPriceInput").value = ""; $("productStockInput").value = ""; $("productSpecsInput").value = ""; $("productImagePreview").textContent = "+"; $("productImageInput").value = ""; state.tempProductImage = null; if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; } setPublishProductHint("可发布多个商品，买家可在你的主页直接多选下单", "muted"); });
   on("productImagePreview", "click", () => { if($("productImageInput")) $("productImageInput").click(); });
   
   on("productImageInput", "change", async () => {
@@ -3002,6 +3028,7 @@ function bindAllEvents() {
       const title = $("productTitleInput").value.trim();
       const category = $("productCategoryInput")?.value.trim() || '';
       const desc = $("productDescInput").value.trim();
+      const stock = Number($("productStockInput")?.value || 0);
       const specsRaw = $("productSpecsInput")?.value.trim() || '';
       const price = $("productPriceInput").value.trim();
       const specs = specsRaw
@@ -3010,11 +3037,12 @@ function bindAllEvents() {
       const parsedPrice = parseMoney(price);
       if(title.length < 2){ setPublishProductHint('商品名称至少 2 个字', 'error'); return; }
       if(parsedPrice <= 0){ setPublishProductHint('请输入有效售价', 'error'); return; }
+      if(!Number.isFinite(stock) || stock <= 0){ setPublishProductHint('请输入有效库存（至少1）', 'error'); return; }
       if(!state.tempProductImage){ setPublishProductHint('请先上传商品图片', 'error'); return; }
       if($("submitProductBtn")){ $("submitProductBtn").disabled = true; $("submitProductBtn").textContent = "发布中..."; }
       setPublishProductHint('正在发布商品…');
       try {
-          await api('/api/products', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, title, category, desc, specs, price: parsedPrice, image: state.tempProductImage }) });
+          await api('/api/products', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, title, category, desc, stock, specs, price: parsedPrice, image: state.tempProductImage }) });
           setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
           alert("发布成功！");
           if($("submitProductBtn")) $("submitProductBtn").textContent = "立即发布到商城";

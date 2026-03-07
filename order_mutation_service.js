@@ -60,7 +60,7 @@ function buildOrderCardPayload(order, extras = {}) {
   };
 }
 
-function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
+function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
   if (isUserBlockedByCounterparty(authUser, seller)) return { ok: false, status: 403, error: 'trade_blocked' };
@@ -79,6 +79,22 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   }
 
   const normalized = normalizeOrderItems(items);
+
+  const stockUpdates = [];
+  for (const item of normalized) {
+    const sellerProduct = (seller.products || []).find((p) => String(p.id || '') === String(item.productId || ''));
+    if (!sellerProduct) continue;
+    const currentStock = Math.max(0, Math.floor(Number(sellerProduct.stock ?? 0)));
+    if (currentStock < item.quantity) {
+      return { ok: false, status: 409, error: 'insufficient_stock' };
+    }
+    stockUpdates.push({ sellerProduct, nextStock: currentStock - item.quantity });
+  }
+
+  stockUpdates.forEach(({ sellerProduct, nextStock }) => {
+    sellerProduct.stock = nextStock;
+  });
+
   const total = normalized.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const now = Date.now();
   const order = {
@@ -105,6 +121,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     }),
   });
   conv.updatedAt = new Date().toISOString();
+  if (typeof rebuildMallIndex === 'function') rebuildMallIndex();
+  if (typeof broadcastAll === 'function') broadcastAll('mall_updated', {});
   schedulePersist('order_create', { orderId: order.id, buyerId: authUser.id, sellerId: seller.id });
   return { ok: true, status: 201, payload: { order, deduplicated: false } };
 }

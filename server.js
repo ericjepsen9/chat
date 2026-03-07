@@ -436,6 +436,12 @@ function rebuildIndexes() {
   for (const user of db.users) {
     if (!Array.isArray(user.blacklist)) user.blacklist = [];
     if (!Array.isArray(user.products)) user.products = [];
+    user.products = user.products.map((p) => {
+      const next = p && typeof p === 'object' ? p : {};
+      const rawStock = Number(next.stock);
+      next.stock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 99;
+      return next;
+    });
     if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
     user.paymentCodes = {
       wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
@@ -1287,6 +1293,8 @@ const server = http.createServer(async (req, res) => {
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
+        rebuildMallIndex,
+        broadcastAll,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);

@@ -8,6 +8,12 @@ function isValidMediaUrl(value) {
   return /^https?:\/\//i.test(url) || url.startsWith('/uploads/');
 }
 
+function normalizeStock(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
+}
+
 function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist, broadcastAll }) {
   const title = normalizeText(body.title, 80);
   const category = normalizeText(body.category, 24);
@@ -16,9 +22,13 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   const specs = Array.isArray(body.specs)
     ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
     : [];
+  const stock = normalizeStock(body.stock);
   const image = String(body.image || '').trim().slice(0, 512);
   if (!title || !price || !image) {
     return { ok: false, status: 400, error: 'missing_fields' };
+  }
+  if (stock <= 0) {
+    return { ok: false, status: 400, error: 'invalid_stock' };
   }
   if (!isValidMediaUrl(image)) {
     return { ok: false, status: 400, error: 'invalid_image_url' };
@@ -32,6 +42,7 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
     price,
     image,
     specs,
+    stock,
     createdAt: Date.now(),
   });
   rebuildMallIndex();
