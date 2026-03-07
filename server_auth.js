@@ -13,7 +13,12 @@ function getAuthUser(req, searchParams, sessions, index) {
     sessions.delete(token);
     return null;
   }
-  return index.usersById.get(session.userId) || null;
+  const user = index.usersById.get(session.userId) || null;
+  if (!user) {
+    sessions.delete(token);
+    return null;
+  }
+  return user;
 }
 
 function requireAuth(req, res, searchParams, sessions, index, sendJson) {
@@ -23,6 +28,8 @@ function requireAuth(req, res, searchParams, sessions, index, sendJson) {
     return null;
   }
   if (String(user.status || 'active') !== 'active') {
+    const token = parseAuthToken(req);
+    if (token) sessions.delete(token);
     sendJson(res, 403, { error: 'account_disabled' });
     return null;
   }
