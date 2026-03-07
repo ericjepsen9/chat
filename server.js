@@ -128,6 +128,10 @@ function issuePhoneCode(phone, scene = 'login') {
   return { ok: true, code, expiresInSec: 300 };
 }
 
+function ensureUserActiveForAuth(user) {
+  return String(user?.status || 'active') === 'active';
+}
+
 function consumePhoneCode(phone, code, scene = 'login') {
   cleanupExpiredPhoneCodeState();
   const normalized = normalizePhone(phone);
@@ -902,6 +906,9 @@ const server = http.createServer(async (req, res) => {
         recordLoginAttempt(attemptKey, false);
         return sendJson(res, 401, { error: '账号或密码错误' });
       }
+      if (!ensureUserActiveForAuth(user)) {
+        return sendJson(res, 403, { error: 'account_disabled' });
+      }
       recordLoginAttempt(attemptKey, true);
       if (!user.password.includes(':')) {
         user.password = await hashPasswordAsync(body.password);
@@ -933,6 +940,7 @@ const server = http.createServer(async (req, res) => {
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      if (!ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
       const codeResult = consumePhoneCode(phone, code, 'login');
       if (!codeResult.ok) {
         const statusCode = codeResult.retryAfterSec ? 429 : 400;
