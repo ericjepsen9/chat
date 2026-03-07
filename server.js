@@ -82,6 +82,7 @@ const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
 const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
 const PHONE_CODE_VERIFY_BLOCK_MS = 10 * 60 * 1000;
 const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 function normalizePhone(phone) {
   const raw = String(phone || '').trim();
@@ -686,6 +687,13 @@ function consumeUserBySseSessionToken(token) {
 
 
 
+function getClientIp(req) {
+  const remoteIp = String(req.socket?.remoteAddress || '').trim();
+  if (!TRUST_PROXY) return remoteIp;
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || remoteIp;
+}
+
 function getLoginAttemptState(key) {
   const now = Date.now();
   const existing = loginAttempts.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
@@ -897,7 +905,7 @@ const server = http.createServer(async (req, res) => {
       const username = String(body.username || body.phone || '').trim();
       const loginPhone = normalizePhone(body.phone || username);
       const user = index.usersByName.get(username) || (loginPhone ? findUserByPhone(loginPhone) : null);
-      const attemptKey = `${username || loginPhone}:${(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim()}`;
+      const attemptKey = `${username || loginPhone}:${getClientIp(req)}`;
       const attemptState = getLoginAttemptState(attemptKey);
       if (attemptState.blockedUntil && attemptState.blockedUntil > Date.now()) {
         return sendJson(res, 429, { error: '登录尝试过多，请稍后再试' });
