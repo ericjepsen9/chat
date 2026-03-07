@@ -151,6 +151,17 @@ async function refreshProductViews(){
   }
 }
 
+async function syncProductViewsIfVisible(){
+  const tasks = [];
+  const sellerPageVisible = $("sellerProductsPage") && !$("sellerProductsPage").classList.contains('hidden');
+  const myProductsPageVisible = $("myProductsPage") && !$("myProductsPage").classList.contains('hidden');
+  const selfProfileVisible = $("profileDetailPage") && !$("profileDetailPage").classList.contains('hidden') && state.currentProfileUser?.id === state.currentUser?.id;
+  if (sellerPageVisible) tasks.push(loadSellerProductsManage());
+  if (myProductsPageVisible) tasks.push(loadMyProducts());
+  if (selfProfileVisible) tasks.push(loadProfileStore(state.currentUser.id));
+  if (tasks.length) await Promise.all(tasks);
+}
+
 async function loadSellerProductsManage(){
   if(!state.currentUser?.id) return;
   try {
@@ -2639,7 +2650,7 @@ window.deleteMyProduct = async (productId) => {
   if(!confirm("确定要下架并删除该商品吗？")) return;
   try {
     await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) });
-    await Promise.all([loadMyProducts(), loadMall(), loadSellerProductsManage()]);
+    await refreshProductViews();
   } catch(e) { alert("删除失败：" + e.message); }
 };
 
@@ -2650,7 +2661,7 @@ window.updateSellerProductStock = async (productId, currentStock = 0) => {
   if (!Number.isFinite(stock)) return alert('请输入有效库存');
   try {
     await api('/api/products/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, productId, stock }) });
-    await Promise.all([loadMall(), loadSellerProductsManage()]);
+    await refreshProductViews();
     showToast('库存已更新');
   } catch (e) {
     alert(e.message || '库存更新失败');
@@ -4477,7 +4488,7 @@ async function connectRealtime() {
   state.eventSource.addEventListener('conversation_updated', () => { loadConversations(); scheduleTradeReminderRefresh(180); });
   state.eventSource.addEventListener('friends_updated', loadFriends);
   state.eventSource.addEventListener('friend_request_updated', loadFriendRequests);
-  state.eventSource.addEventListener('mall_updated', loadMall);
+  state.eventSource.addEventListener('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
   state.eventSource.addEventListener('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); renderConversationListFromState(); });
   state.eventSource.addEventListener('order_updated', () => { scheduleTradeReminderRefresh(120); });
   state.eventSource.addEventListener('typing_indicator', (e) => {
