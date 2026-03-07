@@ -1134,34 +1134,15 @@ async function sendContactCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
   await loadFriends(true);
-  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
-  const picked = await showTradePicker(
-    '选择要发送的好友名片',
-    friends,
-    (f) => `${f.remark || f.displayName || f.username || '好友'} · ChatTrade ID：${f.appNumberId || f.username || '-'}`,
-    '你的好友列表为空'
-  );
-  if(!picked) return;
-  await window.sendMessage({
-    type:'card',
-    card:{
-      cardType:'名片',
-      userId: picked.id,
-      title: picked.remark || picked.displayName || picked.username || '好友名片',
-      description:`ID：${picked.appNumberId || picked.username || '-'}`,
-      meta:'个人名片',
-      imageUrl: picked.avatarUrl || '',
-    },
-  });
+  renderContactCardPicker();
+  window.openSecondaryPage('contactCardPickerPage', 'chat');
 }
 
 async function sendProductCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
-  const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
-  const picked = await showTradePicker(products.length ? '选择要发送的商品' : '商品列表', products, (p) => `${p.title || '商品'} · ${formatMoney(p.price)}`, '暂无可发送商品，请先发布商品');
-  if(!picked) return;
-  await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: picked.title || '商品', description: picked.desc || '', meta:`售价：${formatMoney(picked.price)}`, imageUrl: picked.image || picked.imageUrl || '' } });
+  await renderProductCardPicker();
+  window.openSecondaryPage('productCardPickerPage', 'chat');
 }
 
 function getOrdersBetweenUsers(peerId){
@@ -1178,11 +1159,108 @@ function getOrdersBetweenUsers(peerId){
 async function sendOrderCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
+  await renderOrderCardPicker();
+  window.openSecondaryPage('orderCardPickerPage', 'chat');
+}
+
+function renderContactCardPicker(){
+  const list = $("contactCardPickerList");
+  if(!list) return;
+  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
+  if(!friends.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '通讯录暂无好友可发送';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  friends.forEach((f) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'chat-item';
+    row.appendChild(createAvatarNode(f, f.displayName || f.username || '友'));
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;text-align:left;';
+    const name = document.createElement('strong');
+    name.textContent = f.remark || f.displayName || f.username || '好友';
+    const sub = document.createElement('div');
+    sub.className = 'preview';
+    sub.textContent = `ChatTrade ID：${f.appNumberId || f.username || '-'}`;
+    info.append(name, sub);
+    row.appendChild(info);
+    row.addEventListener('click', async () => {
+      await window.sendMessage({
+        type:'card',
+        card:{
+          cardType:'名片',
+          userId: f.id,
+          title: f.remark || f.displayName || f.username || '好友名片',
+          description:`ChatTrade ID：${f.appNumberId || f.username || '-'}`,
+          meta:'个人名片',
+          imageUrl: f.avatarUrl || '',
+        },
+      });
+      if($("backBtn")) $("backBtn").click();
+    });
+    frag.appendChild(row);
+  });
+  list.replaceChildren(frag);
+}
+
+async function renderProductCardPicker(){
+  const list = $("productCardPickerList");
+  if(!list) return;
+  const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
+  if(!products.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '暂无可发送商品，请先发布';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  products.forEach((p) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'profile-order-card';
+    card.innerHTML = `<div class=\"profile-order-title\">${escapeHTML(p.title || '商品')}</div><div class=\"profile-order-sub\">${escapeHTML(p.desc || '')}</div><div class=\"profile-order-status\">${escapeHTML(formatMoney(p.price))}</div>`;
+    card.addEventListener('click', async () => {
+      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: p.desc || '', meta:`售价：${formatMoney(p.price)}`, imageUrl: p.image || p.imageUrl || '' } });
+      if($("backBtn")) $("backBtn").click();
+    });
+    frag.appendChild(card);
+  });
+  list.replaceChildren(frag);
+}
+
+async function renderOrderCardPicker(){
+  const list = $("orderCardPickerList");
+  if(!list) return;
+  const peerId = ensureDirectConversationForTrade();
+  if(!peerId) return;
   await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
   const orders = getOrdersBetweenUsers(peerId);
-  const picked = await showTradePicker(orders.length ? '选择要发送的订单' : '订单列表', orders, (o) => `#${String(o.id||'').slice(-6)} · ${formatMoney(o.total)} · ${formatOrderStatusLabel(o.status)}`, '当前会话双方暂无订单');
-  if(!picked) return;
-  await window.sendMessage({ type:'order_card', order:{ id:picked.id, buyerId:picked.buyerId, sellerId:picked.sellerId, title:`订单 #${String(picked.id||'').slice(-6)}`, summary:(picked.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容', total:picked.total, status:picked.status, pendingPrice:picked.pendingPrice||null, pendingPriceRequestedBy:picked.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!picked.priceAdjustmentLocked, role: state.currentUser?.id===picked.sellerId ? 'seller' : 'buyer' } });
+  if(!orders.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '当前会话双方暂无可发送订单';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  orders.forEach((o) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'profile-order-card';
+    card.innerHTML = `<div class=\"profile-order-title\">订单 #${escapeHTML(String(o.id||'').slice(-6))} · ${escapeHTML(formatMoney(o.total))}</div><div class=\"profile-order-sub\">${escapeHTML((o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容')}</div><div class=\"profile-order-status\">${escapeHTML(formatOrderStatusLabel(o.status))}</div>`;
+    card.addEventListener('click', async () => {
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${String(o.id||'').slice(-6)}`, summary:(o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容', total:o.total, status:o.status, pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role: state.currentUser?.id===o.sellerId ? 'seller' : 'buyer' } });
+      if($("backBtn")) $("backBtn").click();
+    });
+    frag.appendChild(card);
+  });
+  list.replaceChildren(frag);
 }
 
 async function sendPaymentCodeInChat(){
@@ -2304,6 +2382,7 @@ const SECONDARY_PAGE_IDS = [
   'qrCodePage','editProfilePage','publishProductPage','myProductsPage','settingsPage','groupManagePage',
   'profileCartPage','profileOrdersPage','cartHubPage','buyerOrdersManagePage','sellerCenterPage','sellerPaymentPage',
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
+  'contactCardPickerPage','productCardPickerPage','orderCardPickerPage',
   'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage'
 ];
 
@@ -2345,6 +2424,9 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'sellerProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '商品管理'; }
   else if (page === 'productDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '商品详情'; }
   else if (page === 'orderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
+  else if (page === 'contactCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送名片'; }
+  else if (page === 'productCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送商品'; }
+  else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送订单'; }
   else if (page === 'broadcastManagePage') { if($("chatTitle")) $("chatTitle").textContent = '广播管理'; renderBroadcastDrafts(); }
   else if (page === 'broadcastEditorPage') { if($("chatTitle")) $("chatTitle").textContent = '广播编辑'; }
 
@@ -2728,7 +2810,7 @@ window.openConversation = async (id, options = {}) => {
     conv.unread = 0;
     renderConversationListFromState();
   }
-  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
+  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","contactCardPickerPage","productCardPickerPage","orderCardPickerPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
   if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
   if($("chatListView")) $("chatListView").classList.add("hidden"); 
   if($("friendListView")) $("friendListView").classList.add("hidden");
