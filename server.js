@@ -15,7 +15,7 @@ const { updateBlacklist } = require('./blacklist_service');
 const { createGroup, renameGroup, reorderGroup, deleteGroup } = require('./group_service');
 const { updateFriendRemark, updateFriendGroup, deleteFriendRelation } = require('./friend_relation_service');
 const { createDirectConversation } = require('./conversation_service');
-const { createProduct, deleteProduct } = require('./product_service');
+const { createProduct, deleteProduct, updateProduct } = require('./product_service');
 const { updateUserProfile, buildUserProfileView } = require('./user_profile_service');
 const { buildUserStoreItems, queryMallItems } = require('./catalog_service');
 const { createBroadcastMessage } = require('./broadcast_service');
@@ -1441,6 +1441,20 @@ const server = http.createServer(async (req, res) => {
       const result = deleteProduct({
         authUser: context.authUser,
         productId: context.body.productId,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastAll,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    if (matchRoute(pathname, '/api/products/update') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = updateProduct({
+        authUser: context.authUser,
+        body: context.body,
         rebuildMallIndex,
         schedulePersist,
         broadcastAll,

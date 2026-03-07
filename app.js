@@ -144,6 +144,19 @@ function syncSellerProducts(){
   renderSellerProductsManage();
 }
 
+async function loadSellerProductsManage(){
+  if(!state.currentUser?.id) return;
+  try {
+    const data = await api(`/api/users/${state.currentUser.id}/store`);
+    state.sellerProducts = Array.isArray(data.items) ? data.items : [];
+    state.currentUser.products = [...state.sellerProducts];
+    writeSession(state.currentUser);
+  } catch (_) {
+    syncSellerProducts();
+  }
+  renderSellerProductsManage();
+}
+
 function orderStatusText(status){
   return formatOrderStatusLabel(status);
 }
@@ -224,11 +237,11 @@ function renderSellerProductsManage(){
   state.sellerProducts.forEach(item => {
     const card = document.createElement('div');
     card.className = 'profile-store-item';
-    card.addEventListener('click', () => openProductDetailPage(item));
+    card.addEventListener('click', () => openProductDetail(item, true));
     const img = document.createElement('img');
     img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
     img.alt = item.title || '商品';
-    img.addEventListener('click', () => openProductDetail(item, false));
+    img.addEventListener('click', (e) => { e.stopPropagation(); openProductDetail(item, true); });
 
     const info = document.createElement('div');
     info.className = 'profile-store-info';
@@ -241,18 +254,34 @@ function renderSellerProductsManage(){
     const price = document.createElement('div');
     price.className = 'profile-store-price';
     price.textContent = formatMoney(item.price);
-    info.append(title, desc, price);
-    info.addEventListener('click', () => openProductDetail(item, false));
-    info.addEventListener('click', () => openProductDetail(item, true));
+    const stock = document.createElement('div');
+    stock.className = 'profile-store-desc';
+    stock.textContent = `库存：${Math.max(0, Math.floor(Number(item.stock || 0)))}`;
+    info.append(title, desc, price, stock);
+    info.addEventListener('click', (e) => { e.stopPropagation(); openProductDetail(item, true); });
 
     const side = document.createElement('div');
     side.className = 'profile-store-side';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'secondary-btn';
-    btn.textContent = '详情';
-    btn.addEventListener('click', () => openProductDetail(item, true));
-    side.appendChild(btn);
+    btn.textContent = '改库存';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.updateSellerProductStock(item.id, item.stock || 0);
+    });
+    const offBtn = document.createElement('button');
+    offBtn.type = 'button';
+    offBtn.className = 'secondary-btn';
+    offBtn.textContent = '下架';
+    offBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.deleteMyProduct(item.id);
+    });
+    side.style.display = 'flex';
+    side.style.flexDirection = 'column';
+    side.style.gap = '8px';
+    side.append(btn, offBtn);
 
     card.append(img, info, side);
     frag.appendChild(card);
@@ -271,6 +300,10 @@ function openProductDetail(item, fromSeller = false){
   if(specsEl){
     const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格', '标准版', '高配版'];
     const frag = document.createDocumentFragment();
+    const stockChip = document.createElement('span');
+    stockChip.className = 'spec-option-chip';
+    stockChip.textContent = `库存 ${Math.max(0, Math.floor(Number(item.stock || 0)))}`;
+    frag.appendChild(stockChip);
     specs.forEach(spec => {
       const chip = document.createElement('span');
       chip.className = 'spec-option-chip';
@@ -2513,7 +2546,24 @@ window.rejectRequest = async (requestId) => {
 
 window.deleteMyProduct = async (productId) => {
   if(!confirm("确定要下架并删除该商品吗？")) return;
-  try { await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) }); loadMyProducts(); loadMall(); } catch(e) { alert("删除失败：" + e.message); }
+  try {
+    await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) });
+    await Promise.all([loadMyProducts(), loadMall(), loadSellerProductsManage()]);
+  } catch(e) { alert("删除失败：" + e.message); }
+};
+
+window.updateSellerProductStock = async (productId, currentStock = 0) => {
+  const raw = prompt('请输入新的库存数量', String(Math.max(0, Math.floor(Number(currentStock || 0)))));
+  if (raw === null) return;
+  const stock = Math.max(0, Math.floor(Number(raw)));
+  if (!Number.isFinite(stock)) return alert('请输入有效库存');
+  try {
+    await api('/api/products/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, productId, stock }) });
+    await Promise.all([loadMall(), loadSellerProductsManage()]);
+    showToast('库存已更新');
+  } catch (e) {
+    alert(e.message || '库存更新失败');
+  }
 };
 
 window.deleteGroup = async (groupName) => {
@@ -3140,13 +3190,17 @@ function bindAllEvents() {
   on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
     await Promise.all([loadSellerOrders(), loadBuyerOrders()]);
-    syncSellerProducts();
+    await loadSellerProductsManage();
     const hero = document.querySelector('#sellerCenterPage .seller-center-hero span');
     if (hero) hero.textContent = `卖家订单 ${state.sellerOrders.length} / 买家订单 ${state.buyerOrders.length} / 商品 ${state.sellerProducts.length}`;
     window.openSecondaryPage('sellerCenterPage', 'profile');
   });
   on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', 'sellerCenterPage'); });
-  on("sellerProductManageBtn", "click", () => { syncSellerProducts(); window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage'); });
+  on("sellerProductManageBtn", "click", async () => { await loadSellerProductsManage(); window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage'); });
+  on("productDetailOpenSellerBtn", "click", async () => {
+    await loadSellerProductsManage();
+    window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
+  });
   on("sellerPaymentManageBtn", "click", () => {
     const codes = state.currentUser?.paymentCodes || {};
     if($("sellerWxPayInput")) $("sellerWxPayInput").value = codes.wechat || '';

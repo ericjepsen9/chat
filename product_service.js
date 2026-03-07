@@ -59,7 +59,43 @@ function deleteProduct({ authUser, productId, rebuildMallIndex, schedulePersist,
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
+function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broadcastAll }) {
+  const productId = String(body.productId || '').trim();
+  if (!productId) return { ok: false, status: 400, error: 'missing_product_id' };
+  const product = (authUser.products || []).find((p) => p.id === productId);
+  if (!product) return { ok: false, status: 404, error: 'not_found' };
+
+  if (body.title !== undefined) {
+    const title = normalizeText(body.title, 80);
+    if (!title) return { ok: false, status: 400, error: 'invalid_title' };
+    product.title = title;
+  }
+  if (body.category !== undefined) product.category = normalizeText(body.category, 24);
+  if (body.desc !== undefined) product.desc = normalizeText(body.desc, 500);
+  if (body.price !== undefined) {
+    const price = normalizeText(body.price, 24);
+    if (!price) return { ok: false, status: 400, error: 'invalid_price' };
+    product.price = price;
+  }
+  if (body.stock !== undefined) {
+    const stock = normalizeStock(body.stock);
+    if (stock < 0) return { ok: false, status: 400, error: 'invalid_stock' };
+    product.stock = stock;
+  }
+  if (body.specs !== undefined) {
+    product.specs = Array.isArray(body.specs)
+      ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
+      : [];
+  }
+
+  rebuildMallIndex();
+  schedulePersist('product_update', { userId: authUser.id, productId: product.id });
+  broadcastAll('mall_updated', {});
+  return { ok: true, status: 200, payload: { ok: true, product } };
+}
+
 module.exports = {
   createProduct,
   deleteProduct,
+  updateProduct,
 };
