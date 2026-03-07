@@ -1,3 +1,10 @@
+function purgeUserSessions(sessions, userId) {
+  if (!userId) return;
+  for (const [token, session] of sessions.entries()) {
+    if (session?.userId === userId) sessions.delete(token);
+  }
+}
+
 function parseAuthToken(req) {
   const auth = req.headers.authorization || '';
   const match = auth.match(/^Bearer\s+(.+)$/i);
@@ -15,7 +22,7 @@ function getAuthUser(req, searchParams, sessions, index) {
   }
   const user = index.usersById.get(session.userId) || null;
   if (!user) {
-    sessions.delete(token);
+    purgeUserSessions(sessions, session.userId);
     return null;
   }
   return user;
@@ -28,8 +35,7 @@ function requireAuth(req, res, searchParams, sessions, index, sendJson) {
     return null;
   }
   if (String(user.status || 'active') !== 'active') {
-    const token = parseAuthToken(req);
-    if (token) sessions.delete(token);
+    purgeUserSessions(sessions, user.id);
     sendJson(res, 403, { error: 'account_disabled' });
     return null;
   }
