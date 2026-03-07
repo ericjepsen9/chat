@@ -144,6 +144,13 @@ function syncSellerProducts(){
   renderSellerProductsManage();
 }
 
+async function refreshProductViews(){
+  await Promise.all([loadMyProducts(), loadSellerProductsManage(), loadMall()]);
+  if (state.currentProfileUser?.id && state.currentProfileUser.id === state.currentUser?.id) {
+    await loadProfileStore(state.currentUser.id);
+  }
+}
+
 async function loadSellerProductsManage(){
   if(!state.currentUser?.id) return;
   try {
@@ -3134,7 +3141,26 @@ function bindAllEvents() {
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
-  on("publishProductEntryBtn", "click", () => { window.openSecondaryPage("publishProductPage"); $("productTitleInput").value = ""; $("productCategoryInput").value = ""; $("productDescInput").value = ""; $("productPriceInput").value = ""; $("productStockInput").value = ""; $("productSpecsInput").value = ""; $("productImagePreview").textContent = "+"; $("productImageInput").value = ""; state.tempProductImage = null; if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; } setPublishProductHint("可发布多个商品，买家可在你的主页直接多选下单", "muted"); });
+  function openPublishProductPage(backTo = 'home') {
+    window.openSecondaryPage('publishProductPage', backTo);
+    if($("productTitleInput")) $("productTitleInput").value = "";
+    if($("productCategoryInput")) $("productCategoryInput").value = "";
+    if($("productDescInput")) $("productDescInput").value = "";
+    if($("productPriceInput")) $("productPriceInput").value = "";
+    if($("productStockInput")) $("productStockInput").value = "";
+    if($("productSpecsInput")) $("productSpecsInput").value = "";
+    if($("productImagePreview")) $("productImagePreview").textContent = "+";
+    if($("productImageInput")) $("productImageInput").value = "";
+    state.tempProductImage = null;
+    if($("submitProductBtn")){
+      $("submitProductBtn").disabled = false;
+      $("submitProductBtn").textContent = "立即发布到商城";
+    }
+    setPublishProductHint("可发布多个商品，买家可在你的主页直接多选下单", "muted");
+  }
+
+  on("publishProductEntryBtn", "click", () => { openPublishProductPage('mall'); });
+  on("sellerProductsPublishBtn", "click", () => { openPublishProductPage('sellerProductsPage'); });
   on("productImagePreview", "click", () => { if($("productImageInput")) $("productImageInput").click(); });
   
   on("productImageInput", "change", async () => {
@@ -3180,8 +3206,12 @@ function bindAllEvents() {
           setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
           alert("发布成功！");
           if($("submitProductBtn")) $("submitProductBtn").textContent = "立即发布到商城";
-          if($("backBtn")) $("backBtn").click();
-          loadMall();
+          await refreshProductViews();
+          if (state.secondaryReturn === 'sellerProductsPage') {
+            window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
+          } else if($("backBtn")) {
+            $("backBtn").click();
+          }
       } catch(e) {
           setPublishProductHint(e.message || '发布失败，请稍后再试', 'error');
           alert(e.message);
@@ -3797,6 +3827,7 @@ async function loadMyProducts() {
     });
   } catch(e){
     console.warn('load my products failed', e);
+    const list = $("myProductsList");
     if (list) {
       const empty = document.createElement('div');
       empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;';

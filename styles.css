@@ -1695,3 +1695,12 @@ input, textarea { font-size: var(--font-body); }
 #profileView > button.chat-item {
   margin-bottom: 1px;
 }
+
+
+.seller-products-toolbar{
+  margin: 0 16px 12px;
+}
+.seller-products-toolbar .primary-btn{
+  width: 100%;
+  background:#ff9500;
+}
