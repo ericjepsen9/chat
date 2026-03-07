@@ -79,6 +79,7 @@ const phoneCodeStore = new Map();
 const phoneCodeCooldownStore = new Map();
 const phoneCodeIpCooldownStore = new Map();
 const phoneCodeVerifyAttempts = new Map();
+const phoneCodeVerifyIpAttempts = new Map();
 const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
 const PHONE_CODE_IP_COOLDOWN_MS = 3 * 1000;
 const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
@@ -114,6 +115,11 @@ function cleanupExpiredPhoneCodeState() {
     const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
     const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
     if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
+  }
+  for (const [ip, state] of phoneCodeVerifyIpAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyIpAttempts.delete(ip);
   }
 }
 
@@ -731,6 +737,35 @@ function recordLoginAttempt(key, success) {
 
 
 
+function getPhoneCodeIpAttemptState(ip) {
+  const now = Date.now();
+  const existing = phoneCodeVerifyIpAttempts.get(ip) || { count: 0, windowStart: now, blockedUntil: 0 };
+  if (existing.blockedUntil && existing.blockedUntil > now) return existing;
+  if (now - Number(existing.windowStart || now) > 10 * 60 * 1000) {
+    const reset = { count: 0, windowStart: now, blockedUntil: 0 };
+    phoneCodeVerifyIpAttempts.set(ip, reset);
+    return reset;
+  }
+  return existing;
+}
+
+function recordPhoneCodeIpAttempt(ip, success) {
+  if (!ip) return;
+  const now = Date.now();
+  const state = getPhoneCodeIpAttemptState(ip);
+  if (success) {
+    phoneCodeVerifyIpAttempts.delete(ip);
+    return;
+  }
+  const next = {
+    count: Number(state.count || 0) + 1,
+    windowStart: state.windowStart || now,
+    blockedUntil: state.blockedUntil || 0,
+  };
+  if (next.count >= 20) next.blockedUntil = now + 10 * 60 * 1000;
+  phoneCodeVerifyIpAttempts.set(ip, next);
+}
+
 function cleanupAuthState() {
   const now = Date.now();
   for (const [token, session] of sessions.entries()) {
@@ -958,6 +993,11 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
+      const clientIp = getClientIp(req);
+      const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
+      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
+        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
+      }
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
       const user = findUserByPhone(phone);
@@ -965,9 +1005,11 @@ const server = http.createServer(async (req, res) => {
       if (!ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
       const codeResult = consumePhoneCode(phone, code, 'login');
       if (!codeResult.ok) {
+        recordPhoneCodeIpAttempt(clientIp, false);
         const statusCode = codeResult.retryAfterSec ? 429 : 400;
         return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
       }
+      recordPhoneCodeIpAttempt(clientIp, true);
       const token = issueSession(user.id);
       return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
     }
@@ -977,6 +1019,11 @@ const server = http.createServer(async (req, res) => {
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
       const nextPassword = String(body.newPassword || '');
+      const clientIp = getClientIp(req);
+      const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
+      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
+        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
+      }
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
@@ -985,9 +1032,11 @@ const server = http.createServer(async (req, res) => {
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'reset');
       if (!codeResult.ok) {
+        recordPhoneCodeIpAttempt(clientIp, false);
         const statusCode = codeResult.retryAfterSec ? 429 : 400;
         return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
       }
+      recordPhoneCodeIpAttempt(clientIp, true);
       if (await verifyPasswordAsync(nextPassword, user.password)) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
