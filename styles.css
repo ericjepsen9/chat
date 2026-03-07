@@ -57,7 +57,7 @@ input, textarea { font-size: var(--font-body); }
 .primary-btn { background: var(--brand); color: #fff; border: none; padding: 14px 16px; border-radius: var(--radius-card); font-size: var(--font-body); font-weight: 600; cursor: pointer; text-align: center; min-height: 44px; }
 
 /* 结构骨架 */
-.mobile-shell { width: min(414px, calc(100vw - 24px)); max-width: 414px; margin: 0 auto; height: min(896px, 96vh); background: var(--bg); border-radius: 32px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.15); position: relative; }
+.mobile-shell { width: 100%; max-width: 414px; height: min(896px, 96vh); background: var(--bg); border-radius: 32px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.15); position: relative; }
 .topbar { flex-shrink: 0; background: rgba(255, 255, 255, 0.95); border-bottom: 0.5px solid var(--line); padding: max(16px, env(safe-area-inset-top)) 16px 12px; display: flex; justify-content: space-between; align-items: center; z-index: 10; position: relative; }
 .top-left, .top-right { width: 40px; height: 40px; display:flex; align-items:center; justify-content:center; }
 .topbar-title { position: absolute; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; width: 60%; }
@@ -1675,4 +1675,23 @@ input, textarea { font-size: var(--font-body); }
   font-size:14px;
   font-weight:600;
   z-index:1;
+}
+
+/* V64: only fix "我" page list insets (do not re-center whole page shell) */
+#profileView {
+  padding: 10px 12px 14px;
+}
+
+#profileView > .chat-item,
+#profileView > button.chat-item {
+  margin: 0;
+  border-radius: 12px;
+}
+
+#myProfileCard {
+  margin: 0 0 8px;
+}
+
+#profileView > button.chat-item {
+  margin-bottom: 1px;
 }
