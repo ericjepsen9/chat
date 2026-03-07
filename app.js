@@ -487,7 +487,8 @@ function renderProfileStore(){
     title.textContent = item.title || '未命名商品';
     const desc = document.createElement('div');
     desc.className = 'profile-store-desc';
-    desc.textContent = item.desc || '商品详情页包含图片、文字与价格';
+    const categoryText = item.category ? `【${item.category}】` : '';
+    desc.textContent = `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`;
     const price = document.createElement('div');
     price.className = 'profile-store-price';
     price.textContent = formatMoney(item.price);
@@ -1091,8 +1092,8 @@ async function sendContactCardInChat(){
       cardType:'名片',
       userId: picked.id,
       title: picked.remark || picked.displayName || picked.username || '好友名片',
-      description:`ChatTrade ID：${picked.appNumberId || picked.username || '-'}`,
-      meta:'点击查看个人主页',
+      description:`ID：${picked.appNumberId || picked.username || '-'}`,
+      meta:'个人名片',
       imageUrl: picked.avatarUrl || '',
     },
   });
@@ -1272,11 +1273,16 @@ async function resizeImageFile(file, max = 1080, quality = 0.7) {
   return canvasToBlob(canvas, 'image/jpeg', quality);
 }
 async function uploadBinary(blob, fileName, contentType) {
+  const safeFileName = String(fileName || 'upload.bin')
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 120) || 'upload.bin';
   const res = await api('/api/upload', {
     method: 'POST',
     headers: {
       'Content-Type': contentType || blob.type || 'application/octet-stream',
-      'X-File-Name': fileName || 'upload.bin'
+      'X-File-Name': safeFileName
     },
     body: blob
   });
@@ -1410,43 +1416,53 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         card.classList.add('contact-card-message');
       }
       const safeImage = normalizeMediaUrl(c.imageUrl || '');
-      if (safeImage) {
-        if (isContactCard) {
-          const head = document.createElement('div');
-          head.className = 'contact-card-message-head';
+      if (isContactCard) {
+        const head = document.createElement('div');
+        head.className = 'contact-card-message-head';
+        if (safeImage) {
           const avatar = document.createElement('img');
           avatar.className = 'contact-card-message-avatar';
           avatar.src = safeImage;
           head.appendChild(avatar);
-          const headTitle = document.createElement('div');
-          headTitle.className = 'trade-card-title';
-          headTitle.textContent = c.title || '好友名片';
-          head.appendChild(headTitle);
-          card.appendChild(head);
         } else {
-          const img = document.createElement('img');
-          img.className = 'trade-card-img';
-          img.src = safeImage;
-          img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
-          card.appendChild(img);
+          const avatar = document.createElement('div');
+          avatar.className = 'contact-card-message-avatar-fallback';
+          avatar.textContent = firstChar(c.title || '友');
+          head.appendChild(avatar);
         }
+        const headMeta = document.createElement('div');
+        const headTitle = document.createElement('div');
+        headTitle.className = 'trade-card-title';
+        headTitle.textContent = c.title || '好友名片';
+        const label = document.createElement('div');
+        label.className = 'contact-card-label';
+        label.textContent = c.meta || '个人名片';
+        headMeta.append(headTitle, label);
+        head.appendChild(headMeta);
+        card.appendChild(head);
+      } else if (safeImage) {
+        const img = document.createElement('img');
+        img.className = 'trade-card-img';
+        img.src = safeImage;
+        img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
+        card.appendChild(img);
       }
-      if (!(isContactCard && safeImage)) {
+      if (!isContactCard) {
         const title = document.createElement('div');
         title.className = 'trade-card-title';
         title.textContent = c.title || '闲置';
         card.appendChild(title);
       }
       const desc = document.createElement('div');
-      desc.style.fontSize = '12px';
-      desc.style.color = 'var(--text-muted)';
-      desc.style.marginBottom = '4px';
+      desc.className = 'trade-card-sub';
       desc.textContent = c.description || '';
       card.appendChild(desc);
-      const meta = document.createElement('div');
-      meta.className = 'trade-card-price';
-      meta.textContent = c.meta || '';
-      card.appendChild(meta);
+      if (!isContactCard) {
+        const meta = document.createElement('div');
+        meta.className = 'trade-card-price';
+        meta.textContent = c.meta || '';
+        card.appendChild(meta);
+      }
       if (isContactCard && c.userId) {
         card.classList.add('clickable-card');
         card.addEventListener('click', (e) => {
@@ -2958,7 +2974,7 @@ function bindAllEvents() {
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
-  on("publishProductEntryBtn", "click", () => { window.openSecondaryPage("publishProductPage"); $("productTitleInput").value = ""; $("productDescInput").value = ""; $("productPriceInput").value = ""; $("productImagePreview").textContent = "+"; $("productImageInput").value = ""; state.tempProductImage = null; if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; } setPublishProductHint("可发布在个人主页，支持直接加减下单", "muted"); });
+  on("publishProductEntryBtn", "click", () => { window.openSecondaryPage("publishProductPage"); $("productTitleInput").value = ""; $("productCategoryInput").value = ""; $("productDescInput").value = ""; $("productPriceInput").value = ""; $("productSpecsInput").value = ""; $("productImagePreview").textContent = "+"; $("productImageInput").value = ""; state.tempProductImage = null; if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; } setPublishProductHint("可发布多个商品，买家可在你的主页直接多选下单", "muted"); });
   on("productImagePreview", "click", () => { if($("productImageInput")) $("productImageInput").click(); });
   
   on("productImageInput", "change", async () => {
@@ -2984,8 +3000,13 @@ function bindAllEvents() {
 
   on("submitProductBtn", "click", async () => {
       const title = $("productTitleInput").value.trim();
+      const category = $("productCategoryInput")?.value.trim() || '';
       const desc = $("productDescInput").value.trim();
+      const specsRaw = $("productSpecsInput")?.value.trim() || '';
       const price = $("productPriceInput").value.trim();
+      const specs = specsRaw
+        ? specsRaw.split('/').map((s) => s.trim()).filter(Boolean).slice(0, 12)
+        : [];
       const parsedPrice = parseMoney(price);
       if(title.length < 2){ setPublishProductHint('商品名称至少 2 个字', 'error'); return; }
       if(parsedPrice <= 0){ setPublishProductHint('请输入有效售价', 'error'); return; }
@@ -2993,7 +3014,7 @@ function bindAllEvents() {
       if($("submitProductBtn")){ $("submitProductBtn").disabled = true; $("submitProductBtn").textContent = "发布中..."; }
       setPublishProductHint('正在发布商品…');
       try {
-          await api('/api/products', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, title, desc, price: parsedPrice, image: state.tempProductImage }) });
+          await api('/api/products', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, title, category, desc, specs, price: parsedPrice, image: state.tempProductImage }) });
           setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
           alert("发布成功！");
           if($("submitProductBtn")) $("submitProductBtn").textContent = "立即发布到商城";

@@ -135,8 +135,10 @@
         <section id="publishProductPage" class="chat-list-view hidden" style="background:#f2f2f6;">
           <div style="background:#fff; padding:16px;">
              <input id="productTitleInput" type="text" placeholder="商品名称 (如：二手AirPods)" style="width:100%; border:none; border-bottom:1px solid var(--line); padding:10px 0; font-size:18px; outline:none;" />
+             <input id="productCategoryInput" type="text" placeholder="商品分类 (如：数码/日用/零食)" style="width:100%; border:none; border-bottom:1px solid var(--line); padding:10px 0; font-size:15px; outline:none;" />
              <textarea id="productDescInput" placeholder="描述一下商品转让原因、新旧程度..." rows="4" style="width:100%; border:none; outline:none; padding:10px 0; font-size:15px; margin-top:10px; resize:none;"></textarea>
              <input id="productPriceInput" type="number" placeholder="价格 (¥)" style="width:100%; border:none; border-bottom:1px solid var(--line); padding:10px 0; font-size:18px; outline:none; margin-bottom:10px;" />
+             <input id="productSpecsInput" type="text" placeholder="规格（可选，使用 / 分隔，如：大份/中份/小份）" style="width:100%; border:none; border-bottom:1px solid var(--line); padding:10px 0; font-size:15px; outline:none; margin-bottom:10px;" />
              <div id="productImagePreview" style="width:100px; height:100px; background:#f2f2f6; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#b2b2b2; font-size:30px; cursor:pointer; overflow:hidden;">+</div>
              <input type="file" id="productImageInput" accept="image/*" class="hidden" />
              <div id="productPublishHint" class="publish-hint">可发布在个人主页，支持直接加减下单</div>

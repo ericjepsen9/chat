@@ -10,8 +10,12 @@ function isValidMediaUrl(value) {
 
 function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist, broadcastAll }) {
   const title = normalizeText(body.title, 80);
+  const category = normalizeText(body.category, 24);
   const desc = normalizeText(body.desc, 500);
   const price = normalizeText(body.price, 24);
+  const specs = Array.isArray(body.specs)
+    ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
+    : [];
   const image = String(body.image || '').trim().slice(0, 512);
   if (!title || !price || !image) {
     return { ok: false, status: 400, error: 'missing_fields' };
@@ -23,9 +27,11 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   authUser.products.unshift({
     id: uid('p'),
     title,
+    category,
     desc,
     price,
     image,
+    specs,
     createdAt: Date.now(),
   });
   rebuildMallIndex();
