@@ -412,6 +412,7 @@ function rebuildConversationBaseIndex() {
         title: rel?.remark || peer?.displayName || '未知用户',
         peerAvatarUrl: peer?.avatarUrl,
         peerAppNumberId: peer?.appNumberId,
+        peerIsFriend: !!rel,
       });
     }
   }

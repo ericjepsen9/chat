@@ -1073,7 +1073,9 @@ function applyChatRelationshipState(){
   if(!$("chatSubtitle")) return;
   const peerId = conversationPeerId(state.activeConversation);
   if(!peerId) { $("chatSubtitle").textContent = ''; return; }
-  $("chatSubtitle").textContent = isFriendUser(peerId) ? '单聊' : '对方还不是你的好友';
+  const convFriendState = state.activeConversation?.peerIsFriend === true
+    || (state.conversations || []).find((c) => c.id === state.activeConversation?.id)?.peerIsFriend === true;
+  $("chatSubtitle").textContent = (convFriendState || isFriendUser(peerId)) ? '单聊' : '对方还不是你的好友';
 }
 
 
@@ -2720,7 +2722,7 @@ function stopScanCamera(keepVideoHidden = false){
 window.openConversation = async (id, options = {}) => {
   const { skipFetch = false } = options;
   const conv = state.conversations.find(c => c.id === id);
-  state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
+  state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
   state.peerLastReadAt = state.activeConversation.peerLastReadAt; 
   if (conv) {
     conv.unread = 0;
@@ -3907,6 +3909,7 @@ async function loadFriends() {
       members.forEach((item) => { const itemKey = `${groupName}::${item.friend.id}`; nextFriendItemSignatures[itemKey] = buildFriendItemSignature(item, groupName); });
     });
     state.friendItemSignatures = nextFriendItemSignatures;
+    if (state.activeConversation?.id) applyChatRelationshipState();
   } catch(e) {
     console.warn('load friends failed', e);
     const container = $("friendList");
@@ -4592,6 +4595,7 @@ async function loadConversations() {
       if (next) Object.assign(state.activeConversation, {
         title: next.title || state.activeConversation.title,
         peerAvatarUrl: next.peerAvatarUrl || state.activeConversation.peerAvatarUrl,
+        peerIsFriend: next.peerIsFriend === true,
         muted: !!next.muted,
         pinned: !!next.pinned,
         clearedAt: next.clearedAt || 0,
@@ -4600,6 +4604,7 @@ async function loadConversations() {
         lastMessageAt: next.lastMessageAt || 0,
         preview: next.preview || ''
       });
+      applyChatRelationshipState();
     }
     sortConversationsInPlace();
     renderConversationListFromState();
