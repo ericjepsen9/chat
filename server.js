@@ -3,6 +3,25 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
+const { promisify } = require('util');
+const { isAdmin, normalizeUserRole, canAccessConversation } = require('./server_roles');
+const { parseAuthToken, requireAuth, requireAdmin } = require('./server_auth');
+const { createFriendRequest, acceptFriendRequest, rejectFriendRequest } = require('./friend_request_service');
+const { queryOrders } = require('./order_query_service');
+const { createOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange } = require('./order_mutation_service');
+const { buildAdminDashboardData } = require('./admin_dashboard_service');
+const { createPersistence } = require('./server_persistence');
+const { updateBlacklist } = require('./blacklist_service');
+const { createGroup, renameGroup, reorderGroup, deleteGroup } = require('./group_service');
+const { updateFriendRemark, updateFriendGroup, deleteFriendRelation } = require('./friend_relation_service');
+const { createDirectConversation } = require('./conversation_service');
+const { createProduct, deleteProduct } = require('./product_service');
+const { updateUserProfile, buildUserProfileView } = require('./user_profile_service');
+const { buildUserStoreItems, queryMallItems } = require('./catalog_service');
+const { createBroadcastMessage } = require('./broadcast_service');
+const { listFriendRequests, listFriends, listConversations } = require('./social_query_service');
+const { deleteConversationMessage, recallConversationMessage, applyConversationAction } = require('./conversation_action_service');
+const { listConversationMessages, createConversationMessage } = require('./conversation_message_service');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -24,6 +43,8 @@ function makeSalt() {
   return crypto.randomBytes(16).toString('hex');
 }
 
+const scryptAsync = promisify(crypto.scrypt);
+
 function hashPassword(password, salt = makeSalt()) {
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
   return `${salt}:${hash}`;
@@ -39,60 +60,123 @@ function verifyPassword(password, stored) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function appendWal(event, payload = {}) {
-  const line = JSON.stringify({ ts: Date.now(), event, payload });
-  try {
-    fs.appendFileSync(MSG_WAL_FILE, `${line}\n`);
-  } catch (_) {}
+async function hashPasswordAsync(password, salt = makeSalt()) {
+  const hash = (await scryptAsync(String(password), salt, 64)).toString('hex');
+  return `${salt}:${hash}`;
 }
 
-
-function truncateWalIfLarge(maxBytes = 5 * 1024 * 1024) {
-  try {
-    const st = fs.statSync(MSG_WAL_FILE);
-    if (st.size <= maxBytes) return;
-    // Keep last maxBytes/2 bytes to retain recent audit trail.
-    const keep = Math.floor(maxBytes / 2);
-    const fd = fs.openSync(MSG_WAL_FILE, 'r');
-    const buf = Buffer.allocUnsafe(keep);
-    fs.readSync(fd, buf, 0, keep, st.size - keep);
-    fs.closeSync(fd);
-    fs.writeFileSync(MSG_WAL_FILE, buf);
-  } catch (_) {}
+async function verifyPasswordAsync(password, stored) {
+  if (typeof stored !== 'string' || !stored) return false;
+  if (!stored.includes(':')) return String(password) === stored;
+  const [salt, hash] = stored.split(':');
+  const actual = (await scryptAsync(String(password), salt, 64)).toString('hex');
+  const a = Buffer.from(hash, 'hex');
+  const b = Buffer.from(actual, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function clearWal() {
-  try {
-    fs.writeFileSync(MSG_WAL_FILE, '');
-  } catch (_) {}
+const phoneCodeStore = new Map();
+const phoneCodeCooldownStore = new Map();
+const phoneCodeIpCooldownStore = new Map();
+const phoneCodeVerifyAttempts = new Map();
+const phoneCodeVerifyIpAttempts = new Map();
+const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
+const PHONE_CODE_IP_COOLDOWN_MS = 3 * 1000;
+const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
+const PHONE_CODE_VERIFY_BLOCK_MS = 10 * 60 * 1000;
+const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
+
+function normalizePhone(phone) {
+  const raw = String(phone || '').trim();
+  const normalized = raw.replace(/\s+/g, '');
+  if (!/^1\d{10}$/.test(normalized)) return '';
+  return normalized;
 }
 
-
-function formatCallDuration(totalSec) {
-  const sec = Math.max(0, Number(totalSec) || 0);
-  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
-  const ss = String(sec % 60).padStart(2, '0');
-  return `${mm}:${ss}`;
+function findUserByPhone(phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+  return db.users.find((u) => String(u.phone || '') === normalized) || null;
 }
 
-function buildCallHistoryText(body = {}) {
-  const modeLabel = body.mode === 'video' ? '视频通话' : '语音通话';
-  const durationSec = Math.max(0, Number(body.durationSec) || 0);
-  if (body.event === 'start' || body.event === 'accept') return '';
-  if (body.event === 'cancel') return `已取消${modeLabel}`;
-  if (body.reason === 'busy') return `${modeLabel}（对方忙线）`;
-  if (body.reason === 'timeout') return body.event === 'reject' ? `未接${modeLabel}` : `${modeLabel}（对方无应答）`;
-  if (body.reason === 'disconnect') {
-    return durationSec > 0 ? `${modeLabel} ${formatCallDuration(durationSec)}` : `${modeLabel}（已中断）`;
+function cleanupExpiredPhoneCodeState() {
+  const now = Date.now();
+  for (const [key, record] of phoneCodeStore.entries()) {
+    if (!record || record.expiresAt < now) phoneCodeStore.delete(key);
   }
-  if (body.reason === 'pagehide') {
-    return durationSec > 0 ? `${modeLabel} ${formatCallDuration(durationSec)}` : `已取消${modeLabel}`;
+  for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
+    if (!cooldownUntil || cooldownUntil < now) phoneCodeCooldownStore.delete(key);
   }
-  if (body.event === 'reject') return `已拒绝${modeLabel}`;
-  if (body.event === 'end') {
-    return durationSec > 0 ? `${modeLabel} ${formatCallDuration(durationSec)}` : `${modeLabel}（已结束）`;
+  for (const [key, cooldownUntil] of phoneCodeIpCooldownStore.entries()) {
+    if (!cooldownUntil || cooldownUntil < now) phoneCodeIpCooldownStore.delete(key);
   }
-  return `${modeLabel}（通话状态更新）`;
+  for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
+  }
+  for (const [ip, state] of phoneCodeVerifyIpAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyIpAttempts.delete(ip);
+  }
+}
+
+function issuePhoneCode(phone, scene = 'login') {
+  cleanupExpiredPhoneCodeState();
+  const normalized = normalizePhone(phone);
+  if (!normalized) return { ok: false, error: '手机号格式错误' };
+  const key = `${scene}:${normalized}`;
+  const now = Date.now();
+  const cooldownUntil = phoneCodeCooldownStore.get(key) || 0;
+  if (cooldownUntil > now) {
+    return { ok: false, error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((cooldownUntil - now) / 1000) };
+  }
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  phoneCodeStore.set(key, { code, expiresAt: now + 5 * 60 * 1000 });
+  phoneCodeCooldownStore.set(key, now + PHONE_CODE_COOLDOWN_MS);
+  phoneCodeVerifyAttempts.delete(key);
+  return { ok: true, code, expiresInSec: 300 };
+}
+
+function ensureUserActiveForAuth(user) {
+  return String(user?.status || 'active') === 'active';
+}
+
+function consumePhoneCode(phone, code, scene = 'login') {
+  cleanupExpiredPhoneCodeState();
+  const normalized = normalizePhone(phone);
+  if (!normalized) return { ok: false, error: '验证码错误或已过期' };
+  const key = `${scene}:${normalized}`;
+  const now = Date.now();
+  const attemptState = phoneCodeVerifyAttempts.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
+  if (attemptState.blockedUntil && attemptState.blockedUntil > now) {
+    return { ok: false, error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((attemptState.blockedUntil - now) / 1000) };
+  }
+  if (now - Number(attemptState.windowStart || now) > 10 * 60 * 1000) {
+    attemptState.count = 0;
+    attemptState.windowStart = now;
+    attemptState.blockedUntil = 0;
+  }
+  const record = phoneCodeStore.get(key);
+  if (!record || record.expiresAt < now) {
+    phoneCodeStore.delete(key);
+    return { ok: false, error: '验证码错误或已过期' };
+  }
+  if (String(record.code) !== String(code || '').trim()) {
+    const nextCount = Number(attemptState.count || 0) + 1;
+    const next = { ...attemptState, count: nextCount, windowStart: attemptState.windowStart || now };
+    if (nextCount >= PHONE_CODE_MAX_VERIFY_ATTEMPTS) {
+      next.blockedUntil = now + PHONE_CODE_VERIFY_BLOCK_MS;
+      phoneCodeStore.delete(key);
+    }
+    phoneCodeVerifyAttempts.set(key, next);
+    return { ok: false, error: '验证码错误或已过期' };
+  }
+  phoneCodeStore.delete(key);
+  phoneCodeVerifyAttempts.delete(key);
+  return { ok: true };
 }
 
 function sanitizePublicUser(user) {
@@ -104,6 +188,10 @@ function sanitizePublicUser(user) {
     avatarUrl: user.avatarUrl,
     appNumberId: user.appNumberId,
     customGroups: user.customGroups,
+    role: normalizeUserRole(user),
+    status: user.status || 'active',
+    paymentCodes: user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' },
+    phone: user.phone || '',
   };
 }
 
@@ -114,8 +202,8 @@ function defaultDb() {
   const now = Date.now();
   return {
     users: [
-      { id: alice, username: 'alice', password: hashPassword('1234'), displayName: 'Alice', signature: '热爱生活', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '家人', '同事'], appNumberId: 'CT10001', createdAt: now },
-      { id: bob, username: 'bob', password: hashPassword('1234'), displayName: 'Bob', signature: '专注数码', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '同学'], appNumberId: 'CT10002', createdAt: now },
+      { id: alice, username: 'alice', password: hashPassword('1234'), displayName: 'Alice', signature: '热爱生活', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '家人', '同事'], appNumberId: 'CT10001', createdAt: now, role: 'admin', status: 'active', paymentCodes: { wechat:'', alipay:'', cloudpay:'' }, phone: '13800000001' },
+      { id: bob, username: 'bob', password: hashPassword('1234'), displayName: 'Bob', signature: '专注数码', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '同学'], appNumberId: 'CT10002', createdAt: now, role: 'user', status: 'active', paymentCodes: { wechat:'', alipay:'', cloudpay:'' }, phone: '13800000002' },
     ],
     friendships: [
       { id: uid('f'), userId: alice, friendId: bob, group: '我的好友', remark: '' },
@@ -141,24 +229,37 @@ function getSqliteStore() {
   return sqliteStore;
 }
 
+let db = null;
+const persistence = createPersistence({
+  msgWalFile: MSG_WAL_FILE,
+  dbFile: DB_FILE,
+  getStore: getSqliteStore,
+  getDb: () => db,
+  onError: (stage, error) => {
+    console.error(`[persistence] ${stage} failed`, error);
+  },
+});
+const { appendWal, schedulePersist, schedulePersistCritical, ensureWalFile, flushNow: flushPersistenceNow, getStats: getPersistenceStats } = persistence;
+
 function loadDb() {
   const store = getSqliteStore();
   if (store) {
-    if (!fs.existsSync(MSG_WAL_FILE)) clearWal();
+    ensureWalFile();
     return store.load();
   }
   if (!fs.existsSync(DB_FILE)) {
     const db = defaultDb();
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-    if (!fs.existsSync(MSG_WAL_FILE)) clearWal();
+    ensureWalFile();
     return db;
   }
   const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  return { users: [], friendships: [], friendRequests: [], conversations: [], messages: [], orders: [], ...loaded };
+  return { users: [], friendships: [], friendRequests: [], conversations: [], messages: [], orders: [], systemMessages: [], ...loaded };
 }
 
-let db = loadDb();
+db = loadDb();
 const sessions = new Map();
+const loginAttempts = new Map();
 const index = {
   usersById: new Map(),
   usersByName: new Map(),
@@ -335,7 +436,16 @@ function rebuildIndexes() {
   for (const user of db.users) {
     if (!Array.isArray(user.blacklist)) user.blacklist = [];
     if (!Array.isArray(user.products)) user.products = [];
+    if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
+    user.paymentCodes = {
+      wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
+      alipay: String(user.paymentCodes.alipay || '').slice(0, 512),
+      cloudpay: String(user.paymentCodes.cloudpay || '').slice(0, 512),
+    };
+    user.role = normalizeUserRole(user);
+    if (!user.status) user.status = 'active';
     user.customGroups = normalizeUserCustomGroups(user.customGroups);
+    user.phone = normalizePhone(user.phone || '');
     if (!user.appNumberId) user.appNumberId = `CT${Math.floor(Math.random() * 900000 + 100000)}`;
     index.usersById.set(user.id, user);
     index.usersByName.set(user.username, user);
@@ -355,6 +465,14 @@ function rebuildIndexes() {
     addToMapArray(index.messagesByConv, msg.conversationId, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
   }
+  for (const order of db.orders || []) {
+    if (!Array.isArray(order.items)) order.items = [];
+    if (!order.status) order.status = 'accepted';
+    if (typeof order.priceAdjustmentLocked !== 'boolean') order.priceAdjustmentLocked = false;
+    if (!('pendingPrice' in order)) order.pendingPrice = null;
+    if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
+  }
+
   for (const rel of db.friendships) {
     addToMapArray(index.friendshipsByUser, rel.userId, rel);
     index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
@@ -368,45 +486,8 @@ function rebuildIndexes() {
 }
 rebuildIndexes();
 
-let persistTimer = null;
-let persistInFlight = false;
-let persistDirty = false;
-async function flushPersist() {
-  if (persistInFlight) {
-    persistDirty = true;
-    return;
-  }
-  persistInFlight = true;
-  try {
-    const store = getSqliteStore();
-    if (store) {
-      store.save(db);
-    } else {
-      const tmp = `${DB_FILE}.tmp`;
-      await fs.promises.writeFile(tmp, JSON.stringify(db, null, 2));
-      // Atomic replace on POSIX filesystems
-      await fs.promises.rename(tmp, DB_FILE);
-    }
-    appendWal('checkpoint', { at: Date.now() });
-    truncateWalIfLarge();
-  } finally {
-    persistInFlight = false;
-    if (persistDirty) {
-      persistDirty = false;
-      setTimeout(flushPersist, 10);
-    }
-  }
-}
-function schedulePersist(reason = 'update', payload = {}) {
-  appendWal(reason, payload);
-  if (persistTimer) return;
-  persistTimer = setTimeout(async () => {
-    persistTimer = null;
-    await flushPersist();
-  }, 60);
-}
-
 const sseClientsByUser = new Map();
+const sseSessionTokens = new Map();
 const sseHeartbeatByRes = new WeakMap();
 function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
@@ -562,8 +643,14 @@ function buildConversationMeta(conv, userId) {
     if (!foundPreview) {
       if (msg.type === 'image') preview = '[图片]';
       else if (msg.type === 'audio') preview = '[语音]';
-      else if (msg.type === 'card') preview = '[商品卡片]';
-      else preview = msg.text || '[消息]';
+      else if (msg.type === 'order_card') preview = '[交易提醒]';
+      else if (msg.type === 'broadcast_card') preview = '[系统消息]';
+      else if (msg.type === 'card') {
+        const cardType = String(msg.card?.cardType || '').trim();
+        if (cardType === '名片') preview = '[名片]';
+        else if (cardType === '收款码') preview = '[收款码]';
+        else preview = '[商品卡片]';
+      } else preview = msg.text || '[消息]';
       foundPreview = true;
     }
     if (msg.createdAt > lastRead && msg.senderId !== userId) unread += 1;
@@ -577,30 +664,147 @@ function matchRoute(route, target) {
   return normalized === target || normalized === `/api${target}` || normalized === target.replace(/^\/api/, '');
 }
 
-function issueSession(userId) {
+function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
   const token = crypto.randomBytes(24).toString('hex');
-  sessions.set(token, { userId, createdAt: Date.now() });
+  sessions.set(token, { userId, createdAt: Date.now(), expiresAt: Date.now() + ttlMs });
   return token;
 }
 
-function getAuthUser(req, searchParams = null) {
-  const auth = req.headers.authorization || '';
-  const match = auth.match(/^Bearer\s+(.+)$/i);
-  let token = match?.[1] || null;
-  if (!token && searchParams) token = searchParams.get('token');
-  if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  return index.usersById.get(session.userId) || null;
+function revokeSessionsForUser(userId) {
+  if (!userId) return;
+  for (const [token, session] of sessions.entries()) {
+    if (session?.userId === userId) sessions.delete(token);
+  }
 }
 
-function requireAuth(req, res, searchParams = null) {
-  const user = getAuthUser(req, searchParams);
-  if (!user) {
-    sendJson(res, 401, { error: 'unauthorized' });
+function issueSseSessionToken(userId, ttlMs = 10 * 60 * 1000) {
+  const token = crypto.randomBytes(24).toString('hex');
+  sseSessionTokens.set(token, { userId, expiresAt: Date.now() + ttlMs });
+  return token;
+}
+
+function consumeUserBySseSessionToken(token) {
+  const key = String(token || '').trim();
+  if (!key) return null;
+  const record = sseSessionTokens.get(key);
+  if (!record) return null;
+  if (!record.expiresAt || record.expiresAt < Date.now()) {
+    sseSessionTokens.delete(key);
     return null;
   }
-  return user;
+  sseSessionTokens.delete(key);
+  return index.usersById.get(record.userId) || null;
+}
+
+
+
+function normalizeIpForThrottle(raw) {
+  const value = String(raw || '').trim().slice(0, 64);
+  if (!value) return '';
+  return /^[0-9a-fA-F:.]+$/.test(value) ? value : '';
+}
+
+function getClientIp(req) {
+  const remoteIp = normalizeIpForThrottle(req.socket?.remoteAddress || '');
+  if (!TRUST_PROXY) return remoteIp;
+  const forwarded = normalizeIpForThrottle(String(req.headers['x-forwarded-for'] || '').split(',')[0]);
+  return forwarded || remoteIp;
+}
+
+function getLoginAttemptState(key) {
+  const now = Date.now();
+  const existing = loginAttempts.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
+  if (existing.blockedUntil && existing.blockedUntil > now) return existing;
+  if (now - existing.windowStart > 10 * 60 * 1000) {
+    const reset = { count: 0, windowStart: now, blockedUntil: 0 };
+    loginAttempts.set(key, reset);
+    return reset;
+  }
+  return existing;
+}
+
+function recordLoginAttempt(key, success) {
+  const now = Date.now();
+  const state = getLoginAttemptState(key);
+  if (success) {
+    loginAttempts.delete(key);
+    return;
+  }
+  const next = {
+    count: (state.count || 0) + 1,
+    windowStart: state.windowStart || now,
+    blockedUntil: state.blockedUntil || 0,
+  };
+  if (next.count >= 8) {
+    next.blockedUntil = now + 5 * 60 * 1000;
+  }
+  loginAttempts.set(key, next);
+}
+
+
+
+function getPhoneCodeIpAttemptState(ip) {
+  const now = Date.now();
+  if (!ip) return { count: 0, windowStart: now, blockedUntil: 0 };
+  const existing = phoneCodeVerifyIpAttempts.get(ip) || { count: 0, windowStart: now, blockedUntil: 0 };
+  if (existing.blockedUntil && existing.blockedUntil > now) return existing;
+  if (now - Number(existing.windowStart || now) > 10 * 60 * 1000) {
+    const reset = { count: 0, windowStart: now, blockedUntil: 0 };
+    phoneCodeVerifyIpAttempts.set(ip, reset);
+    return reset;
+  }
+  return existing;
+}
+
+function recordPhoneCodeIpAttempt(ip, success) {
+  if (!ip) return;
+  const now = Date.now();
+  const state = getPhoneCodeIpAttemptState(ip);
+  if (success) {
+    phoneCodeVerifyIpAttempts.delete(ip);
+    return;
+  }
+  const next = {
+    count: Number(state.count || 0) + 1,
+    windowStart: state.windowStart || now,
+    blockedUntil: state.blockedUntil || 0,
+  };
+  if (next.count >= 20) next.blockedUntil = now + 10 * 60 * 1000;
+  phoneCodeVerifyIpAttempts.set(ip, next);
+}
+
+function cleanupAuthState() {
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (session?.expiresAt && Number(session.expiresAt) < now) sessions.delete(token);
+  }
+  for (const [token, entry] of sseSessionTokens.entries()) {
+    if (!entry?.expiresAt || Number(entry.expiresAt) < now) sseSessionTokens.delete(token);
+  }
+  for (const [key, state] of loginAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) loginAttempts.delete(key);
+  }
+  for (const [key, record] of phoneCodeStore.entries()) {
+    if (!record?.expiresAt || Number(record.expiresAt) < now) phoneCodeStore.delete(key);
+  }
+  for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
+    if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeCooldownStore.delete(key);
+  }
+  for (const [key, cooldownUntil] of phoneCodeIpCooldownStore.entries()) {
+    if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeIpCooldownStore.delete(key);
+  }
+  for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
+  }
+  for (const [ip, state] of phoneCodeVerifyIpAttempts.entries()) {
+    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+    if (expiredBlock && staleWindow) phoneCodeVerifyIpAttempts.delete(ip);
+  }
 }
 
 function ensureActingUser(body, authUser, ...candidateKeys) {
@@ -614,12 +818,91 @@ function ensureActingUser(body, authUser, ...candidateKeys) {
   }
 }
 
+
+
+
+
+
+
+function getAuthedUser(req, res, { searchParams = null } = {}) {
+  return requireAuth(req, res, searchParams, sessions, index, sendJson);
+}
+
+async function getAuthedBody(req, res, { searchParams = null } = {}) {
+  const authUser = requireAuth(req, res, searchParams, sessions, index, sendJson);
+  if (!authUser) return null;
+  const body = await parseBody(req);
+  return { authUser, body };
+}
+
+async function getAuthedActingBody(req, res, { searchParams = null, actingKeys = [] } = {}) {
+  const authUser = requireAuth(req, res, searchParams, sessions, index, sendJson);
+  if (!authUser) return null;
+  const body = await parseBody(req);
+  ensureActingUser(body, authUser, ...actingKeys);
+  return { authUser, body };
+}
+
 function areFriends(userId, friendId) {
   return index.friendshipByPair.has(`${userId}:${friendId}`);
 }
 
 function getDirectConversation(userId, peerId) {
   return (index.convByUser.get(userId) || []).find((c) => c.type === 'direct' && c.members.includes(peerId));
+}
+
+function getOrCreateDirectConversation(userId, peerId) {
+  const existed = getDirectConversation(userId, peerId);
+  if (existed) return existed;
+  const now = Date.now();
+  const conv = {
+    id: uid('c'),
+    type: 'direct',
+    name: '',
+    ownerId: userId,
+    members: [userId, peerId],
+    announcement: '',
+    mutedBy: [],
+    pinnedBy: [],
+    lastRead: {},
+    clearedAt: {},
+    createdAt: now,
+    lastMessageAt: now,
+  };
+  db.conversations.push(conv);
+  rebuildIndexes();
+  return index.convById.get(conv.id) || conv;
+}
+
+function addTradeMessage(conversationId, payload = {}) {
+  const msg = {
+    id: uid('m'),
+    conversationId,
+    senderId: payload.senderId || null,
+    type: payload.type || 'system',
+    text: payload.text,
+    imageUrl: payload.imageUrl,
+    audioUrl: payload.audioUrl,
+    card: payload.card,
+    order: payload.order,
+    broadcast: payload.broadcast,
+    deletedBy: [],
+    createdAt: Date.now(),
+  };
+  db.messages.push(msg);
+  addToMapArray(index.messagesByConv, conversationId, msg);
+  const conv = index.convById.get(conversationId);
+  if (conv) conv.lastMessageAt = msg.createdAt;
+  broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
+  broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
+  return msg;
+}
+
+function touchConversation(conversationId) {
+  const conv = index.convById.get(conversationId);
+  if (!conv) return;
+  conv.lastMessageAt = Date.now();
+  broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
 }
 
 function removeFriendshipPair(a, b) {
@@ -661,36 +944,171 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
+      cleanupAuthState();
       return sendJson(res, 200, {
         ok: true,
         uptimeMs: Date.now() - serverStartedAt,
         walExists: fs.existsSync(MSG_WAL_FILE),
         pendingSseUsers: sseClientsByUser.size,
+        activeSessions: sessions.size,
+        persistence: getPersistenceStats(),
       });
     }
 
     if (matchRoute(pathname, '/api/login') && req.method === 'POST') {
       const body = await parseBody(req);
-      const user = index.usersByName.get(String(body.username || '').trim());
-      if (!user || !verifyPassword(body.password, user.password)) return sendJson(res, 401, { error: '账号或密码错误' });
+      const username = String(body.username || body.phone || '').trim();
+      const loginPhone = normalizePhone(body.phone || username);
+      const user = index.usersByName.get(username) || (loginPhone ? findUserByPhone(loginPhone) : null);
+      const attemptKey = `${username || loginPhone}:${getClientIp(req)}`;
+      const attemptState = getLoginAttemptState(attemptKey);
+      if (attemptState.blockedUntil && attemptState.blockedUntil > Date.now()) {
+        return sendJson(res, 429, { error: '登录尝试过多，请稍后再试' });
+      }
+      if (!user || !(await verifyPasswordAsync(body.password, user.password))) {
+        recordLoginAttempt(attemptKey, false);
+        return sendJson(res, 401, { error: '账号或密码错误' });
+      }
+      if (!ensureUserActiveForAuth(user)) {
+        return sendJson(res, 403, { error: 'account_disabled' });
+      }
+      recordLoginAttempt(attemptKey, true);
       if (!user.password.includes(':')) {
-        user.password = hashPassword(body.password);
-        schedulePersist('migrate_password', { userId: user.id });
+        user.password = await hashPasswordAsync(body.password);
+        await schedulePersistCritical('migrate_password', { userId: user.id });
       }
       const token = issueSession(user.id);
       return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
     }
 
+
+    if (matchRoute(pathname, '/api/auth/send-code') && req.method === 'POST') {
+      const body = await parseBody(req);
+      const phone = normalizePhone(body.phone || '');
+      const scene = String(body.scene || 'login');
+      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
+      if (!['login','reset'].includes(scene)) return sendJson(res, 400, { error: '验证码场景不支持' });
+      const clientIp = getClientIp(req);
+      if (clientIp) {
+        const ipCooldownUntil = Number(phoneCodeIpCooldownStore.get(clientIp) || 0);
+        if (ipCooldownUntil > Date.now()) {
+          return sendJson(res, 429, { error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((ipCooldownUntil - Date.now()) / 1000) });
+        }
+        phoneCodeIpCooldownStore.set(clientIp, Date.now() + PHONE_CODE_IP_COOLDOWN_MS);
+      }
+      const issueResult = issuePhoneCode(phone, scene);
+      if (!issueResult.ok) {
+        return sendJson(res, 429, { error: issueResult.error || '发送验证码失败', retryAfterSec: issueResult.retryAfterSec || 0 });
+      }
+      return sendJson(res, 200, EXPOSE_MOCK_PHONE_CODE ? { ok: true, mockCode: issueResult.code, expiresInSec: issueResult.expiresInSec } : { ok: true, expiresInSec: issueResult.expiresInSec });
+    }
+
+    if (matchRoute(pathname, '/api/login/phone-code') && req.method === 'POST') {
+      const body = await parseBody(req);
+      const phone = normalizePhone(body.phone || '');
+      const code = String(body.code || '').trim();
+      const clientIp = getClientIp(req);
+      const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
+      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
+        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
+      }
+      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
+      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
+      const user = findUserByPhone(phone);
+      if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      if (!ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
+      const codeResult = consumePhoneCode(phone, code, 'login');
+      if (!codeResult.ok) {
+        recordPhoneCodeIpAttempt(clientIp, false);
+        const statusCode = codeResult.retryAfterSec ? 429 : 400;
+        return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
+      }
+      recordPhoneCodeIpAttempt(clientIp, true);
+      const token = issueSession(user.id);
+      return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
+    }
+
+    if (matchRoute(pathname, '/api/password/forgot') && req.method === 'POST') {
+      const body = await parseBody(req);
+      const phone = normalizePhone(body.phone || '');
+      const code = String(body.code || '').trim();
+      const nextPassword = String(body.newPassword || '');
+      const clientIp = getClientIp(req);
+      const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
+      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
+        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
+      }
+      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
+      if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
+      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
+      if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
+      const user = findUserByPhone(phone);
+      if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      const codeResult = consumePhoneCode(phone, code, 'reset');
+      if (!codeResult.ok) {
+        recordPhoneCodeIpAttempt(clientIp, false);
+        const statusCode = codeResult.retryAfterSec ? 429 : 400;
+        return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
+      }
+      recordPhoneCodeIpAttempt(clientIp, true);
+      if (await verifyPasswordAsync(nextPassword, user.password)) {
+        return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
+      }
+      user.password = await hashPasswordAsync(nextPassword);
+      revokeSessionsForUser(user.id);
+      await schedulePersistCritical('password_forgot_reset', { userId: user.id });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (matchRoute(pathname, '/api/password/change') && req.method === 'POST') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      const body = await parseBody(req);
+      if (!(await verifyPasswordAsync(body.oldPassword, authUser.password))) {
+        return sendJson(res, 400, { error: '旧密码错误' });
+      }
+      const nextPassword = String(body.newPassword || '');
+      if (String(body.oldPassword || '') === nextPassword) {
+        return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
+      }
+      if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
+      authUser.password = await hashPasswordAsync(nextPassword);
+      revokeSessionsForUser(authUser.id);
+      const token = issueSession(authUser.id);
+      await schedulePersistCritical('password_change', { userId: authUser.id });
+      return sendJson(res, 200, { ok: true, token });
+    }
+
+
+    if (matchRoute(pathname, '/api/logout') && req.method === 'POST') {
+      const authUser = getAuthedUser(req, res);
+      if (!authUser) return;
+      const token = parseAuthToken(req, searchParams);
+      if (token) sessions.delete(token);
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (matchRoute(pathname, '/api/register') && req.method === 'POST') {
       const body = await parseBody(req);
       if (!body.displayName || !body.username || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
+      const displayName = String(body.displayName).trim();
       const username = String(body.username).trim();
+      if (!displayName) return sendJson(res, 400, { error: '昵称不能为空' });
+      if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+        return sendJson(res, 400, { error: '登录账号需为3-32位英文、数字或下划线' });
+      }
+      if (String(body.password || '').length < 4) {
+        return sendJson(res, 400, { error: '密码至少4位' });
+      }
+      const phone = normalizePhone(body.phone || '');
+      if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
       if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该登录账号已被注册，请更换账号' });
+      if (phone && findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const user = {
         id: uid('u'),
         username,
-        password: hashPassword(body.password),
-        displayName: String(body.displayName).trim(),
+        password: await hashPasswordAsync(body.password),
+        displayName,
         signature: '暂未填写签名',
         avatarUrl: null,
         products: [],
@@ -698,10 +1116,14 @@ const server = http.createServer(async (req, res) => {
         customGroups: ['我的好友'],
         appNumberId: `CT${Math.floor(Math.random() * 900000 + 100000)}`,
         createdAt: Date.now(),
+        role: 'user',
+        status: 'active',
+        paymentCodes: { wechat:'', alipay:'', cloudpay:'' },
+        phone,
       };
       db.users.push(user);
       rebuildIndexes();
-      schedulePersist('register', { userId: user.id });
+      await schedulePersistCritical('register', { userId: user.id });
       const token = issueSession(user.id);
       broadcastAll('users_updated', { userId: user.id });
       return sendJson(res, 201, { token, user: sanitizePublicUser(user) });
@@ -709,7 +1131,7 @@ const server = http.createServer(async (req, res) => {
 
 
     if (matchRoute(pathname, '/api/upload') && req.method === 'POST') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const contentType = String(req.headers['content-type'] || '').toLowerCase();
       if (!(contentType.startsWith('image/') || contentType.startsWith('audio/'))) {
@@ -727,9 +1149,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { url: `/uploads/${storedName}`, contentType, size: raw.length });
     }
 
-    if (matchRoute(pathname, '/api/events') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+    if (matchRoute(pathname, '/api/events/token') && req.method === 'POST') {
+      const authUser = getAuthedUser(req, res);
       if (!authUser) return;
+      const sseToken = issueSseSessionToken(authUser.id);
+      return sendJson(res, 200, { sseToken, expiresInMs: 10 * 60 * 1000 });
+    }
+
+    if (matchRoute(pathname, '/api/events') && req.method === 'GET') {
+      const sseToken = searchParams.get('sse') || '';
+      if (!sseToken) return sendJson(res, 401, { error: 'sse_token_required' });
+      const authUser = consumeUserBySseSessionToken(sseToken);
+      if (!authUser) return sendJson(res, 401, { error: 'invalid_sse_token' });
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
@@ -747,7 +1178,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (matchRoute(pathname, '/api/users') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const users = db.users
         .filter((u) => u.id !== authUser.id)
@@ -756,563 +1187,498 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (matchRoute(pathname, '/api/users/update') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      if (body.displayName !== undefined) authUser.displayName = String(body.displayName).trim() || authUser.displayName;
-      if (body.signature !== undefined) authUser.signature = String(body.signature).trim();
-      if (body.avatarUrl !== undefined) authUser.avatarUrl = body.avatarUrl || null;
-      if (Array.isArray(body.customGroups)) authUser.customGroups = normalizeUserCustomGroups(body.customGroups);
-      rebuildFriendViewsIndex();
-      rebuildConversationBaseIndex();
-      rebuildRequestViewsIndex();
-      rebuildBlacklistViewsIndex();
-      rebuildMallIndex();
-      schedulePersist('user_update', { userId: authUser.id });
-      broadcastToUser(authUser.id, 'profile_updated', {});
-      broadcastAll('mall_updated', {});
-      return sendJson(res, 200, { user: sanitizePublicUser(authUser) });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = updateUserProfile({
+        authUser: context.authUser,
+        body: context.body,
+        normalizeUserCustomGroups,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        rebuildRequestViewsIndex,
+        rebuildBlacklistViewsIndex,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastToUser,
+        broadcastAll,
+        sanitizePublicUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     const profileMatch = pathname.match(/(?:\/api)?\/users\/([^/]+)\/profile$/);
     if (profileMatch && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const targetId = profileMatch[1];
-      const target = index.usersById.get(targetId);
-      if (!target) return sendJson(res, 404, { error: 'not_found' });
-      const rel = index.friendshipByPair.get(`${authUser.id}:${targetId}`);
-      const profile = {
-        id: target.id,
-        username: target.username,
-        nickname: target.displayName,
-        avatarUrl: target.avatarUrl,
-        signature: target.signature,
-        appNumberId: target.appNumberId,
-        remarkName: rel?.remark || '',
-        groupName: rel?.group || '',
-        isFriend: !!rel,
-        customGroups: authUser.customGroups,
-      };
-      return sendJson(res, 200, { profile });
+      const result = buildUserProfileView({
+        authUser,
+        targetId,
+        usersById: index.usersById,
+        friendshipByPair: index.friendshipByPair,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
 
     const storeMatch = pathname.match(/^\/api\/users\/([^/]+)\/store$/);
     if (storeMatch && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const seller = index.usersById.get(storeMatch[1]);
-      if (!seller) return sendJson(res, 404, { error: 'not_found' });
-      const items = (seller.products || []).map((p) => ({
-        ...p,
-        imageUrl: p.image,
-        specs: Array.isArray(p.specs) ? p.specs : ['默认规格','标准版','高配版'],
-      }));
-      return sendJson(res, 200, { items });
+      const result = buildUserStoreItems({
+        usersById: index.usersById,
+        sellerId: storeMatch[1],
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/orders') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const sellerId = String(searchParams.get('sellerId') || '');
-      const userId = String(searchParams.get('userId') || authUser.id);
-      const orders = (db.orders || []).filter((o) => {
-        if (sellerId) return o.sellerId === sellerId && (o.buyerId === authUser.id || o.sellerId === authUser.id);
-        return o.buyerId === userId || o.sellerId === userId;
-      }).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
-      return sendJson(res, 200, { orders });
+      const data = queryOrders({ db, authUser, searchParams, isAdmin });
+      return sendJson(res, 200, data);
     }
 
     if (matchRoute(pathname, '/api/orders') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      const seller = index.usersById.get(body.sellerId);
-      if (!seller) return sendJson(res, 404, { error: 'not_found' });
-      const items = Array.isArray(body.items) ? body.items : [];
-      if (!items.length) return sendJson(res, 400, { error: 'empty_items' });
-      const normalized = items.map((item) => ({
-        productId: item.productId || '',
-        title: String(item.title || '').trim() || '商品',
-        spec: String(item.spec || '默认规格').trim(),
-        quantity: Math.max(1, Number(item.quantity || 1)),
-        price: Math.max(0, Number(item.price || 0)),
-      }));
-      const total = normalized.reduce((sum, item) => sum + item.price * item.quantity, 0);
-      const order = {
-        id: uid('o'),
-        buyerId: authUser.id,
-        sellerId: seller.id,
-        items: normalized,
-        total,
-        status: 'placed',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      if (!Array.isArray(db.orders)) db.orders = [];
-      db.orders.unshift(order);
-      const conv = getOrCreateDirectConversation(authUser.id, seller.id);
-      const summary = normalized.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
-      addTradeMessage(conv.id, {
-        senderId: authUser.id,
-        type: 'order_card',
-        order: {
-          id: order.id,
-          title: `新订单 · ${seller.displayName || seller.nickname || seller.username}`,
-          summary,
-          total: order.total,
-          status: order.status,
-          role: 'buyer'
-        }
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = createOrder({
+        authUser: context.authUser,
+        body: context.body,
+        db,
+        usersById: index.usersById,
+        uid,
+        getOrCreateDirectConversation,
+        addTradeMessage,
+        schedulePersist,
       });
-      conv.updatedAt = new Date().toISOString();
-      schedulePersist('order_create', { orderId: order.id, buyerId: authUser.id, sellerId: seller.id });
-      return sendJson(res, 201, { order });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     const orderPriceMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price$/);
     if (orderPriceMatch && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const order = (db.orders || []).find((o) => o.id === orderPriceMatch[1]);
-      if (!order) return sendJson(res, 404, { error: 'not_found' });
-      if (order.sellerId !== authUser.id && order.buyerId !== authUser.id) return sendJson(res, 403, { error: 'forbidden' });
-      const body = await parseBody(req);
-      order.total = Math.max(0, Number(body.total || 0));
-      order.updatedAt = Date.now();
-      order.status = 'price_updated';
-      const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
-      const summary = (order.items || []).map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
-      addTradeMessage(conv.id, {
-        senderId: authUser.id,
-        type: 'order_card',
-        order: {
-          id: order.id,
-          title: '订单价格已更新',
-          summary,
-          total: order.total,
-          status: order.status,
-          role: authUser.id === order.sellerId ? 'seller' : 'buyer'
-        }
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = updateOrderPrice({
+        authUser: context.authUser,
+        orderId: orderPriceMatch[1],
+        body: context.body,
+        db,
+        usersById: index.usersById,
+        getOrCreateDirectConversation,
+        addTradeMessage,
+        schedulePersist,
       });
-      conv.updatedAt = new Date().toISOString();
-      schedulePersist('order_update_price', { orderId: order.id });
-      return sendJson(res, 200, { order });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    const orderPriceRequestMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-request$/);
+    if (orderPriceRequestMatch && req.method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = requestOrderPriceChange({
+        authUser: context.authUser,
+        orderId: orderPriceRequestMatch[1],
+        body: context.body,
+        db,
+        usersById: index.usersById,
+        getOrCreateDirectConversation,
+        addTradeMessage,
+        schedulePersist,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    const orderPriceConfirmMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-confirm$/);
+    if (orderPriceConfirmMatch && req.method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = confirmOrderPriceChange({
+        authUser: context.authUser,
+        orderId: orderPriceConfirmMatch[1],
+        body: context.body,
+        db,
+        usersById: index.usersById,
+        getOrCreateDirectConversation,
+        addTradeMessage,
+        schedulePersist,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     const orderStatusMatch = pathname.match(/^\/api\/orders\/([^/]+)\/status$/);
     if (orderStatusMatch && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const order = (db.orders || []).find((o) => o.id === orderStatusMatch[1]);
-      if (!order) return sendJson(res, 404, { error: 'not_found' });
-      if (order.sellerId !== authUser.id && order.buyerId !== authUser.id) return sendJson(res, 403, { error: 'forbidden' });
-      const body = await parseBody(req);
-      order.status = body.status === 'completed' ? 'completed' : 'placed';
-      order.updatedAt = Date.now();
-      const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
-      const summary = (order.items || []).map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
-      addTradeMessage(conv.id, {
-        senderId: authUser.id,
-        type: 'order_card',
-        order: {
-          id: order.id,
-          title: order.status === 'completed' ? '订单已完成' : '订单状态更新',
-          summary,
-          total: order.total,
-          status: order.status,
-          role: authUser.id === order.sellerId ? 'seller' : 'buyer'
-        }
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = updateOrderStatus({
+        authUser: context.authUser,
+        orderId: orderStatusMatch[1],
+        body: context.body,
+        db,
+        usersById: index.usersById,
+        getOrCreateDirectConversation,
+        addTradeMessage,
+        schedulePersist,
       });
-      conv.updatedAt = new Date().toISOString();
-      schedulePersist('order_update_status', { orderId: order.id, status: order.status });
-      return sendJson(res, 200, { order });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     
     
+    if (pathname === '/api/system/messages' && req.method === 'GET') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      return sendJson(res, 200, { items: (db.systemMessages || []).slice(0, 30) });
+    }
+
+    if (pathname === '/api/admin/system/messages' && req.method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      if (!isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
+      const title = String(context.body.title || '').trim().slice(0, 80) || '系统消息';
+      const summary = String(context.body.summary || '').trim().slice(0, 240) || '请查看最新通知';
+      const cover = String(context.body.cover || '').trim().slice(0, 512);
+      const item = { id: uid('sys'), title, summary, cover, createdAt: Date.now(), senderId: context.authUser.id };
+      if (!Array.isArray(db.systemMessages)) db.systemMessages = [];
+      db.systemMessages.unshift(item);
+      if (db.systemMessages.length > 100) db.systemMessages.length = 100;
+      broadcastAll('system_message', { message: item });
+      await schedulePersistCritical('system_message_create', { id: item.id });
+      return sendJson(res, 201, { item });
+    }
+
     if (pathname === '/api/admin/dashboard' && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = requireAdmin(req, res, searchParams, sessions, index, sendJson, isAdmin);
       if (!authUser) return;
-      const users = db.users || [];
-      const orders = db.orders || [];
-      const products = users.flatMap((u) => Array.isArray(u.products) ? u.products.map((p) => ({ ...p, sellerId: u.id, sellerName: u.displayName || u.nickname || u.username })) : []);
-      const friendships = db.friendships || [];
-      const blacklistLinks = friendships.filter((f) => f.status === 'blacklisted').length;
-      const stats = {
-        users: users.length,
-        products: products.length,
-        orders: orders.length,
-        broadcasts: (db.messages || []).filter((m) => m.type === 'broadcast_card').length,
-        blacklistLinks,
-        pendingOrders: orders.filter((o) => o.status !== 'completed').length,
-      };
-      const recentOrders = orders.slice(0, 20).map((o) => {
-        const buyer = users.find((u) => u.id === o.buyerId);
-        const seller = users.find((u) => u.id === o.sellerId);
-        return {
-          id: o.id,
-          total: o.total,
-          status: o.status,
-          buyerName: buyer ? (buyer.displayName || buyer.nickname || buyer.username) : '买家',
-          sellerName: seller ? (seller.displayName || seller.nickname || seller.username) : '卖家',
-          summary: (o.items || []).map((i) => `${i.title} x${i.quantity}`).join('，'),
-        };
-      });
-      const userList = users.slice(0, 30).map((u) => {
-        const sellerOrderCount = orders.filter((o) => o.sellerId === u.id).length;
-        const productCount = Array.isArray(u.products) ? u.products.length : 0;
-        const blacklistCount = friendships.filter((f) => f.status === 'blacklisted' && (f.userId === u.id || f.friendId === u.id)).length;
-        return {
-          id: u.id,
-          username: u.username,
-          displayName: u.displayName || u.nickname || u.username,
-          sellerOrderCount,
-          productCount,
-          blacklistCount,
-        };
-      });
-      const productList = products.slice(0, 30).map((p) => ({
-        id: p.id,
-        title: p.title,
-        price: p.price,
-        sellerName: p.sellerName,
-      }));
-      const reportList = [];
-      if (blacklistLinks) reportList.push({ title: '黑名单关系提醒', summary: `当前共有 ${blacklistLinks} 条黑名单关系` });
-      const pending = stats.pendingOrders;
-      if (pending) reportList.push({ title: '待完成订单提醒', summary: `当前仍有 ${pending} 笔订单未完成` });
-      return sendJson(res, 200, { stats, recentOrders, userList, productList, reportList });
+      const data = buildAdminDashboardData(db);
+      return sendJson(res, 200, data);
     }
 
-const broadcastMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/broadcast$/);
+    const broadcastMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/broadcast$/);
     if (broadcastMatch && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const conversation = index.conversationsById.get(broadcastMatch[1]);
-      if (!conversation || !canAccessConversation(authUser.id, conversation)) {
-        return sendJson(res, 404, { error: 'not_found' });
-      }
-      const body = await parseBody(req);
-      const msg = addTradeMessage(conversation.id, {
-        senderId: authUser.id,
-        type: 'broadcast_card',
-        broadcast: {
-          title: String(body.title || '').trim() || '图文通知',
-          summary: String(body.summary || '').trim() || '新的图文通知',
-          cover: String(body.cover || '').trim(),
-        }
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = createBroadcastMessage({
+        conversationId: broadcastMatch[1],
+        authUser: context.authUser,
+        body: context.body,
+        index,
+        canAccessConversation,
+        addTradeMessage,
+        touchConversation,
       });
-      touchConversation(conversation.id);
-      return sendJson(res, 201, { message: msg });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
-if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      if (!body.title || !body.price || !body.image) return sendJson(res, 400, { error: 'missing_fields' });
-      authUser.products.unshift({
-        id: uid('p'),
-        title: String(body.title).trim(),
-        desc: String(body.desc || '').trim(),
-        price: String(body.price).trim(),
-        image: body.image,
-        createdAt: Date.now(),
+    if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = createProduct({
+        authUser: context.authUser,
+        body: context.body,
+        uid,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastAll,
       });
-      rebuildMallIndex();
-      schedulePersist('product_create', { userId: authUser.id });
-      broadcastAll('mall_updated', {});
-      return sendJson(res, 201, { ok: true });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/products/delete') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      authUser.products = authUser.products.filter((p) => p.id !== body.productId);
-      rebuildMallIndex();
-      schedulePersist('product_delete', { userId: authUser.id, productId: body.productId });
-      broadcastAll('mall_updated', {});
-      return sendJson(res, 200, { ok: true });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = deleteProduct({
+        authUser: context.authUser,
+        productId: context.body.productId,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastAll,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/mall') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const q = String(searchParams.get('q') || '').toLowerCase();
-      const source = index.mallItems;
-      const filtered = q ? source.filter((i) => i._searchText.includes(q)) : source;
-      const items = filtered.map(({ _searchText, ...item }) => item);
-      return sendJson(res, 200, { items });
+      const data = queryMallItems({
+        mallItems: index.mallItems,
+        keyword: searchParams.get('q') || '',
+      });
+      return sendJson(res, 200, data);
     }
 
     if (matchRoute(pathname, '/api/blacklist') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const blacklist = index.blacklistViewsByUser.get(authUser.id) || [];
       return sendJson(res, 200, { users: blacklist });
     }
 
     if (matchRoute(pathname, '/api/blacklist') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const target = index.usersById.get(body.targetId);
-      if (!target) return sendJson(res, 404, { error: 'not_found' });
-      if (body.action === 'add') {
-        if (!authUser.blacklist.includes(target.id)) authUser.blacklist.push(target.id);
-      } else {
-        authUser.blacklist = authUser.blacklist.filter((id) => id !== target.id);
-      }
-      rebuildBlacklistViewsIndex();
-      schedulePersist('blacklist_update', { userId: authUser.id, targetId: target.id, action: body.action });
-      return sendJson(res, 200, { ok: true });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = updateBlacklist({
+        authUser: context.authUser,
+        targetId: context.body.targetId,
+        action: context.body.action,
+        index,
+        rebuildBlacklistViewsIndex,
+        schedulePersist,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
-    const friendRequestHandler = async (reqBody, authUser, resObj) => {
-      ensureActingUser(reqBody, authUser, 'userId');
-      const keyword = String(reqBody.friendUsername || '').trim();
-      const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword);
-      if (!target || target.id === authUser.id) return sendJson(resObj, 404, { error: '未找到该用户' });
-      if (areFriends(authUser.id, target.id)) return sendJson(resObj, 409, { error: 'already_friends' });
-      const existingPending = (index.requestsByTarget.get(target.id) || []).find((r) => r.userId === authUser.id);
-      if (existingPending) return sendJson(resObj, 409, { error: 'request_pending' });
-      const request = { id: uid('fr'), userId: authUser.id, targetId: target.id, greeting: String(reqBody.greeting || '你好，想加你为好友').slice(0, 100), status: 'pending', createdAt: Date.now() };
-      db.friendRequests.push(request);
-      rebuildIndexes();
-      schedulePersist('friend_request', { requestId: request.id });
-      broadcastToUser(target.id, 'friend_request_updated', {});
-      return sendJson(resObj, 201, { ok: true, request });
+    const handleFriendRequestCreate = (context) => {
+      const result = createFriendRequest({
+        reqBody: context.body,
+        authUser: context.authUser,
+        index,
+        db,
+        areFriends,
+        uid,
+        rebuildIndexes,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     };
 
     if (matchRoute(pathname, '/api/friends/request') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      return friendRequestHandler(body, authUser, res);
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      return handleFriendRequestCreate(context);
     }
 
     if (matchRoute(pathname, '/api/friends') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      return friendRequestHandler(body, authUser, res);
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      return handleFriendRequestCreate(context);
     }
 
     if (matchRoute(pathname, '/api/friends/requests') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const requests = index.requestViewsByTarget.get(authUser.id) || [];
-      return sendJson(res, 200, { requests });
+      const data = listFriendRequests({
+        authUser,
+        requestViewsByTarget: index.requestViewsByTarget,
+      });
+      return sendJson(res, 200, data);
     }
 
     if (matchRoute(pathname, '/api/friends/accept') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const request = db.friendRequests.find((r) => r.id === body.requestId && r.targetId === authUser.id && r.status === 'pending');
-      if (!request) return sendJson(res, 404, { error: 'not_found' });
-      request.status = 'accepted';
-      db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: request.userId, group: '我的好友', remark: '' });
-      db.friendships.push({ id: uid('f'), userId: request.userId, friendId: authUser.id, group: '我的好友', remark: '' });
-      const existed = getDirectConversation(authUser.id, request.userId);
-      if (!existed) {
-        db.conversations.push({ id: uid('c'), type: 'direct', name: '', ownerId: authUser.id, members: [authUser.id, request.userId], announcement: '', mutedBy: [], pinnedBy: [], lastRead: {}, clearedAt: {}, createdAt: Date.now(), lastMessageAt: Date.now() });
-      }
-      rebuildIndexes();
-      schedulePersist('friend_accept', { requestId: request.id });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      broadcastToUser(request.userId, 'friends_updated', {});
-      broadcastToUser(authUser.id, 'friend_request_updated', {});
-      broadcastToUser(request.userId, 'conversation_updated', {});
-      broadcastToUser(authUser.id, 'conversation_updated', {});
-      return sendJson(res, 200, { ok: true });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = acceptFriendRequest({
+        requestId: context.body.requestId,
+        authUser: context.authUser,
+        db,
+        uid,
+        getDirectConversation,
+        rebuildIndexes,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    if (matchRoute(pathname, '/api/friends/reject') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = rejectFriendRequest({
+        requestId: context.body.requestId,
+        authUser: context.authUser,
+        db,
+        rebuildIndexes,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/friends/remark') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const rel = index.friendshipByPair.get(`${authUser.id}:${body.friendId}`);
-      if (!rel) return sendJson(res, 404, { error: 'not_found' });
-      if (body.group !== undefined) rel.group = body.group || '我的好友';
-      if (body.remark !== undefined) rel.remark = String(body.remark || '').trim();
-      rebuildFriendViewsIndex();
-      rebuildConversationBaseIndex();
-      schedulePersist('friend_remark', { userId: authUser.id, friendId: rel.friendId });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      broadcastToUser(authUser.id, 'conversation_updated', {});
-      return sendJson(res, 200, { ok: true });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = updateFriendRemark({
+        authUser: context.authUser,
+        friendId: context.body.friendId,
+        group: context.body.group,
+        remark: context.body.remark,
+        friendshipByPair: index.friendshipByPair,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        schedulePersist,
+        broadcastToUser,
+        defaultGroup: DEFAULT_GROUP,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/groups/create') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const groupName = normalizeSingleGroupName(body.name);
-      if (!groupName) return sendJson(res, 400, { error: 'invalid_group_name' });
-      if (groupName === DEFAULT_GROUP) return sendJson(res, 400, { error: 'reserved_group' });
-      const nextGroups = normalizeUserCustomGroups([...(authUser.customGroups || []), groupName]);
-      if (nextGroups.length === authUser.customGroups.length) return sendJson(res, 400, { error: 'group_exists' });
-      authUser.customGroups = nextGroups;
-      rebuildFriendViewsIndex();
-      rebuildConversationBaseIndex();
-      schedulePersist('group_create', { userId: authUser.id, groupName });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      return sendJson(res, 200, { groups: authUser.customGroups });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = createGroup({
+        authUser: context.authUser,
+        rawName: context.body.name,
+        defaultGroup: DEFAULT_GROUP,
+        normalizeSingleGroupName,
+        normalizeUserCustomGroups,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/groups/rename') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const groupName = normalizeSingleGroupName(body.groupName);
-      const newName = normalizeSingleGroupName(body.newName);
-      if (!groupName || groupName === DEFAULT_GROUP) return sendJson(res, 400, { error: 'cannot_rename_default_group' });
-      if (!newName || newName === DEFAULT_GROUP) return sendJson(res, 400, { error: 'invalid_group_name' });
-      if (!authUser.customGroups.includes(groupName)) return sendJson(res, 404, { error: 'not_found' });
-      if (authUser.customGroups.includes(newName) && newName !== groupName) return sendJson(res, 400, { error: 'group_exists' });
-      authUser.customGroups = normalizeUserCustomGroups((authUser.customGroups || []).map((name) => name === groupName ? newName : name));
-      for (const rel of index.friendshipsByUser.get(authUser.id) || []) {
-        if (rel.group === groupName) rel.group = newName;
-      }
-      rebuildFriendViewsIndex();
-      rebuildConversationBaseIndex();
-      schedulePersist('group_rename', { userId: authUser.id, groupName, newName });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      return sendJson(res, 200, { groups: authUser.customGroups });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = renameGroup({
+        authUser: context.authUser,
+        groupNameRaw: context.body.groupName,
+        newNameRaw: context.body.newName,
+        defaultGroup: DEFAULT_GROUP,
+        normalizeSingleGroupName,
+        normalizeUserCustomGroups,
+        friendshipsByUser: index.friendshipsByUser,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/groups/reorder') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const groupName = normalizeSingleGroupName(body.groupName);
-      const offset = Number(body.offset || 0);
-      if (!groupName || groupName === DEFAULT_GROUP) return sendJson(res, 400, { error: 'cannot_move_default_group' });
-      const groups = normalizeUserCustomGroups(authUser.customGroups);
-      const fromIndex = groups.indexOf(groupName);
-      if (fromIndex < 0) return sendJson(res, 404, { error: 'not_found' });
-      const toIndex = Math.max(1, Math.min(groups.length - 1, fromIndex + (offset < 0 ? -1 : 1)));
-      if (toIndex === fromIndex) return sendJson(res, 200, { groups });
-      const next = groups.slice();
-      const [picked] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, picked);
-      authUser.customGroups = normalizeUserCustomGroups(next);
-      schedulePersist('group_reorder', { userId: authUser.id, groupName, toIndex });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      return sendJson(res, 200, { groups: authUser.customGroups });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = reorderGroup({
+        authUser: context.authUser,
+        groupNameRaw: context.body.groupName,
+        offsetRaw: context.body.offset,
+        defaultGroup: DEFAULT_GROUP,
+        normalizeSingleGroupName,
+        normalizeUserCustomGroups,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/groups/delete') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const groupName = normalizeSingleGroupName(body.groupName);
-      if (!groupName || groupName === DEFAULT_GROUP) return sendJson(res, 400, { error: 'cannot_delete_default_group' });
-      if (!authUser.customGroups.includes(groupName)) return sendJson(res, 404, { error: 'not_found' });
-      authUser.customGroups = normalizeUserCustomGroups((authUser.customGroups || []).filter((name) => name !== groupName));
-      for (const rel of index.friendshipsByUser.get(authUser.id) || []) {
-        if (rel.group === groupName) rel.group = DEFAULT_GROUP;
-      }
-      rebuildFriendViewsIndex();
-      rebuildConversationBaseIndex();
-      schedulePersist('group_delete', { userId: authUser.id, groupName });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      return sendJson(res, 200, { groups: authUser.customGroups });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = deleteGroup({
+        authUser: context.authUser,
+        groupNameRaw: context.body.groupName,
+        defaultGroup: DEFAULT_GROUP,
+        normalizeSingleGroupName,
+        normalizeUserCustomGroups,
+        friendshipsByUser: index.friendshipsByUser,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/friends/group') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const rel = index.friendshipByPair.get(`${authUser.id}:${body.friendId}`);
-      if (!rel) return sendJson(res, 404, { error: 'not_found' });
-      const nextGroup = normalizeSingleGroupName(body.group) || DEFAULT_GROUP;
-      if (!authUser.customGroups.includes(nextGroup)) return sendJson(res, 400, { error: 'invalid_group' });
-      rel.group = nextGroup;
-      rebuildFriendViewsIndex();
-      rebuildConversationBaseIndex();
-      schedulePersist('friend_group', { userId: authUser.id, friendId: rel.friendId });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      return sendJson(res, 200, { ok: true });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = updateFriendGroup({
+        authUser: context.authUser,
+        friendId: context.body.friendId,
+        groupRaw: context.body.group,
+        friendshipByPair: index.friendshipByPair,
+        normalizeSingleGroupName,
+        defaultGroup: DEFAULT_GROUP,
+        schedulePersist,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/friends/delete') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'userId');
-      const friendId = body.friendId;
-      if (!index.usersById.has(friendId)) return sendJson(res, 404, { error: 'not_found' });
-      removeFriendshipPair(authUser.id, friendId);
-      rebuildIndexes();
-      const conv = getDirectConversation(authUser.id, friendId);
-      if (conv) conv.clearedAt[authUser.id] = Date.now();
-      schedulePersist('friend_delete', { userId: authUser.id, friendId });
-      broadcastToUser(authUser.id, 'friends_updated', {});
-      broadcastToUser(friendId, 'friends_updated', {});
-      broadcastToUser(authUser.id, 'conversation_updated', {});
-      return sendJson(res, 200, { ok: true });
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = deleteFriendRelation({
+        authUser: context.authUser,
+        friendId: context.body.friendId,
+        usersById: index.usersById,
+        removeFriendshipPair,
+        rebuildIndexes,
+        getDirectConversation,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (matchRoute(pathname, '/api/friends') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const friends = index.friendViewsByUser.get(authUser.id) || [];
-      return sendJson(res, 200, { friends });
+      const data = listFriends({
+        authUser,
+        friendViewsByUser: index.friendViewsByUser,
+      });
+      return sendJson(res, 200, data);
     }
 
     if (matchRoute(pathname, '/api/conversations') && req.method === 'GET') {
-      const authUser = requireAuth(req, res, searchParams);
+      const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const conversations = (index.directConvBasesByUser.get(authUser.id) || []).map((base) => {
-        const conv = index.convById.get(base.id);
-        const peerId = (conv?.members || []).find((id) => id !== authUser.id);
-        return {
-          ...base,
-          ...buildConversationMeta(conv, authUser.id),
-          pinned: Boolean(conv?.pinnedBy?.includes(authUser.id)),
-          muted: Boolean(conv?.mutedBy?.includes(authUser.id)),
-          clearedAt: conv?.clearedAt?.[authUser.id] || 0,
-          peerLastReadAt: peerId ? (conv?.lastRead?.[peerId] || 0) : 0,
-        };
-      }).sort((a, b) => {
-        if (Number(b.pinned) !== Number(a.pinned)) return Number(b.pinned) - Number(a.pinned);
-        return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
+      const data = listConversations({
+        authUser,
+        directConvBasesByUser: index.directConvBasesByUser,
+        convById: index.convById,
+        buildConversationMeta,
       });
-      return sendJson(res, 200, { conversations });
+      return sendJson(res, 200, data);
     }
 
     if (matchRoute(pathname, '/api/conversations') && req.method === 'POST') {
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      const body = await parseBody(req);
-      ensureActingUser(body, authUser, 'creatorId');
-      const peerId = (body.memberIds || [])[0];
-      if (!peerId || !index.usersById.has(peerId) || peerId === authUser.id) return sendJson(res, 400, { error: 'invalid_member' });
-      const existed = getDirectConversation(authUser.id, peerId);
-      if (existed) return sendJson(res, 200, { conversation: existed });
-      const conv = { id: uid('c'), type: 'direct', name: '', ownerId: authUser.id, members: [authUser.id, peerId], announcement: '', mutedBy: [], pinnedBy: [], lastRead: {}, clearedAt: {}, createdAt: Date.now(), lastMessageAt: Date.now() };
-      db.conversations.push(conv);
-      rebuildIndexes();
-      schedulePersist('conversation_create', { conversationId: conv.id });
-      broadcastToUser(authUser.id, 'conversation_updated', {});
-      broadcastToUser(peerId, 'conversation_updated', {});
-      return sendJson(res, 201, { conversation: conv });
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      ensureActingUser(context.body, context.authUser, 'creatorId');
+      const peerId = (context.body.memberIds || [])[0];
+      const result = createDirectConversation({
+        authUser: context.authUser,
+        peerId,
+        usersById: index.usersById,
+        getDirectConversation,
+        uid,
+        db,
+        rebuildIndexes,
+        schedulePersist,
+        broadcastToUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
@@ -1322,57 +1688,37 @@ if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
 
       if (req.method === 'GET') {
-        const authUser = requireAuth(req, res, searchParams);
+        const authUser = getAuthedUser(req, res, { searchParams });
         if (!authUser) return;
-        if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-        const before = parseInt(searchParams.get('before') || '0', 10);
-        const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
-        const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
-        const peerId = (conv.members || []).find((id) => id !== authUser.id);
-        return sendJson(res, 200, { ...result, peerLastReadAt: peerId ? (conv.lastRead?.[peerId] || 0) : 0 });
+        const result = listConversationMessages({
+          conv,
+          authUser,
+          searchParams,
+          getVisibleMessagesSlice,
+        });
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        return sendJson(res, result.status, result.payload);
       }
 
       if (req.method === 'POST') {
-        const authUser = requireAuth(req, res);
-        if (!authUser) return;
-        const body = await parseBody(req);
-        ensureActingUser(body, authUser, 'senderId');
-        if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-        if (conv.type === 'direct') {
-          const peerId = conv.members.find((id) => id !== authUser.id);
-          const peerUser = index.usersById.get(peerId);
-          if (authUser.blacklist.includes(peerId)) return sendJson(res, 403, { error: '你已将对方拉黑，请先解除。' });
-          if (peerUser?.blacklist?.includes(authUser.id)) return sendJson(res, 403, { error: '消息被对方拒收' });
-          if (body.type !== 'card' && body.type !== 'system' && !areFriends(peerId, authUser.id)) {
-            return sendJson(res, 403, { error: '对方开启了验证，你还不是他(她)的好友。' });
-          }
-        }
-        if (body.clientMessageId) {
-          const found = index.messageByClientKey.get(`${conversationId}:${authUser.id}:${body.clientMessageId}`);
-          if (found) return sendJson(res, 200, { message: found, deduplicated: true });
-        }
-        const now = Date.now();
-        const msg = {
-          id: uid('m'),
+        const context = await getAuthedBody(req, res);
+        if (!context) return;
+        ensureActingUser(context.body, context.authUser, 'senderId');
+        const result = createConversationMessage({
           conversationId,
-          senderId: authUser.id,
-          type: body.type,
-          text: body.text,
-          imageUrl: body.imageUrl,
-          audioUrl: body.audioUrl,
-          card: body.card,
-          clientMessageId: body.clientMessageId || null,
-          deletedBy: [],
-          createdAt: now,
-        };
-        db.messages.push(msg);
-        addToMapArray(index.messagesByConv, conversationId, msg);
-        if (msg.clientMessageId) index.messageByClientKey.set(`${conversationId}:${authUser.id}:${msg.clientMessageId}`, msg);
-        conv.lastMessageAt = now;
-        schedulePersist('message_create', { conversationId, messageId: msg.id });
-        broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
-        broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
-        return sendJson(res, 201, { message: msg, deduplicated: false });
+          conv,
+          authUser: context.authUser,
+          body: context.body,
+          index,
+          areFriends,
+          uid,
+          db,
+          addToMapArray,
+          schedulePersist,
+          broadcastToConversation,
+        });
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        return sendJson(res, result.status, result.payload);
       }
     }
 
@@ -1381,27 +1727,32 @@ if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
       const [_, conversationId, messageId, action] = convMsgActionMatch;
       const conv = index.convById.get(conversationId);
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
-      const authUser = requireAuth(req, res);
+      const authUser = getAuthedUser(req, res);
       if (!authUser) return;
       if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-      const msg = (index.messagesByConv.get(conversationId) || []).find((m) => m.id === messageId);
-      if (!msg) return sendJson(res, 404, { error: 'not_found' });
-      if (action === 'delete') {
-        if (!msg.deletedBy.includes(authUser.id)) msg.deletedBy.push(authUser.id);
-        schedulePersist('message_delete', { conversationId, messageId, userId: authUser.id });
-        broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-        return sendJson(res, 200, { ok: true });
-      }
-      if (msg.senderId !== authUser.id || Date.now() - msg.createdAt > 120000) return sendJson(res, 403, { error: '超时或无权限' });
-      msg.type = 'system';
-      msg.text = '你撤回了一条消息';
-      msg.imageUrl = null;
-      msg.audioUrl = null;
-      msg.card = null;
-      schedulePersist('message_recall', { conversationId, messageId });
-      broadcastToConversation(conversationId, 'message_recalled', { conversationId, messageId: msg.id, message: msg });
-      broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
-      return sendJson(res, 200, { ok: true });
+
+      const result = action === 'delete'
+        ? deleteConversationMessage({
+          conversationId,
+          messageId,
+          authUser,
+          index,
+          schedulePersist,
+          broadcastToUser,
+          persistEvent: 'message_delete',
+        })
+        : recallConversationMessage({
+          conversationId,
+          messageId,
+          authUser,
+          index,
+          schedulePersist,
+          broadcastToConversation,
+          persistEvent: 'message_recall',
+        });
+
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     const convActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/);
@@ -1410,89 +1761,28 @@ if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
       const action = convActionMatch[2];
       const conv = index.convById.get(conversationId);
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
-      const authUser = requireAuth(req, res);
-      if (!authUser) return;
-      if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-      const body = await parseBody(req);
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      if (!conv.members.includes(context.authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
 
-      if (action === 'delete' || action === 'recall') {
-        const msg = (index.messagesByConv.get(conversationId) || []).find((m) => m.id === body.msgId);
-        if (!msg) return sendJson(res, 404, { error: 'not_found' });
-        if (action === 'delete') {
-          if (!msg.deletedBy.includes(authUser.id)) msg.deletedBy.push(authUser.id);
-          schedulePersist('message_delete_legacy', { conversationId, messageId: msg.id, userId: authUser.id });
-          broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-          return sendJson(res, 200, { ok: true });
-        }
-        if (msg.senderId !== authUser.id || Date.now() - msg.createdAt > 120000) return sendJson(res, 403, { error: '超时或无权限' });
-        msg.type = 'system';
-        msg.text = '你撤回了一条消息';
-        msg.imageUrl = null;
-        msg.audioUrl = null;
-        msg.card = null;
-        schedulePersist('message_recall_legacy', { conversationId, messageId: msg.id });
-        broadcastToConversation(conversationId, 'message_recalled', { conversationId, messageId: msg.id, message: msg });
-        broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
-        return sendJson(res, 200, { ok: true });
-      }
 
-      if (action === 'read') {
-        conv.lastRead[authUser.id] = Date.now();
-        schedulePersist('conversation_read', { conversationId, userId: authUser.id });
-        broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
-        return sendJson(res, 200, { ok: true });
-      }
+      const result = applyConversationAction({
+        action,
+        conversationId,
+        body: context.body,
+        authUser: context.authUser,
+        conv,
+        db,
+        index,
+        uid,
+        addToMapArray,
+        schedulePersist,
+        broadcastToUser,
+        broadcastToConversation,
+      });
 
-      if (action === 'mute') {
-        if (conv.mutedBy.includes(authUser.id)) conv.mutedBy = conv.mutedBy.filter((id) => id !== authUser.id);
-        else conv.mutedBy.push(authUser.id);
-        schedulePersist('conversation_mute', { conversationId, userId: authUser.id });
-        broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-        return sendJson(res, 200, { ok: true, muted: conv.mutedBy.includes(authUser.id) });
-      }
-
-      if (action === 'pin') {
-        if (conv.pinnedBy.includes(authUser.id)) conv.pinnedBy = conv.pinnedBy.filter((id) => id !== authUser.id);
-        else conv.pinnedBy.push(authUser.id);
-        schedulePersist('conversation_pin', { conversationId, userId: authUser.id });
-        broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-        return sendJson(res, 200, { ok: true, pinned: conv.pinnedBy.includes(authUser.id) });
-      }
-
-      if (action === 'clear') {
-        conv.clearedAt[authUser.id] = Date.now();
-        conv.lastRead[authUser.id] = conv.clearedAt[authUser.id];
-        schedulePersist('conversation_clear', { conversationId, userId: authUser.id });
-        broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-        return sendJson(res, 200, { ok: true, clearedAt: conv.clearedAt[authUser.id] });
-      }
-
-      if (action === 'signal') {
-        const targetUserId = body.targetUserId;
-        if (!body.callId) return sendJson(res, 400, { error: 'call_id_required' });
-        if (!conv.members.includes(targetUserId)) return sendJson(res, 403, { error: 'forbidden' });
-        broadcastToUser(targetUserId, 'webrtc_signal', { conversationId, senderId: authUser.id, senderName: body.senderName || authUser.displayName, targetUserId, signal: body.signal, mode: body.mode, rejectReason: body.rejectReason, callId: body.callId });
-        return sendJson(res, 200, { ok: true });
-      }
-
-      if (action === 'call') {
-        const targetUserId = body.targetUserId;
-        if (!body.callId) return sendJson(res, 400, { error: 'call_id_required' });
-        if (!conv.members.includes(targetUserId)) return sendJson(res, 403, { error: 'forbidden' });
-        const text = buildCallHistoryText(body);
-        if (text) {
-          const msg = { id: uid('m'), conversationId, senderId: authUser.id, type: 'system', text, deletedBy: [], createdAt: Date.now() };
-          db.messages.push(msg);
-          addToMapArray(index.messagesByConv, conversationId, msg);
-          if (msg.clientMessageId) index.messageByClientKey.set(`${conversationId}:${authUser.id}:${msg.clientMessageId}`, msg);
-          conv.lastMessageAt = msg.createdAt;
-          broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
-          broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
-        }
-        schedulePersist('call_event', { conversationId, event: body.event, userId: authUser.id, callId: body.callId });
-        broadcastToUser(targetUserId, 'call_event', { conversationId, senderId: authUser.id, senderName: body.senderName || authUser.displayName, targetUserId, event: body.event, mode: body.mode, reason: body.reason, callId: body.callId, durationSec: Math.max(0, Number(body.durationSec) || 0) });
-        return sendJson(res, 200, { ok: true });
-      }
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
     }
 
     if (!pathname.startsWith('/api/')) {
@@ -1534,7 +1824,39 @@ if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
   }
 });
 
+
+async function gracefulShutdown(signal) {
+  if (gracefulShutdown.inProgress) return;
+  gracefulShutdown.inProgress = true;
+  console.log(`[shutdown] Received ${signal}, draining persistence...`);
+  const hardExitTimer = setTimeout(() => {
+    console.error('[shutdown] force exit after timeout');
+    process.exit(1);
+  }, 10_000);
+  hardExitTimer.unref?.();
+  try {
+    cleanupAuthState();
+    await flushPersistenceNow();
+  } catch (err) {
+    console.error('[shutdown] persistence flush failed', err);
+  }
+  server.close((err) => {
+    clearTimeout(hardExitTimer);
+    if (err) {
+      console.error('[shutdown] close failed', err);
+      process.exit(1);
+      return;
+    }
+    process.exit(0);
+  });
+}
+
+setInterval(cleanupAuthState, 60 * 1000).unref();
+
+process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
+process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
+
 server.listen(PORT, () => {
-  if (!fs.existsSync(MSG_WAL_FILE)) clearWal();
+  ensureWalFile();
   console.log(`Server running at http://0.0.0.0:${PORT}`);
 });

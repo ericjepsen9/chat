@@ -1,5 +1,20 @@
 :root { --bg: #f2f2f6; --surface: #ffffff; --line: #e5e5ea; --text-main: #000000; --text-muted: #8e8e93; --brand: #07c160; --bubble-me: #95ec69; --bubble-other: #ffffff; --font-title-primary: 17px; --font-title-secondary: 16px; --font-body: 16px; --font-body-sm: 14px; --font-caption: 13px; --font-micro: 12px; --radius-card: 12px; --radius-pill: 18px; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+body {
+  touch-action: pan-y;
+}
+
+.mobile-shell,
+.main-content-wrapper,
+.chat-list-view {
+  overflow-x: hidden;
+}
 body { margin: 0; min-height: 100vh; background: #e9edf3; display: flex; justify-content: center; align-items: center; padding: 12px; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; font-size: var(--font-body); color: var(--text-main); }
 .hidden { display: none !important; }
 
@@ -83,6 +98,276 @@ input, textarea { font-size: var(--font-body); }
 .trade-card-img { width:100%; height:120px; object-fit:cover; border-radius:6px; margin-bottom:8px;}
 .trade-card-title { font-size:14px; font-weight:600; color:#333; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .trade-card-price { font-size:15px; color:#ff3b30; font-weight:bold;}
+
+/* V58 mall + mine 微信风格统一 */
+#mallView,
+#profileView,
+#buyerOrdersManagePage,
+#sellerCenterPage,
+#sellerPaymentPage,
+#sellerOrdersPage,
+#sellerProductsPage,
+#productDetailPage,
+#orderDetailPage,
+#broadcastManagePage,
+#broadcastEditorPage,
+#chatOrderDetailPage,
+#broadcastDetailPage,
+#productEditorPage,
+#myProductsPage,
+#settingsPage,
+#groupManagePage,
+#publishProductPage,
+#myQrCodePage,
+#profileDetailPage {
+  background: #ededed !important;
+}
+
+#mallView .toolbar,
+#profileView .toolbar,
+#myProductsPage .toolbar,
+#publishProductPage .toolbar,
+#settingsPage .toolbar,
+#groupManagePage .toolbar {
+  background: #ededed !important;
+  padding: 10px 12px;
+}
+
+#mallView #mallSearchInput {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+}
+
+#mallView #publishProductEntryBtn {
+  background: #07c160 !important;
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-height: 40px;
+  font-size: 14px;
+}
+
+#mallList {
+  background: #ededed !important;
+  padding: 6px 8px 20px !important;
+}
+
+.mall-grid {
+  gap: 10px;
+  padding: 4px;
+}
+
+.product-card {
+  border-radius: 10px;
+  box-shadow: none;
+  border: 1px solid #ececec;
+}
+
+.product-card img {
+  height: 146px;
+}
+
+.product-title {
+  font-weight: 500;
+}
+
+#profileView .chat-item,
+#settingsPage .chat-item,
+#groupManagePage .chat-item,
+#myProductsPage .chat-item,
+#sellerCenterPage .seller-center-card {
+  border-bottom: 0.5px solid #ececec;
+}
+
+#myProfileCard {
+  margin: 10px 10px 0;
+  border-radius: 12px;
+  border-bottom: none !important;
+  background: #fff;
+}
+
+#profileView > .chat-item,
+#profileView > button.chat-item,
+#settingsPage > button.chat-item {
+  margin: 0 10px;
+  background: #fff;
+}
+
+#profileView > button.chat-item:last-child,
+#settingsPage > button.chat-item:last-child {
+  margin-bottom: 10px;
+}
+
+#sellerCenterPage .seller-center-hero,
+#buyerOrdersManagePage .order-flow-head,
+#sellerOrdersPage .order-flow-head,
+#sellerProductsPage .order-flow-head,
+#orderDetailPage .order-flow-head,
+#broadcastManagePage .order-flow-head,
+#broadcastEditorPage .order-flow-head,
+#sellerPaymentPage .order-flow-head {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.order-flow-page {
+  background: #ededed;
+  padding: 10px;
+}
+
+.order-cart-item,
+.profile-order-card,
+.product-detail-card,
+.broadcast-editor-card,
+.order-flow-footer,
+.seller-center-card {
+  border-radius: 12px;
+  box-shadow: none;
+  border: 1px solid #ececec;
+}
+
+.order-flow-head strong,
+.seller-center-hero strong,
+.product-detail-title {
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.order-flow-head span,
+.seller-center-hero span,
+.profile-order-sub,
+.product-detail-desc {
+  color: #8c8c8c;
+}
+
+.profile-order-status {
+  background: rgba(7, 193, 96, 0.12);
+  color: #07c160;
+}
+
+.profile-order-status.done {
+  background: rgba(7, 193, 96, 0.18);
+  color: #07c160;
+}
+
+#saveSellerPaymentBtn,
+#createBroadcastBtn,
+#orderDetailCompleteBtn,
+#productDetailAddCartBtn {
+  background: #07c160;
+}
+
+
+
+/* V59 wechat style refinement: hierarchy, spacing, and interaction */
+:root {
+  --wx-bg: #ededed;
+  --wx-card: #ffffff;
+  --wx-line: #ebedf0;
+  --wx-text-main: #111111;
+  --wx-text-sub: #888888;
+  --wx-green: #07c160;
+}
+
+#mallView,
+#profileView,
+.order-flow-page,
+#settingsPage,
+#groupManagePage,
+#publishProductPage,
+#myProductsPage {
+  background: var(--wx-bg) !important;
+}
+
+#mallView .toolbar,
+#profileView .toolbar,
+.order-flow-head,
+.seller-center-hero {
+  border: 1px solid var(--wx-line);
+}
+
+#profileView > button.chat-item,
+#profileView > .chat-item,
+#settingsPage > button.chat-item {
+  min-height: 54px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+#profileView > button.chat-item span:last-child,
+#settingsPage > button.chat-item span:last-child {
+  color: #b4b4b4 !important;
+}
+
+.seller-center-grid {
+  gap: 10px;
+}
+
+.seller-center-card,
+.profile-order-card,
+.product-detail-card,
+.broadcast-editor-card {
+  background: var(--wx-card);
+  border-color: var(--wx-line);
+}
+
+.seller-center-card:active,
+.profile-order-actions .secondary-btn:active,
+.profile-order-actions .primary-btn:active,
+.product-detail-actions .secondary-btn:active,
+.product-detail-actions .primary-btn:active {
+  opacity: 0.82;
+}
+
+.order-flow-head strong,
+.seller-center-hero strong,
+.profile-order-title,
+.product-detail-title {
+  color: var(--wx-text-main);
+  letter-spacing: 0;
+}
+
+.order-flow-head span,
+.seller-center-hero span,
+.profile-order-sub,
+.product-detail-desc,
+.seller-center-card span {
+  color: var(--wx-text-sub);
+}
+
+#mallView #publishProductEntryBtn,
+#saveSellerPaymentBtn,
+#createBroadcastBtn,
+#orderDetailCompleteBtn,
+#productDetailAddCartBtn,
+.profile-order-actions .primary-btn,
+.order-flow-footer .primary-btn {
+  background: var(--wx-green);
+}
+
+#mallView #publishProductEntryBtn:active,
+#saveSellerPaymentBtn:active,
+#createBroadcastBtn:active,
+#orderDetailCompleteBtn:active,
+#productDetailAddCartBtn:active,
+.profile-order-actions .primary-btn:active,
+.order-flow-footer .primary-btn:active {
+  filter: brightness(0.94);
+}
+
+.home-tabbar {
+  background: #f7f7f7;
+  border-top-color: #d7d7d9;
+}
+
+.tab-item {
+  font-size: 10px;
+}
+
+.tab-item.active {
+  color: var(--wx-green);
+}
 
 /* 扫一扫 */
 .scan-container { background: #000 !important; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; position: relative; z-index: 10; }
@@ -270,6 +555,15 @@ input, textarea { font-size: var(--font-body); }
   line-height:1.4;
   color:#9ca3af;
 }
+
+.publish-hint{
+  margin-top:12px;
+  font-size:12px;
+  color:#6b7280;
+}
+.publish-hint.error{ color:#dc2626; }
+.publish-hint.success{ color:#16a34a; }
+
 .ui-input{
   min-height:40px;
   border-radius:12px;
@@ -524,6 +818,31 @@ input, textarea { font-size: var(--font-body); }
 .profile-hero-main{ position:relative; display:flex; align-items:center; gap:14px; }
 .profile-hero-avatar{ flex:0 0 72px; box-shadow:0 8px 18px rgba(0,0,0,.14); }
 .profile-hero-info{ min-width:0; flex:1; }
+.profile-hero-send-btn{
+  border:1px solid rgba(255,255,255,.35);
+  background:rgba(255,255,255,.18);
+  color:#fff;
+  border-radius:12px;
+  height:38px;
+  padding:0 14px;
+  font-size:14px;
+  font-weight:700;
+  white-space:nowrap;
+}
+.profile-hero-send-btn.hidden{ display:none; }
+.profile-hero-more-btn{
+  position:absolute;
+  top:10px;
+  right:10px;
+  width:34px;
+  height:34px;
+  border:0;
+  border-radius:999px;
+  background:rgba(255,255,255,.18);
+  color:#fff;
+  font-size:24px;
+  line-height:1;
+}
 .profile-hero-name{
   display:block; font-size:28px; line-height:1.2; font-weight:800;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -551,7 +870,7 @@ input, textarea { font-size: var(--font-body); }
   background:#fff7ed; color:#c2410c; font-size:13px; line-height:1.45;
 }
 .profile-stranger-hint.hidden{ display:none; }
-.profile-primary-actions{ display:flex; gap:12px; padding:16px 12px 28px; }
+.profile-primary-actions{ display:flex; gap:12px; padding:16px 12px 20px; }
 .profile-primary-btn, .profile-secondary-btn{
   flex:1; min-height:46px; border-radius:14px; font-size:16px; font-weight:700;
 }
@@ -592,6 +911,7 @@ input, textarea { font-size: var(--font-body); }
   font-size:14px;
   font-weight:600;
 }
+.store-toolbar-link.hidden{ display:none; }
 .profile-store-list{
   display:flex;
   flex-direction:column;
@@ -645,6 +965,38 @@ input, textarea { font-size: var(--font-body); }
 }
 .profile-store-side button{
   white-space:nowrap;
+}
+.profile-qty-stepper{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#f3f4f6;
+  border-radius:999px;
+  padding:4px;
+}
+.qty-btn{
+  border:0;
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  font-size:18px;
+  line-height:1;
+  background:#e5e7eb;
+  color:#111827;
+}
+.qty-btn.primary{
+  background:#2563eb;
+  color:#fff;
+}
+.qty-btn:disabled{
+  opacity:.45;
+}
+.qty-num{
+  min-width:18px;
+  text-align:center;
+  font-size:14px;
+  font-weight:700;
+  color:#111827;
 }
 .profile-cart-bar{
   position:sticky;
@@ -1076,4 +1428,236 @@ input, textarea { font-size: var(--font-body); }
 .admin-tag.warn{
   background:#fff7ed;
   color:#ea580c;
+}
+
+
+/* V61 mall/mine unified polish */
+#mallView .toolbar,
+#profileView .toolbar,
+#settingsPage .toolbar,
+#groupManagePage .toolbar,
+#publishProductPage .toolbar {
+  background: #ededed !important;
+}
+
+#profileView > .chat-item,
+#profileView > button.chat-item,
+#settingsPage > button.chat-item {
+  border-left: 1px solid #ebedf0;
+  border-right: 1px solid #ebedf0;
+}
+
+#profileView > .chat-item:first-child,
+#profileView > button.chat-item:first-child,
+#settingsPage > button.chat-item:first-child {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+#profileView > .chat-item:last-child,
+#profileView > button.chat-item:last-child,
+#settingsPage > button.chat-item:last-child {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.order-flow-head,
+.seller-center-hero,
+.profile-order-card,
+.product-detail-card,
+.broadcast-editor-card,
+.seller-center-card,
+.order-flow-footer {
+  box-shadow: none !important;
+  border: 1px solid #ebedf0 !important;
+}
+
+.primary-btn {
+  background: #07c160;
+}
+
+.secondary-btn,
+.order-detail-actions .secondary-btn,
+.product-detail-actions .secondary-btn,
+.profile-order-actions .secondary-btn {
+  border-color: #dfe3e8 !important;
+  color: #57606a !important;
+  background: #fff !important;
+}
+
+.secondary-btn:active,
+.order-detail-actions .secondary-btn:active,
+.product-detail-actions .secondary-btn:active,
+.profile-order-actions .secondary-btn:active {
+  background: #f4f5f7 !important;
+}
+
+.order-flow-head strong,
+.seller-center-hero strong {
+  font-size: 17px !important;
+  font-weight: 600 !important;
+}
+
+.order-flow-head span,
+.seller-center-hero span,
+.profile-order-sub,
+.seller-center-card span {
+  color: #8a9199 !important;
+}
+
+
+/* V62 consistency fixes for mall/mine secondary pages */
+#mallView,
+#profileView,
+.order-flow-page {
+  -webkit-overflow-scrolling: touch;
+}
+
+#mallList,
+#buyerOrdersManageList,
+#sellerOrdersList,
+#sellerProductsList,
+#broadcastDraftList {
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+
+.seller-center-card strong,
+.profile-order-title,
+.product-detail-title {
+  line-height: 1.35;
+}
+
+.seller-center-card span,
+.profile-order-sub,
+.product-detail-desc,
+.order-flow-head span {
+  line-height: 1.5;
+}
+
+.order-detail-actions .primary-btn,
+.order-detail-actions .secondary-btn,
+.product-detail-actions .primary-btn,
+.product-detail-actions .secondary-btn,
+.profile-order-actions .primary-btn,
+.profile-order-actions .secondary-btn {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+.order-detail-actions,
+.product-detail-actions,
+.profile-order-actions {
+  gap: 10px;
+}
+
+#myProfileCard,
+#profileView > button.chat-item,
+#settingsPage > button.chat-item,
+.seller-center-card,
+.profile-order-card,
+.order-flow-head,
+.seller-center-hero,
+.product-detail-card,
+.broadcast-editor-card {
+  transition: background-color .15s ease, opacity .15s ease;
+}
+
+#profileView > button.chat-item:active,
+#settingsPage > button.chat-item:active,
+.seller-center-card:active {
+  background: #f7f8fa !important;
+}
+
+
+/* V63 auth/password pages wechat style */
+.auth-card{
+  background:#fff;
+  border-radius:16px;
+  padding:18px 16px;
+  box-shadow:0 1px 3px rgba(15,23,42,.06);
+}
+#loginForm .auth-tabs{
+  margin-bottom:10px;
+  background:#f5f5f5;
+  border-radius:10px;
+  padding:2px;
+  border:none;
+}
+#loginForm .auth-tab-btn{
+  border-radius:8px;
+  font-size:14px;
+  padding:10px 0;
+}
+#loginForm .auth-tab-btn.active{
+  background:#fff;
+  border-bottom:none;
+  color:#07c160;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+#forgotPasswordPage>div,
+#changePasswordPage>div{
+  margin:10px;
+  border-radius:12px;
+  border:1px solid #ebedf0;
+}
+#forgotPasswordPage input,
+#changePasswordPage input,
+#loginForm input,
+#registerForm input{
+  border:1px solid #e6e6e6;
+  border-radius:10px;
+  padding:11px 12px;
+  background:#fff;
+}
+#forgotPasswordBtn,
+#sendLoginCodeBtn,
+#sendForgotCodeBtn{
+  border-color:#dfe3e8;
+  color:#57606a;
+  background:#fff;
+}
+#submitForgotPasswordBtn,
+#submitChangePasswordBtn,
+#doLoginBtn,
+#doLoginCodeBtn{
+  background:#07c160;
+}
+#changePasswordBtn{
+  color:#111;
+}
+
+
+.contact-card-message{cursor:pointer;}
+.contact-card-message-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.contact-card-message-avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#e9e9ee;}
+.clickable-card{cursor:pointer;}
+
+
+.chat-swipe-row{
+  position:relative;
+  overflow:hidden;
+  background:#f2f2f6;
+}
+.chat-swipe-content{
+  position:relative;
+  z-index:2;
+  transform:translateX(0);
+  transition:transform .2s ease;
+  will-change:transform;
+}
+.chat-swipe-row.revealed .chat-swipe-content{
+  transform:translateX(-78px);
+}
+.chat-swipe-delete-btn{
+  position:absolute;
+  right:0;
+  top:0;
+  bottom:0;
+  width:78px;
+  border:0;
+  background:#ff3b30;
+  color:#fff;
+  font-size:14px;
+  font-weight:600;
+  z-index:1;
 }

@@ -47,3 +47,11 @@ npm test
 
 - 这是单机文件存储版本，适合演示与继续开发，不适合直接高并发生产。
 - 升级后旧的本地登录缓存会失效，前端需要重新登录一次。
+
+
+## Android shell (same repo)
+
+- Android container project should live under `android-app/` (same git repo).
+- Keep web business code as the single source of truth in root files (`index.html`, `app.js`, `styles.css`, `server.js`).
+- Run `npm run check:android-sync` to ensure no accidental duplicated web business bundle is committed into Android assets.
+

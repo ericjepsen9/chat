@@ -1,0 +1,11 @@
+# Android/Gradle artifacts
+.gradle/
+**/.gradle/
+**/build/
+local.properties
+*.iml
+.DS_Store
+
+# Signing material
+keystore/*.jks
+keystore/*.keystore
