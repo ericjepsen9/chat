@@ -77,8 +77,10 @@ async function verifyPasswordAsync(password, stored) {
 
 const phoneCodeStore = new Map();
 const phoneCodeCooldownStore = new Map();
+const phoneCodeIpCooldownStore = new Map();
 const phoneCodeVerifyAttempts = new Map();
 const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
+const PHONE_CODE_IP_COOLDOWN_MS = 3 * 1000;
 const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
 const PHONE_CODE_VERIFY_BLOCK_MS = 10 * 60 * 1000;
 const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
@@ -104,6 +106,9 @@ function cleanupExpiredPhoneCodeState() {
   }
   for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
     if (!cooldownUntil || cooldownUntil < now) phoneCodeCooldownStore.delete(key);
+  }
+  for (const [key, cooldownUntil] of phoneCodeIpCooldownStore.entries()) {
+    if (!cooldownUntil || cooldownUntil < now) phoneCodeIpCooldownStore.delete(key);
   }
   for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
     const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
@@ -745,6 +750,9 @@ function cleanupAuthState() {
   for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
     if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeCooldownStore.delete(key);
   }
+  for (const [key, cooldownUntil] of phoneCodeIpCooldownStore.entries()) {
+    if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeIpCooldownStore.delete(key);
+  }
   for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
     const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
     const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
@@ -933,6 +941,12 @@ const server = http.createServer(async (req, res) => {
       const scene = String(body.scene || 'login');
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!['login','reset'].includes(scene)) return sendJson(res, 400, { error: '验证码场景不支持' });
+      const clientIp = getClientIp(req);
+      const ipCooldownUntil = Number(phoneCodeIpCooldownStore.get(clientIp) || 0);
+      if (ipCooldownUntil > Date.now()) {
+        return sendJson(res, 429, { error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((ipCooldownUntil - Date.now()) / 1000) });
+      }
+      phoneCodeIpCooldownStore.set(clientIp, Date.now() + PHONE_CODE_IP_COOLDOWN_MS);
       const issueResult = issuePhoneCode(phone, scene);
       if (!issueResult.ok) {
         return sendJson(res, 429, { error: issueResult.error || '发送验证码失败', retryAfterSec: issueResult.retryAfterSec || 0 });
