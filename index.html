@@ -114,6 +114,7 @@
           <button id="globalNotifyBtn" class="chat-item" style="justify-content:space-between;">新消息通知提醒 <span style="color:var(--brand)">已开启</span></button>
           <button id="clearCacheBtn" class="chat-item" style="justify-content:space-between; margin-top:8px;">清理本地缓存 <span>▶</span></button>
           <button id="changePasswordBtn" class="chat-item" style="justify-content:space-between;">修改密码 <span>▶</span></button>
+          <button id="changePhoneBtn" class="chat-item" style="justify-content:space-between;">修改手机号 <span>▶</span></button>
           <button id="logoutBtn" class="chat-item" style="color:#ff3b30; text-align:center; justify-content:center; margin-top:20px; font-weight:bold;">退出当前账号</button>
         </section>
 
@@ -157,6 +158,9 @@
              <div style="display:flex; padding:16px 0; border-bottom:0.5px solid var(--line); align-items:center;">
                 <span style="width:80px; font-size:16px;">名字</span><input id="editNameInput" type="text" style="flex:1; border:none; outline:none; font-size:16px;" placeholder="请输入昵称" />
              </div>
+             <div style="display:flex; padding:16px 0; border-bottom:0.5px solid var(--line); align-items:center;">
+                <span style="width:80px; font-size:16px;">手机号</span><span id="editPhoneDisplay" style="flex:1; color:var(--text-muted); font-size:16px;"></span>
+             </div>
              <div style="display:flex; padding:16px 0; align-items:center;">
                 <span style="width:80px; font-size:16px;">签名</span><input id="editSignatureInput" type="text" style="flex:1; border:none; outline:none; font-size:16px;" placeholder="请输入个性签名" />
              </div>
@@ -185,6 +189,18 @@
             <button id="submitChangePasswordBtn" type="button" class="primary-btn">保存新密码</button>
           </div>
         </section>
+
+        <section id="changePhonePage" class="chat-list-view hidden" style="background:#f2f2f6;">
+          <div style="background:#fff; padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <input id="changePhoneInput" placeholder="新手机号" />
+            <div style="display:flex; gap:8px;">
+              <input id="changePhoneCodeInput" placeholder="验证码" style="flex:1;" />
+              <button id="sendChangePhoneCodeBtn" type="button" class="secondary-btn" style="min-width:110px;">获取验证码</button>
+            </div>
+            <button id="submitChangePhoneBtn" type="button" class="primary-btn">保存手机号</button>
+          </div>
+        </section>
+
 <section id="qrCodePage" class="chat-list-view hidden" style="background: #333; justify-content:center; align-items:center; flex-direction:column;">
           <div style="background:#fff; padding:30px; border-radius:16px; text-align:center; width:80%; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
              <img id="myQrCodeImg" src="" style="width:100%; height:auto; margin-bottom:20px;" />
@@ -249,7 +265,7 @@
         <section id="sellerCenterPage" class="chat-list-view hidden order-flow-page">
           <div class="seller-center-hero">
             <strong>卖家中心</strong>
-            <span>订单管理 / 商品管理 / 广播管理</span>
+            <span>订单管理 / 商品管理 / 收款码管理</span>
           </div>
           <div class="seller-center-grid">
             <button id="sellerOrderManageBtn" class="seller-center-card" type="button">
@@ -259,10 +275,6 @@
             <button id="sellerProductManageBtn" class="seller-center-card" type="button">
               <strong>商品管理</strong>
               <span>管理商品上下架、详情与规格</span>
-            </button>
-            <button id="broadcastManageEntryBtn" class="seller-center-card" type="button">
-              <strong>广播管理</strong>
-              <span>发送图文系统消息给用户</span>
             </button>
             <button id="sellerPaymentManageBtn" class="seller-center-card" type="button">
               <strong>收款码管理</strong>
@@ -344,13 +356,14 @@
                 <div class="profile-hero-id" id="profileAppId">ID：-</div>
               </div>
             </div>
-            <button id="profileMoreBtn" class="profile-hero-more-btn" type="button" aria-label="更多操作">⋯</button>
+            <button id="profileMoreBtn" class="profile-hero-more-btn hidden" type="button" aria-label="更多操作">⋯</button>
             <div class="profile-hero-signature" id="profileSignature">-</div>
           </div>
 
           <div id="profileStrangerHint" class="profile-stranger-hint hidden">对方还不是你的好友，可先发送消息并添加好友</div>
 
           <div class="profile-primary-actions">
+            <button id="profileSendMessageBtn" class="primary-btn profile-primary-btn" type="button">发消息</button>
             <button id="profileAddFriendBtn" class="secondary-btn profile-secondary-btn hidden" type="button">加好友</button>
           </div>
 
@@ -454,6 +467,15 @@
         <button id="profileTab" class="tab-item"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>我</span></button>
       </nav>
     </div>
+
+
+    <section id="tradePickerSheet" class="publish-sheet hidden">
+      <div class="publish-card trade-picker-card">
+        <h3 id="tradePickerTitle">选择项目</h3>
+        <div id="tradePickerList" class="trade-picker-list"></div>
+        <button id="tradePickerCloseBtn" type="button" class="secondary-btn">取消</button>
+      </div>
+    </section>
 
     <div id="plusMenuSheet" class="hidden">
        <div class="popover-overlay" id="closePlusMenuBtn"></div>

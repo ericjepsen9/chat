@@ -1192,6 +1192,39 @@ const server = http.createServer(async (req, res) => {
       const result = updateUserProfile({
         authUser: context.authUser,
         body: context.body,
+        normalizePhone,
+        findUserByPhone,
+        normalizeUserCustomGroups,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        rebuildRequestViewsIndex,
+        rebuildBlacklistViewsIndex,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastToUser,
+        broadcastAll,
+        sanitizePublicUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    if (matchRoute(pathname, '/api/users/change-phone') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const phone = normalizePhone(context.body.phone || '');
+      const code = String(context.body.code || '').trim();
+      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
+      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误' });
+      const verify = consumePhoneCode(phone, code, 'reset');
+      if (!verify.ok) return sendJson(res, verify.status, { error: verify.error });
+      const existing = findUserByPhone(phone);
+      if (existing && existing.id !== context.authUser.id) return sendJson(res, 409, { error: '该手机号已被注册' });
+      const result = updateUserProfile({
+        authUser: context.authUser,
+        body: { phone },
+        normalizePhone,
+        findUserByPhone,
         normalizeUserCustomGroups,
         rebuildFriendViewsIndex,
         rebuildConversationBaseIndex,

@@ -26,13 +26,20 @@ function normalizePaymentCodes(value) {
   };
 }
 
-function updateUserProfile({ authUser, body, normalizeUserCustomGroups, rebuildFriendViewsIndex, rebuildConversationBaseIndex, rebuildRequestViewsIndex, rebuildBlacklistViewsIndex, rebuildMallIndex, schedulePersist, broadcastToUser, broadcastAll, sanitizePublicUser }) {
+function updateUserProfile({ authUser, body, normalizeUserCustomGroups, normalizePhone, findUserByPhone, rebuildFriendViewsIndex, rebuildConversationBaseIndex, rebuildRequestViewsIndex, rebuildBlacklistViewsIndex, rebuildMallIndex, schedulePersist, broadcastToUser, broadcastAll, sanitizePublicUser }) {
   if (body.displayName !== undefined) {
     const next = normalizeText(body.displayName, 40);
     authUser.displayName = next || authUser.displayName;
   }
   if (body.signature !== undefined) authUser.signature = normalizeText(body.signature, 160);
   if (body.avatarUrl !== undefined) authUser.avatarUrl = normalizeAvatarUrl(body.avatarUrl);
+  if (body.phone !== undefined) {
+    const nextPhone = normalizePhone(body.phone || '');
+    if (!nextPhone) return { ok: false, status: 400, error: '手机号格式错误' };
+    const existing = findUserByPhone(nextPhone);
+    if (existing && existing.id !== authUser.id) return { ok: false, status: 409, error: '该手机号已被注册' };
+    authUser.phone = nextPhone;
+  }
   if (Array.isArray(body.customGroups)) authUser.customGroups = normalizeUserCustomGroups(body.customGroups);
   if (body.paymentCodes !== undefined) authUser.paymentCodes = normalizePaymentCodes(body.paymentCodes);
 
@@ -60,6 +67,7 @@ function buildUserProfileView({ authUser, targetId, usersById, friendshipByPair 
     avatarUrl: target.avatarUrl,
     signature: target.signature,
     appNumberId: target.appNumberId,
+    phone: authUser.id === target.id ? (target.phone || '') : '',
     remarkName: rel?.remark || '',
     groupName: rel?.group || '',
     isFriend: !!rel,

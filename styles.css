@@ -1081,6 +1081,19 @@ input, textarea { font-size: var(--font-body); }
   padding:12px;
   box-shadow:0 1px 3px rgba(15,23,42,.06);
 }
+.trade-picker-card{
+  max-height:70vh;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.trade-picker-list{
+  max-height:50vh;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
 .order-total-line{
   display:flex;
   align-items:center;

@@ -44,7 +44,7 @@ const state = {
   profileStoreExpanded: false,
   systemMessages: [],
   adminDashboard: null,
-  buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, broadcastDrafts: [],
+  buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, broadcastDrafts: [], tradePickerResolver: null,
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {} 
@@ -57,10 +57,12 @@ function updateProfileDetailActions(){
   const p = state.currentProfileUser;
   if(!p) return;
   const isFriend = !!p.isFriend || isFriendUser(p.id);
+  const isSelf = p.id === state.currentUser?.id;
   if($("profileAddFriendBtn")) $("profileAddFriendBtn").classList.toggle("hidden", isFriend);
   if($("profileStrangerHint")) $("profileStrangerHint").classList.toggle("hidden", isFriend);
   if($("profileActionRemarkBtn")) $("profileActionRemarkBtn").style.display = isFriend ? '' : 'none';
   if($("profileActionMoveGroupBtn")) $("profileActionMoveGroupBtn").style.display = isFriend ? '' : 'none';
+  if($("profileSendMessageBtn")) $("profileSendMessageBtn").classList.toggle("hidden", isSelf);
 }
 
 
@@ -92,6 +94,12 @@ function formatMoney(v){
 
 function parseMoney(v){
   return Number(String(v).replace(/[^\d.]/g, '')) || 0;
+}
+
+function getSecondaryBackTarget(defaultTarget = 'home'){
+  if (state.secondaryPage) return state.secondaryPage;
+  if (state.secondaryReturn) return state.secondaryReturn;
+  return defaultTarget;
 }
 
 
@@ -272,7 +280,7 @@ function openProductDetail(item, fromSeller = false){
     specsEl.replaceChildren(frag);
   }
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
-  window.openSecondaryPage('productDetailPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
+  window.openSecondaryPage('productDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
 function openOrderDetail(order, role = 'buyer'){
@@ -280,7 +288,7 @@ function openOrderDetail(order, role = 'buyer'){
   state.selectedOrderDetail = order;
   state.selectedOrderRole = role;
   renderOrderDetailPage();
-  window.openSecondaryPage('orderDetailPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
+  window.openSecondaryPage('orderDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
 function renderOrderDetailPage(){
@@ -1027,17 +1035,42 @@ function ensureDirectConversationForTrade() {
   return peerId;
 }
 
-function pickByPrompt(items, title, lineFormatter) {
-  if (!Array.isArray(items) || !items.length) return null;
-  const lines = items.map((item, i) => `${i + 1}. ${lineFormatter(item)}`).join('\n');
-  const raw = prompt(`${title}\n${lines}\n\n请输入序号`, '1');
-  if (raw === null) return null;
-  const idx = Number(raw) - 1;
-  if (!Number.isInteger(idx) || idx < 0 || idx >= items.length) {
-    alert('序号无效');
-    return null;
+function showTradePicker(title, items, renderLine, emptyText) {
+  const sheet = $("tradePickerSheet");
+  const list = $("tradePickerList");
+  const titleEl = $("tradePickerTitle");
+  if (!sheet || !list || !titleEl) return Promise.resolve(null);
+  titleEl.textContent = title;
+  list.innerHTML = '';
+  if (!Array.isArray(items) || !items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = emptyText || '暂无可选项';
+    list.appendChild(empty);
+  } else {
+    const frag = document.createDocumentFragment();
+    items.forEach((item, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'profile-order-card';
+      btn.innerHTML = `<div class="profile-order-title">${idx + 1}. ${escapeHTML(renderLine(item))}</div>`;
+      btn.addEventListener('click', () => close(item));
+      frag.appendChild(btn);
+    });
+    list.appendChild(frag);
   }
-  return items[idx];
+  sheet.classList.remove('hidden');
+  const closeBtn = $("tradePickerCloseBtn");
+  let resolve;
+  const p = new Promise((r) => { resolve = r; });
+  function close(val = null) {
+    sheet.classList.add('hidden');
+    state.tradePickerResolver = null;
+    resolve(val);
+  }
+  state.tradePickerResolver = close;
+  closeBtn.onclick = () => close(null);
+  return p;
 }
 
 async function sendContactCardInChat(){
@@ -1045,11 +1078,11 @@ async function sendContactCardInChat(){
   if(!peerId) return;
   await loadFriends(true);
   const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
-  if(!friends.length) return alert('你的好友列表为空，无法发送名片');
-  const picked = pickByPrompt(
-    friends,
+  const picked = await showTradePicker(
     '选择要发送的好友名片',
+    friends,
     (f) => `${f.remark || f.displayName || f.username || '好友'} · ChatTrade ID：${f.appNumberId || f.username || '-'}`,
+    '你的好友列表为空'
   );
   if(!picked) return;
   await window.sendMessage({
@@ -1069,8 +1102,7 @@ async function sendProductCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
   const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
-  if(!products.length) return alert('你还没有可发送的商品，请先发布商品');
-  const picked = pickByPrompt(products, '选择要发送的商品', (p) => `${p.title || '商品'} · ${formatMoney(p.price)}`);
+  const picked = await showTradePicker(products.length ? '选择要发送的商品' : '商品列表', products, (p) => `${p.title || '商品'} · ${formatMoney(p.price)}`, '暂无可发送商品，请先发布商品');
   if(!picked) return;
   await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: picked.title || '商品', description: picked.desc || '', meta:`售价：${formatMoney(picked.price)}`, imageUrl: picked.image || picked.imageUrl || '' } });
 }
@@ -1091,8 +1123,7 @@ async function sendOrderCardInChat(){
   if(!peerId) return;
   await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
   const orders = getOrdersBetweenUsers(peerId);
-  if(!orders.length) return alert('当前会话双方暂无可发送订单');
-  const picked = pickByPrompt(orders, '选择要发送的订单', (o) => `#${String(o.id||'').slice(-6)} · ${formatMoney(o.total)} · ${formatOrderStatusLabel(o.status)}`);
+  const picked = await showTradePicker(orders.length ? '选择要发送的订单' : '订单列表', orders, (o) => `#${String(o.id||'').slice(-6)} · ${formatMoney(o.total)} · ${formatOrderStatusLabel(o.status)}`, '当前会话双方暂无订单');
   if(!picked) return;
   await window.sendMessage({ type:'order_card', order:{ id:picked.id, buyerId:picked.buyerId, sellerId:picked.sellerId, title:`订单 #${String(picked.id||'').slice(-6)}`, summary:(picked.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容', total:picked.total, status:picked.status, pendingPrice:picked.pendingPrice||null, pendingPriceRequestedBy:picked.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!picked.priceAdjustmentLocked, role: state.currentUser?.id===picked.sellerId ? 'seller' : 'buyer' } });
 }
@@ -1106,8 +1137,7 @@ async function sendPaymentCodeInChat(){
     ['alipay', '支付宝收款码', codes.alipay],
     ['cloudpay', '云闪付收款码', codes.cloudpay],
   ].filter(([, , url]) => !!url);
-  if(!options.length) return alert('你还没有配置收款码，请先到卖家中心-收款码管理设置');
-  const picked = pickByPrompt(options, '选择要发送的收款码', (o) => o[1]);
+  const picked = await showTradePicker(options.length ? '选择要发送的收款码' : '收款码列表', options, (o) => o[1], '你还没有配置收款码，请先到卖家中心设置');
   if(!picked) return;
   await window.sendMessage({ type:'card', card:{ cardType:'收款码', title:picked[1], description:'请核对金额后付款', meta:'仅用于当前订单沟通', imageUrl:picked[2] } });
 }
@@ -1853,6 +1883,19 @@ function closeConversationSwipeRows(exceptWrap = null) {
   });
 }
 
+function bindConversationSwipeDismiss(){
+  const list = $("chatList");
+  if (!list || list.dataset.swipeDismissBound === '1') return;
+  list.dataset.swipeDismissBound = '1';
+  list.addEventListener('scroll', () => closeConversationSwipeRows(), { passive: true });
+  list.addEventListener('click', (e) => {
+    if (!e.target.closest('.chat-swipe-row')) closeConversationSwipeRows();
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#chatList .chat-swipe-row')) closeConversationSwipeRows();
+  }, true);
+}
+
 function attachConversationSwipeDelete(wrap, onDelete) {
   let startX = 0;
   let startY = 0;
@@ -2184,7 +2227,7 @@ const SECONDARY_PAGE_IDS = [
   'qrCodePage','editProfilePage','publishProductPage','myProductsPage','settingsPage','groupManagePage',
   'profileCartPage','profileOrdersPage','cartHubPage','buyerOrdersManagePage','sellerCenterPage','sellerPaymentPage',
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
-  'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage'
+  'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage'
 ];
 
 window.openSecondaryPage = (page, backTo = 'home') => {
@@ -2213,6 +2256,7 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'editProfilePage') { if($("chatTitle")) $("chatTitle").textContent = '个人信息'; }
   else if (page === 'forgotPasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '找回密码'; }
   else if (page === 'changePasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '修改密码'; }
+  else if (page === 'changePhonePage') { if($("chatTitle")) $("chatTitle").textContent = '修改手机号'; }
   else if (page === 'publishProductPage') { if($("chatTitle")) $("chatTitle").textContent = '发布闲置'; }
   else if (page === 'myProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '我的闲置'; }
   else if (page === 'settingsPage') { if($("chatTitle")) $("chatTitle").textContent = '设置'; }
@@ -2590,7 +2634,7 @@ window.openConversation = async (id, options = {}) => {
     conv.unread = 0;
     renderConversationListFromState();
   }
-  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
+  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
   if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
   if($("chatListView")) $("chatListView").classList.add("hidden"); 
   if($("friendListView")) $("friendListView").classList.add("hidden");
@@ -2847,6 +2891,32 @@ function bindAllEvents() {
   });
 
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'profile'));
+  on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
+  on("sendChangePhoneCodeBtn", "click", async () => {
+    const phone = $("changePhoneInput")?.value.trim();
+    if(!/^1\d{10}$/.test((phone || '').replace(/\s+/g, ''))) return alert('请输入11位手机号');
+    try {
+      const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
+      alert(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
+    } catch (e) {
+      alert(e.message || '发送失败');
+    }
+  });
+  on("submitChangePhoneBtn", "click", async () => {
+    const phone = $("changePhoneInput")?.value.trim();
+    const code = $("changePhoneCodeInput")?.value.trim();
+    if(!phone || !code) return alert('请填写手机号和验证码');
+    try {
+      const data = await api('/api/users/change-phone', { method:'POST', body: JSON.stringify({ phone, code }) });
+      state.currentUser = data.user || state.currentUser;
+      writeSession(state.currentUser);
+      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
+      alert('手机号修改成功');
+      if($("backBtn")) $("backBtn").click();
+    } catch (e) {
+      alert(e.message || '修改失败');
+    }
+  });
   on("submitChangePasswordBtn", "click", async () => {
     const oldPassword = $("oldPasswordInput")?.value || '';
     const newPassword = $("newPasswordInput")?.value || '';
@@ -2959,6 +3029,7 @@ function bindAllEvents() {
       if(!state.currentUser) return; window.openSecondaryPage('editProfilePage');
       $("editNameInput").value = state.currentUser.displayName || ''; $("editSignatureInput").value = state.currentUser.signature || '';
       if($("editAppIdDisplay")) $("editAppIdDisplay").textContent = state.currentUser.appNumberId || '-';
+      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
       state.tempAvatarUrl = state.currentUser.avatarUrl || null;
       if (state.tempAvatarUrl) setImagePreview($("editAvatarPreview"), state.tempAvatarUrl, firstChar(state.currentUser?.displayName));
       else $("editAvatarPreview").textContent = firstChar(state.currentUser.displayName);
@@ -2986,8 +3057,14 @@ function bindAllEvents() {
 
   on("backBtn", "click", () => {
     try { stopScanCamera(); } catch(_) {}
-      const backTo = state.secondaryReturn; state.secondaryPage = null; state.secondaryReturn = null; 
+      const backTo = state.secondaryReturn;
+      const currentSecondary = state.secondaryPage;
+      state.secondaryPage = null; state.secondaryReturn = null; 
       SECONDARY_PAGE_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+      if (backTo && SECONDARY_PAGE_IDS.includes(backTo) && backTo !== currentSecondary) {
+          window.openSecondaryPage(backTo, 'profile');
+          return;
+      }
       if (backTo === 'chat' && state.activeConversation) {
           if($("backBtn")) $("backBtn").classList.remove('hidden'); 
           if($("chatView")) $("chatView").classList.remove('hidden'); 
@@ -3011,23 +3088,22 @@ function bindAllEvents() {
   on("globalNotifyBtn", "click", () => { alert("新消息通知目前跟随系统默认设置开启"); });
   on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage'); loadMyProducts(); });
-  on("buyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage'); });
+  on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
     await Promise.all([loadSellerOrders(), loadBuyerOrders()]);
     syncSellerProducts();
     const hero = document.querySelector('#sellerCenterPage .seller-center-hero span');
     if (hero) hero.textContent = `卖家订单 ${state.sellerOrders.length} / 买家订单 ${state.buyerOrders.length} / 商品 ${state.sellerProducts.length}`;
-    window.openSecondaryPage('sellerCenterPage');
+    window.openSecondaryPage('sellerCenterPage', 'profile');
   });
-  on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', state.secondaryReturn || 'profile'); });
-  on("sellerProductManageBtn", "click", () => { syncSellerProducts(); window.openSecondaryPage('sellerProductsPage', state.secondaryReturn || 'profile'); });
-  on("broadcastManageEntryBtn", "click", () => { renderBroadcastDrafts(); window.openSecondaryPage('broadcastManagePage', state.secondaryReturn || 'profile'); });
+  on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', 'sellerCenterPage'); });
+  on("sellerProductManageBtn", "click", () => { syncSellerProducts(); window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage'); });
   on("sellerPaymentManageBtn", "click", () => {
     const codes = state.currentUser?.paymentCodes || {};
     if($("sellerWxPayInput")) $("sellerWxPayInput").value = codes.wechat || '';
     if($("sellerAliPayInput")) $("sellerAliPayInput").value = codes.alipay || '';
     if($("sellerCloudPayInput")) $("sellerCloudPayInput").value = codes.cloudpay || '';
-    window.openSecondaryPage('sellerPaymentPage', state.secondaryReturn || 'profile');
+    window.openSecondaryPage('sellerPaymentPage', 'sellerCenterPage');
   });
   on("saveSellerPaymentBtn", "click", async () => {
     const paymentCodes = {
@@ -3232,6 +3308,15 @@ function bindAllEvents() {
   on("scanIdInput", "keydown", (e) => { if (e.key === 'Enter') submitScanRequest(); });
 
   on("profileAddFriendBtn", "click", () => sendFriendRequestToCurrentProfile());
+  on("profileSendMessageBtn", "click", async () => {
+    const p = state.currentProfileUser;
+    if(!p || !p.id || !state.currentUser) return;
+    try {
+      await openConversationWith(p.id, p.remarkName || p.nickname || p.username || p.displayName || '');
+    } catch(e) {
+      alert(e.message || '打开会话失败');
+    }
+  });
     on("myCartEntryBtn", "click", () => {
     renderCartHubPage();
     window.openSecondaryPage('cartHubPage', 'home');
@@ -4302,6 +4387,7 @@ function sortConversationsInPlace() {
   });
 }
 function renderConversationListFromState() {
+  bindConversationSwipeDismiss();
   const keyword = $("searchInput") ? $("searchInput").value.trim().toLowerCase() : "";
   let filteredConvs = state.conversations || [];
   if (keyword) filteredConvs = filteredConvs.filter(c => (c.title || '').toLowerCase().includes(keyword));

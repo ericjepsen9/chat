@@ -1,8 +1,46 @@
 const assert = require('assert');
+const { spawn } = require('child_process');
+const path = require('path');
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:4173';
 let authToken = null;
 let adminToken = null;
+let serverProc = null;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isServerReachable() {
+  try {
+    const res = await fetch(`${BASE}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureServerReady() {
+  if (await isServerReachable()) return;
+  serverProc = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'ignore',
+  });
+  serverProc.unref();
+
+  const maxAttempts = 40;
+  for (let i = 0; i < maxAttempts; i += 1) {
+    if (await isServerReachable()) return;
+    await sleep(150);
+  }
+  throw new Error(`server_not_ready: ${BASE}`);
+}
+
+async function shutdownOwnedServer() {
+  if (!serverProc || serverProc.killed) return;
+  serverProc.kill('SIGTERM');
+  await sleep(100);
+}
 
 async function j(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -29,6 +67,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
 }
 
 (async () => {
+  await ensureServerReady();
   const now = Date.now();
   const username = `u_${now}`;
   const phone = `139${String(now).slice(-8)}`;
@@ -249,5 +288,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   console.log('smoke-test: ok');
 })().catch((e) => {
   console.error(e);
-  process.exit(1);
+  process.exitCode = 1;
+}).finally(async () => {
+  await shutdownOwnedServer();
 });
