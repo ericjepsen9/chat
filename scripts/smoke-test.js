@@ -1,8 +1,46 @@
 const assert = require('assert');
+const { spawn } = require('child_process');
+const path = require('path');
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:4173';
 let authToken = null;
 let adminToken = null;
+let serverProc = null;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isServerReachable() {
+  try {
+    const res = await fetch(`${BASE}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureServerReady() {
+  if (await isServerReachable()) return;
+  serverProc = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'ignore',
+  });
+  serverProc.unref();
+
+  const maxAttempts = 40;
+  for (let i = 0; i < maxAttempts; i += 1) {
+    if (await isServerReachable()) return;
+    await sleep(150);
+  }
+  throw new Error(`server_not_ready: ${BASE}`);
+}
+
+async function shutdownOwnedServer() {
+  if (!serverProc || serverProc.killed) return;
+  serverProc.kill('SIGTERM');
+  await sleep(100);
+}
 
 async function j(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -29,6 +67,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
 }
 
 (async () => {
+  await ensureServerReady();
   const now = Date.now();
   const username = `u_${now}`;
   const phone = `139${String(now).slice(-8)}`;
@@ -143,15 +182,36 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
     body: JSON.stringify({ senderId: login.user.id, type: 'card', card: { cardType: '收款码', title: '微信收款码', imageUrl: '/uploads/fake.png' } }),
   }, 400);
 
+  const sellerProductRes = await fetch(`${BASE}/api/products`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      userId: target.id,
+      title: 'smoke item',
+      category: '数码',
+      desc: 'smoke test product',
+      stock: 3,
+      specs: ['默认规格'],
+      price: 9.9,
+      image: '/uploads/smoke-product.png',
+    }),
+  });
+  const sellerProductData = await sellerProductRes.json();
+  if (!sellerProductRes.ok) throw new Error(`create seller product failed ${sellerProductRes.status} ${JSON.stringify(sellerProductData)}`);
+  const sellerStore = await j(`/api/users/${encodeURIComponent(target.id)}/store`);
+  const smokeProduct = (sellerStore.items || []).find((item) => item.title === 'smoke item');
+  assert(smokeProduct && smokeProduct.id, 'smoke seller product should exist');
+
   const orderPayload = {
     sellerId: target.id,
     clientRequestId: 'smoke-order-1',
-    items: [{ productId: 'smoke-p', title: 'smoke item', spec: '默认规格', quantity: 1, price: 9.9 }],
+    items: [{ productId: smokeProduct.id, title: 'tampered title', spec: '默认规格', quantity: 1, price: 1 }],
   };
   const orderFirst = await j('/api/orders', { method: 'POST', body: JSON.stringify(orderPayload) });
   const orderSecond = await j('/api/orders', { method: 'POST', body: JSON.stringify(orderPayload) });
   assert(orderFirst.order && orderFirst.order.id);
   assert(orderFirst.order.status === 'accepted');
+  assert(orderFirst.order.items && Number(orderFirst.order.items[0].price) === 9.9, 'order item price should come from seller product');
   assert(orderSecond.order && orderSecond.order.id === orderFirst.order.id);
   assert(orderSecond.deduplicated === true);
 
@@ -229,6 +289,41 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
     body: JSON.stringify({ userId: login.user.id, status: 'placed' }),
   }, 400);
 
+  const orderPending = await j('/api/orders', {
+    method: 'POST',
+    body: JSON.stringify({
+      sellerId: target.id,
+      items: [{ productId: smokeProduct.id, title: 'pending', spec: '默认规格', quantity: 1, price: 1 }],
+    }),
+  });
+  await expectHttpError(`/api/orders/${orderPending.order.id}/delete`, { method: 'POST', body: JSON.stringify({}) }, 409);
+
+  const delByBuyer = await j(`/api/orders/${orderFirst.order.id}/delete`, { method: 'POST', body: JSON.stringify({}) });
+  assert(delByBuyer.ok === true);
+  const buyerOrdersAfterDelete = await j('/api/orders');
+  assert(!(buyerOrdersAfterDelete.orders || []).some((o) => o.id === orderFirst.order.id), 'deleted order should be hidden for buyer');
+
+  const sellerOrdersAfterDeleteRes = await fetch(`${BASE}/api/orders?sellerId=${encodeURIComponent(target.id)}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const sellerOrdersAfterDelete = await sellerOrdersAfterDeleteRes.json();
+  if (!sellerOrdersAfterDeleteRes.ok) throw new Error(`seller orders fetch failed ${sellerOrdersAfterDeleteRes.status}`);
+  assert((sellerOrdersAfterDelete.orders || []).some((o) => o.id === orderFirst.order.id), 'order should still be visible for seller before seller deletes');
+
+  const delBySellerRes = await fetch(`${BASE}/api/orders/${orderFirst.order.id}/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({}),
+  });
+  const delBySeller = await delBySellerRes.json();
+  if (!delBySellerRes.ok) throw new Error(`seller delete failed ${delBySellerRes.status} ${JSON.stringify(delBySeller)}`);
+  const sellerOrdersAfterSelfDeleteRes = await fetch(`${BASE}/api/orders?sellerId=${encodeURIComponent(target.id)}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const sellerOrdersAfterSelfDelete = await sellerOrdersAfterSelfDeleteRes.json();
+  if (!sellerOrdersAfterSelfDeleteRes.ok) throw new Error(`seller orders fetch 2 failed ${sellerOrdersAfterSelfDeleteRes.status}`);
+  assert(!(sellerOrdersAfterSelfDelete.orders || []).some((o) => o.id === orderFirst.order.id), 'deleted order should be hidden for seller too');
+
   const sysRes = await fetch(`${BASE}/api/admin/system/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
@@ -249,5 +344,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   console.log('smoke-test: ok');
 })().catch((e) => {
   console.error(e);
-  process.exit(1);
+  process.exitCode = 1;
+}).finally(async () => {
+  await shutdownOwnedServer();
 });
