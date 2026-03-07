@@ -57,6 +57,17 @@ function initSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conv_time ON messages(conversation_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      buyer_id TEXT NOT NULL,
+      seller_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+    CREATE INDEX IF NOT EXISTS idx_orders_buyer_id ON orders(buyer_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_seller_id ON orders(seller_id);
+
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY,
       seller_id TEXT NOT NULL,
@@ -70,6 +81,7 @@ function initSchema(db) {
 function getSnapshot(db) {
   const readAll = (table) => db.prepare(`SELECT json FROM ${table}`).all().map((r) => JSON.parse(r.json));
   const readMessages = () => db.prepare('SELECT json FROM messages ORDER BY created_at ASC').all().map((r) => JSON.parse(r.json));
+  const readOrders = () => db.prepare('SELECT json FROM orders ORDER BY created_at DESC').all().map((r) => JSON.parse(r.json));
   const readProducts = () => db.prepare('SELECT json FROM products ORDER BY created_at ASC').all().map((r) => JSON.parse(r.json));
 
   return {
@@ -78,6 +90,7 @@ function getSnapshot(db) {
     friendRequests: readAll('friend_requests'),
     conversations: readAll('conversations'),
     messages: readMessages(),
+    orders: readOrders(),
     // products are embedded in users in current app model, but we also persist a flattened view for faster restore.
     // If absent, server will rebuild from users.
     products: readProducts(),
@@ -86,13 +99,14 @@ function getSnapshot(db) {
 
 function saveSnapshot(db, snapshot) {
   const tx = db.transaction((snap) => {
-    db.exec('DELETE FROM users; DELETE FROM friendships; DELETE FROM friend_requests; DELETE FROM conversations; DELETE FROM messages; DELETE FROM products;');
+    db.exec('DELETE FROM users; DELETE FROM friendships; DELETE FROM friend_requests; DELETE FROM conversations; DELETE FROM messages; DELETE FROM orders; DELETE FROM products;');
 
     const insUser = db.prepare('INSERT INTO users(id,json) VALUES(?,?)');
     const insFriend = db.prepare('INSERT INTO friendships(id,json) VALUES(?,?)');
     const insReq = db.prepare('INSERT INTO friend_requests(id,json) VALUES(?,?)');
     const insConv = db.prepare('INSERT INTO conversations(id,json) VALUES(?,?)');
     const insMsg = db.prepare('INSERT INTO messages(id,conversation_id,created_at,json) VALUES(?,?,?,?)');
+    const insOrder = db.prepare('INSERT INTO orders(id,buyer_id,seller_id,created_at,json) VALUES(?,?,?,?,?)');
     const insProd = db.prepare('INSERT INTO products(id,seller_id,created_at,json) VALUES(?,?,?,?)');
 
     for (const u of snap.users || []) insUser.run(u.id, JSON.stringify(u));
@@ -100,6 +114,7 @@ function saveSnapshot(db, snapshot) {
     for (const r of snap.friendRequests || []) insReq.run(r.id, JSON.stringify(r));
     for (const c of snap.conversations || []) insConv.run(c.id, JSON.stringify(c));
     for (const m of snap.messages || []) insMsg.run(m.id, m.conversationId, m.createdAt || Date.now(), JSON.stringify(m));
+    for (const o of snap.orders || []) insOrder.run(o.id, o.buyerId, o.sellerId, o.createdAt || Date.now(), JSON.stringify(o));
 
     // products: prefer snap.products if provided; otherwise flatten from users.
     const prods = Array.isArray(snap.products) && snap.products.length
@@ -130,7 +145,7 @@ function ensureImportedIfEmpty(db, jsonFilePath, defaultSnapshotFactory) {
 
   // Normalize keys to what server expects.
   const normalized = {
-    users: [], friendships: [], friendRequests: [], conversations: [], messages: [],
+    users: [], friendships: [], friendRequests: [], conversations: [], messages: [], orders: [],
     ...snapshot,
   };
 
@@ -160,7 +175,7 @@ function openSqliteStore(sqliteFilePath, jsonFilePath, defaultSnapshotFactory) {
         }
       }
       return {
-        users: [], friendships: [], friendRequests: [], conversations: [], messages: [],
+        users: [], friendships: [], friendRequests: [], conversations: [], messages: [], orders: [],
         ...snap,
       };
     },
