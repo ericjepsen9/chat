@@ -2,14 +2,18 @@ function formatOrderSummary(items = []) {
   return items.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
 }
 
-function normalizeOrderItems(items = []) {
-  return items.map((item) => ({
-    productId: item.productId || '',
-    title: String(item.title || '').trim() || '商品',
-    spec: String(item.spec || '默认规格').trim(),
-    quantity: Math.max(1, Number(item.quantity || 1)),
-    price: Math.max(0, Number(item.price || 0)),
-  }));
+function parseProductPrice(value) {
+  const cleaned = String(value ?? '').replace(/[^\d.]/g, '');
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? Math.max(0, num) : 0;
+}
+
+function normalizeOrderItemRequest(item = {}) {
+  return {
+    productId: String(item.productId || '').trim(),
+    spec: String(item.spec || '默认规格').trim() || '默认规格',
+    quantity: Math.max(1, Math.floor(Number(item.quantity || 1))),
+  };
 }
 
 function resolveClientRequestId(value) {
@@ -60,7 +64,7 @@ function buildOrderCardPayload(order, extras = {}) {
   };
 }
 
-function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
+function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
   if (isUserBlockedByCounterparty(authUser, seller)) return { ok: false, status: 403, error: 'trade_blocked' };
@@ -78,7 +82,48 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     }
   }
 
-  const normalized = normalizeOrderItems(items);
+  const normalized = [];
+  const neededByProduct = new Map();
+  for (const rawItem of items) {
+    const reqItem = normalizeOrderItemRequest(rawItem);
+    if (!reqItem.productId) return { ok: false, status: 400, error: 'invalid_product_id' };
+    const sellerProduct = (seller.products || []).find((p) => String(p.id || '') === reqItem.productId);
+    if (!sellerProduct) return { ok: false, status: 404, error: 'product_not_found' };
+
+    const availableSpecs = Array.isArray(sellerProduct.specs) ? sellerProduct.specs.filter(Boolean) : [];
+    if (availableSpecs.length && !availableSpecs.includes(reqItem.spec)) {
+      return { ok: false, status: 409, error: 'invalid_spec' };
+    }
+
+    const safeSpec = availableSpecs.length ? reqItem.spec : '默认规格';
+    const unitPrice = parseProductPrice(sellerProduct.price);
+    normalized.push({
+      productId: sellerProduct.id,
+      title: String(sellerProduct.title || '').trim() || '商品',
+      spec: safeSpec,
+      quantity: reqItem.quantity,
+      price: unitPrice,
+    });
+
+    neededByProduct.set(
+      sellerProduct.id,
+      (neededByProduct.get(sellerProduct.id) || 0) + reqItem.quantity,
+    );
+  }
+
+  const stockUpdates = [];
+  for (const [productId, neededQty] of neededByProduct.entries()) {
+    const sellerProduct = (seller.products || []).find((p) => String(p.id || '') === String(productId));
+    if (!sellerProduct) return { ok: false, status: 404, error: 'product_not_found' };
+    const currentStock = Math.max(0, Math.floor(Number(sellerProduct.stock ?? 0)));
+    if (currentStock < neededQty) return { ok: false, status: 409, error: 'insufficient_stock' };
+    stockUpdates.push({ sellerProduct, nextStock: currentStock - neededQty });
+  }
+
+  stockUpdates.forEach(({ sellerProduct, nextStock }) => {
+    sellerProduct.stock = nextStock;
+  });
+
   const total = normalized.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const now = Date.now();
   const order = {
@@ -105,6 +150,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     }),
   });
   conv.updatedAt = new Date().toISOString();
+  if (typeof rebuildMallIndex === 'function') rebuildMallIndex();
+  if (typeof broadcastAll === 'function') broadcastAll('mall_updated', {});
   schedulePersist('order_create', { orderId: order.id, buyerId: authUser.id, sellerId: seller.id });
   return { ok: true, status: 201, payload: { order, deduplicated: false } };
 }
@@ -228,10 +275,24 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   return { ok: true, status: 200, payload: { order } };
 }
 
+
+function deleteOrder({ authUser, orderId, db, usersById, schedulePersist }) {
+  const order = (db.orders || []).find((item) => item.id === orderId);
+  if (!order) return { ok: false, status: 404, error: 'not_found' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: true });
+  if (!actor.ok) return actor;
+  if (order.status !== 'completed') return { ok: false, status: 409, error: 'order_not_completed' };
+  if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
+  if (!order.deletedBy.includes(authUser.id)) order.deletedBy.push(authUser.id);
+  schedulePersist('order_delete', { orderId: order.id, userId: authUser.id });
+  return { ok: true, status: 200, payload: { ok: true, orderId: order.id } };
+}
+
 module.exports = {
   createOrder,
   updateOrderPrice,
   updateOrderStatus,
   requestOrderPriceChange,
   confirmOrderPriceChange,
+  deleteOrder,
 };

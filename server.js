@@ -8,14 +8,14 @@ const { isAdmin, normalizeUserRole, canAccessConversation } = require('./server_
 const { parseAuthToken, requireAuth, requireAdmin } = require('./server_auth');
 const { createFriendRequest, acceptFriendRequest, rejectFriendRequest } = require('./friend_request_service');
 const { queryOrders } = require('./order_query_service');
-const { createOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange } = require('./order_mutation_service');
+const { createOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange, deleteOrder } = require('./order_mutation_service');
 const { buildAdminDashboardData } = require('./admin_dashboard_service');
 const { createPersistence } = require('./server_persistence');
 const { updateBlacklist } = require('./blacklist_service');
 const { createGroup, renameGroup, reorderGroup, deleteGroup } = require('./group_service');
 const { updateFriendRemark, updateFriendGroup, deleteFriendRelation } = require('./friend_relation_service');
 const { createDirectConversation } = require('./conversation_service');
-const { createProduct, deleteProduct } = require('./product_service');
+const { createProduct, deleteProduct, updateProduct } = require('./product_service');
 const { updateUserProfile, buildUserProfileView } = require('./user_profile_service');
 const { buildUserStoreItems, queryMallItems } = require('./catalog_service');
 const { createBroadcastMessage } = require('./broadcast_service');
@@ -320,6 +320,7 @@ function rebuildMallIndex() {
     const sellerAvatarUrl = user.avatarUrl;
     const sellerAppNumberId = user.appNumberId;
     for (const product of user.products || []) {
+      if (product?.listed === false) continue;
       items.push({
         ...product,
         sellerId: user.id,
@@ -412,6 +413,7 @@ function rebuildConversationBaseIndex() {
         title: rel?.remark || peer?.displayName || '未知用户',
         peerAvatarUrl: peer?.avatarUrl,
         peerAppNumberId: peer?.appNumberId,
+        peerIsFriend: !!rel,
       });
     }
   }
@@ -436,6 +438,13 @@ function rebuildIndexes() {
   for (const user of db.users) {
     if (!Array.isArray(user.blacklist)) user.blacklist = [];
     if (!Array.isArray(user.products)) user.products = [];
+    user.products = user.products.map((p) => {
+      const next = p && typeof p === 'object' ? p : {};
+      const rawStock = Number(next.stock);
+      next.stock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 99;
+      next.listed = next.listed !== false;
+      return next;
+    });
     if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
     user.paymentCodes = {
       wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
@@ -471,6 +480,7 @@ function rebuildIndexes() {
     if (typeof order.priceAdjustmentLocked !== 'boolean') order.priceAdjustmentLocked = false;
     if (!('pendingPrice' in order)) order.pendingPrice = null;
     if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
+    if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
   }
 
   for (const rel of db.friendships) {
@@ -1192,6 +1202,39 @@ const server = http.createServer(async (req, res) => {
       const result = updateUserProfile({
         authUser: context.authUser,
         body: context.body,
+        normalizePhone,
+        findUserByPhone,
+        normalizeUserCustomGroups,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        rebuildRequestViewsIndex,
+        rebuildBlacklistViewsIndex,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastToUser,
+        broadcastAll,
+        sanitizePublicUser,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    if (matchRoute(pathname, '/api/users/change-phone') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const phone = normalizePhone(context.body.phone || '');
+      const code = String(context.body.code || '').trim();
+      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
+      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误' });
+      const verify = consumePhoneCode(phone, code, 'reset');
+      if (!verify.ok) return sendJson(res, verify.status, { error: verify.error });
+      const existing = findUserByPhone(phone);
+      if (existing && existing.id !== context.authUser.id) return sendJson(res, 409, { error: '该手机号已被注册' });
+      const result = updateUserProfile({
+        authUser: context.authUser,
+        body: { phone },
+        normalizePhone,
+        findUserByPhone,
         normalizeUserCustomGroups,
         rebuildFriendViewsIndex,
         rebuildConversationBaseIndex,
@@ -1254,6 +1297,8 @@ const server = http.createServer(async (req, res) => {
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
+        rebuildMallIndex,
+        broadcastAll,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1331,8 +1376,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.payload);
     }
 
-    
-    
+    const orderDeleteMatch = pathname.match(/^\/api\/orders\/([^/]+)\/delete$/);
+    if (orderDeleteMatch && req.method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = deleteOrder({
+        authUser: context.authUser,
+        orderId: orderDeleteMatch[1],
+        db,
+        usersById: index.usersById,
+        schedulePersist,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
     if (pathname === '/api/system/messages' && req.method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
@@ -1400,6 +1458,20 @@ const server = http.createServer(async (req, res) => {
       const result = deleteProduct({
         authUser: context.authUser,
         productId: context.body.productId,
+        rebuildMallIndex,
+        schedulePersist,
+        broadcastAll,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    if (matchRoute(pathname, '/api/products/update') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return;
+      const result = updateProduct({
+        authUser: context.authUser,
+        body: context.body,
         rebuildMallIndex,
         schedulePersist,
         broadcastAll,

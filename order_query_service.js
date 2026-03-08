@@ -5,6 +5,9 @@ function queryOrders({ db, authUser, searchParams, isAdmin }) {
   const queryUserId = requestedUserId || authUser.id;
   const userId = adminUser ? queryUserId : authUser.id;
   const orders = (db.orders || []).filter((o) => {
+    const deletedBy = Array.isArray(o.deletedBy) ? o.deletedBy : [];
+    if (!adminUser && deletedBy.includes(authUser.id)) return false;
+    if (adminUser && userId && deletedBy.includes(userId)) return false;
     if (sellerId) {
       if (adminUser) return o.sellerId === sellerId;
       return o.sellerId === sellerId && (o.buyerId === authUser.id || o.sellerId === authUser.id);
