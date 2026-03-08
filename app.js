@@ -2207,6 +2207,8 @@ function attachConversationSwipeDelete(wrap, onDelete) {
   let startX = 0;
   let startY = 0;
   let moved = false;
+  let dragDx = 0;
+  let suppressClick = false;
   const threshold = 48;
   const content = wrap.querySelector('.chat-swipe-content');
   if (!content) return;
@@ -2217,6 +2219,8 @@ function attachConversationSwipeDelete(wrap, onDelete) {
     startX = t.clientX;
     startY = t.clientY;
     moved = false;
+    dragDx = 0;
+    suppressClick = false;
     closeConversationSwipeRows(wrap);
   }, { passive: true });
 
@@ -2225,18 +2229,29 @@ function attachConversationSwipeDelete(wrap, onDelete) {
     if (!t) return;
     const dx = t.clientX - startX;
     const dy = t.clientY - startY;
-    if (Math.abs(dx) > Math.abs(dy)) moved = true;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+      moved = true;
+      dragDx = dx;
+      suppressClick = true;
+    }
   }, { passive: true });
 
   content.addEventListener('touchend', (e) => {
     const t = e.changedTouches?.[0];
     if (!t) return;
-    const dx = t.clientX - startX;
+    const dx = dragDx || (t.clientX - startX);
     const dy = t.clientY - startY;
     if (Math.abs(dx) < Math.abs(dy) || !moved) return;
     if (dx <= -threshold) wrap.classList.add('revealed');
     else if (dx >= threshold) wrap.classList.remove('revealed');
+    setTimeout(() => { suppressClick = false; }, 180);
   }, { passive: true });
+
+  content.addEventListener('click', (e) => {
+    if (!suppressClick) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
   const delBtn = wrap.querySelector('.chat-swipe-delete-btn');
   if (delBtn) {

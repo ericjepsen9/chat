@@ -1676,6 +1676,7 @@ input, textarea { font-size: var(--font-body); }
   transform:translateX(0);
   transition:transform .2s ease;
   will-change:transform;
+  touch-action: pan-y;
 }
 .chat-swipe-row.revealed .chat-swipe-content{
   transform:translateX(-78px);
