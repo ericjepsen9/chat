@@ -2242,46 +2242,90 @@ function bindConversationSwipeDismiss(){
 function attachConversationSwipeDelete(wrap, onDelete) {
   let startX = 0;
   let startY = 0;
-  let moved = false;
   let dragDx = 0;
   let suppressClick = false;
+  let tracking = false;
+  let axis = '';
   const threshold = 48;
   const content = wrap.querySelector('.chat-swipe-content');
   if (!content) return;
 
+  const begin = (x, y) => {
+    startX = x;
+    startY = y;
+    dragDx = 0;
+    suppressClick = false;
+    tracking = true;
+    axis = '';
+    closeConversationSwipeRows(wrap);
+  };
+
+  const move = (x, y, canPreventDefault = false, ev = null) => {
+    if (!tracking) return;
+    const dx = x - startX;
+    const dy = y - startY;
+    if (!axis) {
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (axis === 'x') {
+      dragDx = dx;
+      suppressClick = true;
+      if (canPreventDefault && ev && ev.cancelable) ev.preventDefault();
+    }
+  };
+
+  const finish = (x, y) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = dragDx || (x - startX);
+    const dy = y - startY;
+    if (Math.abs(dx) < Math.abs(dy)) {
+      setTimeout(() => { suppressClick = false; }, 180);
+      return;
+    }
+    if (dx <= -threshold) wrap.classList.add('revealed');
+    else if (dx >= threshold) wrap.classList.remove('revealed');
+    setTimeout(() => { suppressClick = false; }, 180);
+  };
+
   content.addEventListener('touchstart', (e) => {
     const t = e.touches?.[0];
     if (!t) return;
-    startX = t.clientX;
-    startY = t.clientY;
-    moved = false;
-    dragDx = 0;
-    suppressClick = false;
-    closeConversationSwipeRows(wrap);
+    begin(t.clientX, t.clientY);
   }, { passive: true });
 
   content.addEventListener('touchmove', (e) => {
     const t = e.touches?.[0];
     if (!t) return;
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
-      moved = true;
-      dragDx = dx;
-      suppressClick = true;
-    }
-  }, { passive: true });
+    move(t.clientX, t.clientY, true, e);
+  }, { passive: false });
 
   content.addEventListener('touchend', (e) => {
     const t = e.changedTouches?.[0];
     if (!t) return;
-    const dx = dragDx || (t.clientX - startX);
-    const dy = t.clientY - startY;
-    if (Math.abs(dx) < Math.abs(dy) || !moved) return;
-    if (dx <= -threshold) wrap.classList.add('revealed');
-    else if (dx >= threshold) wrap.classList.remove('revealed');
-    setTimeout(() => { suppressClick = false; }, 180);
+    finish(t.clientX, t.clientY);
   }, { passive: true });
+
+  content.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    begin(e.clientX, e.clientY);
+  });
+
+  content.addEventListener('pointermove', (e) => {
+    if (!tracking) return;
+    if (e.pointerType === 'mouse' && (e.buttons & 1) !== 1) return;
+    move(e.clientX, e.clientY, false, null);
+  });
+
+  content.addEventListener('pointerup', (e) => {
+    finish(e.clientX, e.clientY);
+  });
+
+  content.addEventListener('pointercancel', () => {
+    tracking = false;
+    axis = '';
+    dragDx = 0;
+  });
 
   content.addEventListener('click', (e) => {
     if (!suppressClick) return;
