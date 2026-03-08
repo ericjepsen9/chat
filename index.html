@@ -320,10 +320,37 @@
 
         <section id="sellerPaymentPage" class="chat-list-view hidden order-flow-page">
           <div class="order-flow-head"><strong>收款码管理</strong><span>仅商家可配置</span></div>
-          <div class="broadcast-editor-card">
-            <input id="sellerWxPayInput" class="ui-input" placeholder="微信收款码（链接）" />
-            <input id="sellerAliPayInput" class="ui-input" placeholder="支付宝收款码（链接）" />
-            <input id="sellerCloudPayInput" class="ui-input" placeholder="云闪付收款码（链接）" />
+          <div class="payment-code-card">
+            <div class="payment-code-row">
+              <div class="payment-code-meta">
+                <strong>微信收款码</strong>
+                <span>上传微信收款码图片</span>
+              </div>
+              <div id="sellerWxPayPreview" class="payment-code-preview">+</div>
+            </div>
+            <button id="sellerWxPayUploadBtn" type="button" class="secondary-btn">上传微信收款码</button>
+            <input id="sellerWxPayFileInput" type="file" accept="image/*" class="hidden" />
+
+            <div class="payment-code-row">
+              <div class="payment-code-meta">
+                <strong>支付宝收款码</strong>
+                <span>上传支付宝收款码图片</span>
+              </div>
+              <div id="sellerAliPayPreview" class="payment-code-preview">+</div>
+            </div>
+            <button id="sellerAliPayUploadBtn" type="button" class="secondary-btn">上传支付宝收款码</button>
+            <input id="sellerAliPayFileInput" type="file" accept="image/*" class="hidden" />
+
+            <div class="payment-code-row">
+              <div class="payment-code-meta">
+                <strong>云闪付收款码</strong>
+                <span>上传云闪付收款码图片</span>
+              </div>
+              <div id="sellerCloudPayPreview" class="payment-code-preview">+</div>
+            </div>
+            <button id="sellerCloudPayUploadBtn" type="button" class="secondary-btn">上传云闪付收款码</button>
+            <input id="sellerCloudPayFileInput" type="file" accept="image/*" class="hidden" />
+
             <button id="saveSellerPaymentBtn" type="button" class="primary-btn">保存收款码</button>
           </div>
         </section>

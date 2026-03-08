@@ -44,6 +44,7 @@ const state = {
   profileStoreExpanded: false,
   systemMessages: [],
   adminDashboard: null,
+  paymentCodeDraft: { wechat:'', alipay:'', cloudpay:'' },
   buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
@@ -3535,18 +3536,59 @@ function bindAllEvents() {
     await loadSellerProductsManage();
     window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
   });
+  function renderSellerPaymentDraft(){
+    const draft = state.paymentCodeDraft || { wechat:'', alipay:'', cloudpay:'' };
+    setImagePreview($("sellerWxPayPreview"), draft.wechat, '+');
+    setImagePreview($("sellerAliPayPreview"), draft.alipay, '+');
+    setImagePreview($("sellerCloudPayPreview"), draft.cloudpay, '+');
+  }
+
+  async function uploadSellerPaymentCode(kind, file){
+    if (!file) return;
+    try {
+      const blob = await resizeImageFile(file, 1000, 0.8);
+      const url = await uploadBinary(blob, file.name || `${kind}_qrcode.jpg`, 'image/jpeg');
+      state.paymentCodeDraft = { ...(state.paymentCodeDraft || {}), [kind]: url };
+      renderSellerPaymentDraft();
+      showToast('收款码上传成功');
+    } catch (e) {
+      alert(e.message || '收款码上传失败');
+    }
+  }
+
   on("sellerPaymentManageBtn", "click", () => {
     const codes = state.currentUser?.paymentCodes || {};
-    if($("sellerWxPayInput")) $("sellerWxPayInput").value = codes.wechat || '';
-    if($("sellerAliPayInput")) $("sellerAliPayInput").value = codes.alipay || '';
-    if($("sellerCloudPayInput")) $("sellerCloudPayInput").value = codes.cloudpay || '';
+    state.paymentCodeDraft = {
+      wechat: codes.wechat || '',
+      alipay: codes.alipay || '',
+      cloudpay: codes.cloudpay || '',
+    };
+    renderSellerPaymentDraft();
     window.openSecondaryPage('sellerPaymentPage', 'sellerCenterPage');
+  });
+  on("sellerWxPayUploadBtn", "click", () => { $("sellerWxPayFileInput")?.click(); });
+  on("sellerAliPayUploadBtn", "click", () => { $("sellerAliPayFileInput")?.click(); });
+  on("sellerCloudPayUploadBtn", "click", () => { $("sellerCloudPayFileInput")?.click(); });
+  on("sellerWxPayFileInput", "change", async () => {
+    const file = $("sellerWxPayFileInput")?.files?.[0];
+    if($("sellerWxPayFileInput")) $("sellerWxPayFileInput").value = '';
+    await uploadSellerPaymentCode('wechat', file);
+  });
+  on("sellerAliPayFileInput", "change", async () => {
+    const file = $("sellerAliPayFileInput")?.files?.[0];
+    if($("sellerAliPayFileInput")) $("sellerAliPayFileInput").value = '';
+    await uploadSellerPaymentCode('alipay', file);
+  });
+  on("sellerCloudPayFileInput", "change", async () => {
+    const file = $("sellerCloudPayFileInput")?.files?.[0];
+    if($("sellerCloudPayFileInput")) $("sellerCloudPayFileInput").value = '';
+    await uploadSellerPaymentCode('cloudpay', file);
   });
   on("saveSellerPaymentBtn", "click", async () => {
     const paymentCodes = {
-      wechat: $("sellerWxPayInput")?.value?.trim() || '',
-      alipay: $("sellerAliPayInput")?.value?.trim() || '',
-      cloudpay: $("sellerCloudPayInput")?.value?.trim() || '',
+      wechat: state.paymentCodeDraft?.wechat || '',
+      alipay: state.paymentCodeDraft?.alipay || '',
+      cloudpay: state.paymentCodeDraft?.cloudpay || '',
     };
     try{
       const data = await api('/api/users/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, paymentCodes }) });
