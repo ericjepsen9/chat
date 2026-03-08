@@ -44,7 +44,8 @@ const state = {
   profileStoreExpanded: false,
   systemMessages: [],
   adminDashboard: null,
-  buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, broadcastDrafts: [],
+  paymentCodeDraft: { wechat:'', alipay:'', cloudpay:'' },
+  buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {} 
@@ -57,10 +58,13 @@ function updateProfileDetailActions(){
   const p = state.currentProfileUser;
   if(!p) return;
   const isFriend = !!p.isFriend || isFriendUser(p.id);
+  const isSelf = p.id === state.currentUser?.id;
   if($("profileAddFriendBtn")) $("profileAddFriendBtn").classList.toggle("hidden", isFriend);
   if($("profileStrangerHint")) $("profileStrangerHint").classList.toggle("hidden", isFriend);
   if($("profileActionRemarkBtn")) $("profileActionRemarkBtn").style.display = isFriend ? '' : 'none';
   if($("profileActionMoveGroupBtn")) $("profileActionMoveGroupBtn").style.display = isFriend ? '' : 'none';
+  if($("profileSendMessageBtn")) $("profileSendMessageBtn").classList.toggle("hidden", isSelf);
+  if($("profilePrimaryActions")) $("profilePrimaryActions").classList.toggle('hidden', isFriend || isSelf);
 }
 
 
@@ -92,6 +96,12 @@ function formatMoney(v){
 
 function parseMoney(v){
   return Number(String(v).replace(/[^\d.]/g, '')) || 0;
+}
+
+function getSecondaryBackTarget(defaultTarget = 'home'){
+  if (state.secondaryPage) return state.secondaryPage;
+  if (state.secondaryReturn) return state.secondaryReturn;
+  return defaultTarget;
 }
 
 
@@ -136,6 +146,116 @@ function syncSellerProducts(){
   renderSellerProductsManage();
 }
 
+async function refreshProductViews(){
+  await Promise.all([loadMyProducts(), loadSellerProductsManage(), loadMall()]);
+  if (state.currentProfileUser?.id && state.currentProfileUser.id === state.currentUser?.id) {
+    await loadProfileStore(state.currentUser.id);
+  }
+}
+
+async function syncProductViewsIfVisible(){
+  const tasks = [];
+  const sellerPageVisible = $("sellerProductsPage") && !$("sellerProductsPage").classList.contains('hidden');
+  const myProductsPageVisible = $("myProductsPage") && !$("myProductsPage").classList.contains('hidden');
+  const selfProfileVisible = $("profileDetailPage") && !$("profileDetailPage").classList.contains('hidden') && state.currentProfileUser?.id === state.currentUser?.id;
+  if (sellerPageVisible) tasks.push(loadSellerProductsManage());
+  if (myProductsPageVisible) tasks.push(loadMyProducts());
+  if (selfProfileVisible) tasks.push(loadProfileStore(state.currentUser.id));
+  if (tasks.length) await Promise.all(tasks);
+}
+
+async function loadSellerProductsManage(){
+  if(!state.currentUser?.id) return;
+  try {
+    const data = await api(`/api/users/${state.currentUser.id}/store`);
+    state.sellerProducts = Array.isArray(data.items) ? data.items : [];
+    state.currentUser.products = [...state.sellerProducts];
+    writeSession(state.currentUser);
+  } catch (_) {
+    syncSellerProducts();
+  }
+  renderSellerProductsManage();
+}
+
+
+function orderMatchesFilters(order, role = 'buyer'){
+  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const keyword = String(state[`${prefix}OrderSearch`] || '').trim().toLowerCase();
+  const fromVal = state[`${prefix}OrderFrom`] || '';
+  const toVal = state[`${prefix}OrderTo`] || '';
+  const createdAt = Number(order?.createdAt || 0);
+  if (keyword) {
+    const hay = `#${String(order?.id || '').slice(-6)} ${(order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ')}`.toLowerCase();
+    if (!hay.includes(keyword)) return false;
+  }
+  if (fromVal) {
+    const fromTs = Date.parse(fromVal);
+    if (Number.isFinite(fromTs) && createdAt < fromTs) return false;
+  }
+  if (toVal) {
+    const toTs = Date.parse(toVal);
+    if (Number.isFinite(toTs) && createdAt > toTs) return false;
+  }
+  return true;
+}
+
+function syncOrderFilterInputs(role = 'buyer'){
+  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const searchEl = $(`${prefix}OrdersSearchInput`);
+  const fromEl = $(`${prefix}OrdersFromInput`);
+  const toEl = $(`${prefix}OrdersToInput`);
+  if (searchEl) searchEl.value = state[`${prefix}OrderSearch`] || '';
+  if (fromEl) fromEl.value = state[`${prefix}OrderFrom`] || '';
+  if (toEl) toEl.value = state[`${prefix}OrderTo`] || '';
+  updateOrderPresetUI(role);
+}
+
+function updateOrderPresetUI(role = 'buyer'){
+  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const root = $(`${prefix}OrdersRangePresets`);
+  if (!root) return;
+  const fromVal = state[`${prefix}OrderFrom`] || '';
+  const toVal = state[`${prefix}OrderTo`] || '';
+  const fromTs = Date.parse(fromVal);
+  const toTs = Date.parse(toVal);
+  const now = Date.now();
+  root.querySelectorAll('.order-filter-chip').forEach((btn) => {
+    const days = Number(btn.dataset.range || 0);
+    let active = false;
+    if (Number.isFinite(fromTs) && Number.isFinite(toTs) && days > 0) {
+      const start = now - (days * 24 * 60 * 60 * 1000);
+      active = Math.abs(fromTs - start) < 2 * 60 * 1000 && Math.abs(toTs - now) < 2 * 60 * 1000;
+    }
+    btn.classList.toggle('active', active);
+  });
+}
+
+function applyOrderQuickRange(role = 'buyer', days = 0){
+  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const now = new Date();
+  const from = new Date(now.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000);
+  const fmt = (d) => {
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+  state[`${prefix}OrderFrom`] = fmt(from);
+  state[`${prefix}OrderTo`] = fmt(now);
+  if (role === 'seller') renderSellerOrdersManage();
+  else renderBuyerOrdersManage();
+}
+
+async function deleteOrderRecord(orderId){
+  if(!orderId) return;
+  try{
+    await api(`/api/orders/${orderId}/delete`, { method:'POST', body: JSON.stringify({}) });
+    await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
+    if (state.currentProfileUser?.id) await loadProfileOrders();
+    showToast('订单已删除');
+  }catch(e){
+    alert(e.message || '删除失败（仅已完成订单可删除）');
+  }
+}
+
 function orderStatusText(status){
   return formatOrderStatusLabel(status);
 }
@@ -143,7 +263,9 @@ function orderStatusText(status){
 function renderBuyerOrdersManage(){
   const list = $("buyerOrdersManageList");
   if(!list) return;
-  if(!state.buyerOrders.length){
+  syncOrderFilterInputs('buyer');
+  const rows = (state.buyerOrders || []).filter((o) => orderMatchesFilters(o, 'buyer'));
+  if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.textContent = '暂无购买订单';
@@ -151,7 +273,7 @@ function renderBuyerOrdersManage(){
     return;
   }
   const frag = document.createDocumentFragment();
-  state.buyerOrders.forEach(order => {
+  rows.forEach(order => {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'profile-order-card';
@@ -165,16 +287,36 @@ function renderBuyerOrdersManage(){
     status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
     status.textContent = orderStatusText(order.status);
     card.append(title, sub, status);
+
+    if(order.status === 'completed'){
+      const actions = document.createElement('div');
+      actions.className = 'profile-order-actions';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'secondary-btn';
+      delBtn.textContent = '删除订单';
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if(!confirm('确认删除该订单？')) return;
+        await deleteOrderRecord(order.id);
+      });
+      actions.appendChild(delBtn);
+      card.appendChild(actions);
+    }
+
     card.addEventListener('click', () => openOrderDetail(order, 'buyer'));
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
 }
 
+
 function renderSellerOrdersManage(){
   const list = $("sellerOrdersList");
   if(!list) return;
-  if(!state.sellerOrders.length){
+  syncOrderFilterInputs('seller');
+  const rows = (state.sellerOrders || []).filter((o) => orderMatchesFilters(o, 'seller'));
+  if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.textContent = '暂无卖家订单';
@@ -182,7 +324,7 @@ function renderSellerOrdersManage(){
     return;
   }
   const frag = document.createDocumentFragment();
-  state.sellerOrders.forEach(order => {
+  rows.forEach(order => {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'profile-order-card';
@@ -196,31 +338,80 @@ function renderSellerOrdersManage(){
     status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
     status.textContent = orderStatusText(order.status);
     card.append(title, sub, status);
+
+    if(order.status === 'completed'){
+      const actions = document.createElement('div');
+      actions.className = 'profile-order-actions';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'secondary-btn';
+      delBtn.textContent = '删除订单';
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if(!confirm('确认删除该订单？')) return;
+        await deleteOrderRecord(order.id);
+      });
+      actions.appendChild(delBtn);
+      card.appendChild(actions);
+    }
+
     card.addEventListener('click', () => openOrderDetail(order, 'seller'));
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
 }
 
+
+function updateSellerProductsFilterUI(){
+  const listedTab = $("sellerProductsListedTab");
+  const unlistedTab = $("sellerProductsUnlistedTab");
+  if (listedTab) listedTab.classList.toggle('active', state.sellerProductViewTab !== 'unlisted');
+  if (unlistedTab) unlistedTab.classList.toggle('active', state.sellerProductViewTab === 'unlisted');
+  if ($("sellerProductsSearchInput")) $("sellerProductsSearchInput").value = state.sellerProductSearch || '';
+  if ($("sellerProductsSortSelect")) $("sellerProductsSortSelect").value = state.sellerProductSort || 'newest';
+}
+
+function getFilteredSellerProducts(){
+  const all = Array.isArray(state.sellerProducts) ? [...state.sellerProducts] : [];
+  const showUnlisted = state.sellerProductViewTab === 'unlisted';
+  const keyword = String(state.sellerProductSearch || '').trim().toLowerCase();
+  const visible = all.filter((item) => {
+    const listed = item?.listed !== false;
+    if (showUnlisted ? listed : !listed) return false;
+    if (!keyword) return true;
+    const hay = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase();
+    return hay.includes(keyword);
+  });
+  const sortBy = state.sellerProductSort || 'newest';
+  visible.sort((a, b) => {
+    if (sortBy === 'price_asc') return parseMoney(a.price) - parseMoney(b.price);
+    if (sortBy === 'price_desc') return parseMoney(b.price) - parseMoney(a.price);
+    if (sortBy === 'stock_desc') return (Number(b.stock)||0) - (Number(a.stock)||0);
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+  return visible;
+}
+
 function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
-  if(!state.sellerProducts.length){
+  updateSellerProductsFilterUI();
+  const products = getFilteredSellerProducts();
+  if(!products.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = '暂无商品，可先使用“发布闲置”';
+    empty.textContent = state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布';
     list.replaceChildren(empty);
     return;
   }
   const frag = document.createDocumentFragment();
-  state.sellerProducts.forEach(item => {
+  products.forEach(item => {
     const card = document.createElement('div');
     card.className = 'profile-store-item';
-    card.addEventListener('click', () => openProductDetailPage(item));
+    card.addEventListener('click', () => openProductDetail(item, true));
     const img = document.createElement('img');
     img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
     img.alt = item.title || '商品';
-    img.addEventListener('click', () => openProductDetail(item, false));
 
     const info = document.createElement('div');
     info.className = 'profile-store-info';
@@ -229,28 +420,56 @@ function renderSellerProductsManage(){
     title.textContent = item.title || '未命名商品';
     const desc = document.createElement('div');
     desc.className = 'profile-store-desc';
-    desc.textContent = item.desc || '可在商品详情页继续编辑文案与规格';
+    const tag = item.listed === false ? '未上架' : '已上架';
+    desc.textContent = `[${tag}] ${item.desc || '可在商品详情页继续编辑文案与规格'}`;
     const price = document.createElement('div');
     price.className = 'profile-store-price';
     price.textContent = formatMoney(item.price);
-    info.append(title, desc, price);
-    info.addEventListener('click', () => openProductDetail(item, false));
-    info.addEventListener('click', () => openProductDetail(item, true));
+    const stock = document.createElement('div');
+    stock.className = 'profile-store-desc';
+    stock.textContent = `库存：${Math.max(0, Math.floor(Number(item.stock || 0)))}`;
+    info.append(title, desc, price, stock);
 
     const side = document.createElement('div');
     side.className = 'profile-store-side';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'secondary-btn';
-    btn.textContent = '详情';
-    btn.addEventListener('click', () => openProductDetail(item, true));
-    side.appendChild(btn);
+    side.style.display = 'flex';
+    side.style.flexDirection = 'column';
+    side.style.gap = '8px';
 
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'secondary-btn';
+    editBtn.textContent = '编辑';
+    editBtn.addEventListener('click', (e) => { e.stopPropagation(); openPublishProductPage('sellerProductsPage', item); });
+
+    const stockBtn = document.createElement('button');
+    stockBtn.type = 'button';
+    stockBtn.className = 'secondary-btn';
+    stockBtn.textContent = '改库存';
+    stockBtn.addEventListener('click', (e) => { e.stopPropagation(); window.updateSellerProductStock(item.id, item.stock || 0); });
+
+    const listedBtn = document.createElement('button');
+    listedBtn.type = 'button';
+    listedBtn.className = 'secondary-btn';
+    listedBtn.textContent = item.listed === false ? '上架' : '下架';
+    listedBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.toggleSellerProductListed(item.id, item.listed === false);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'secondary-btn';
+    delBtn.textContent = '删除';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); window.deleteMyProduct(item.id); });
+
+    side.append(editBtn, stockBtn, listedBtn, delBtn);
     card.append(img, info, side);
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
 }
+
 
 function openProductDetail(item, fromSeller = false){
   if(!item) return;
@@ -263,6 +482,10 @@ function openProductDetail(item, fromSeller = false){
   if(specsEl){
     const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格', '标准版', '高配版'];
     const frag = document.createDocumentFragment();
+    const stockChip = document.createElement('span');
+    stockChip.className = 'spec-option-chip';
+    stockChip.textContent = `库存 ${Math.max(0, Math.floor(Number(item.stock || 0)))}`;
+    frag.appendChild(stockChip);
     specs.forEach(spec => {
       const chip = document.createElement('span');
       chip.className = 'spec-option-chip';
@@ -272,7 +495,7 @@ function openProductDetail(item, fromSeller = false){
     specsEl.replaceChildren(frag);
   }
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
-  window.openSecondaryPage('productDetailPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
+  window.openSecondaryPage('productDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
 function openOrderDetail(order, role = 'buyer'){
@@ -280,7 +503,7 @@ function openOrderDetail(order, role = 'buyer'){
   state.selectedOrderDetail = order;
   state.selectedOrderRole = role;
   renderOrderDetailPage();
-  window.openSecondaryPage('orderDetailPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
+  window.openSecondaryPage('orderDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
 function renderOrderDetailPage(){
@@ -403,13 +626,25 @@ function getProfileStoreItemCartQuantity(item){
     .reduce((sum, entry) => sum + (Number(entry.quantity) || 0), 0);
 }
 
+function getItemAvailableStock(item){
+  const stock = Number(item?.stock ?? 0);
+  if (!Number.isFinite(stock)) return 0;
+  return Math.max(0, Math.floor(stock));
+}
+
 function adjustProfileStoreItemQuantity(item, delta){
   if(!item || !delta) return;
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
   const defaultSpec = (Array.isArray(item.specs) && item.specs.length ? item.specs[0] : '默认规格') || '默认规格';
   const key = `${item.id}__${defaultSpec}`;
   const found = cart.find(i => i.key === key);
+  const inCartQty = getProfileStoreItemCartQuantity(item);
+  const availableStock = getItemAvailableStock(item);
   if(delta > 0){
+    if (inCartQty >= availableStock) {
+      showToast('库存不足');
+      return;
+    }
     if(found){
       found.quantity = (Number(found.quantity) || 0) + 1;
     }else{
@@ -479,11 +714,15 @@ function renderProfileStore(){
     title.textContent = item.title || '未命名商品';
     const desc = document.createElement('div');
     desc.className = 'profile-store-desc';
-    desc.textContent = item.desc || '商品详情页包含图片、文字与价格';
+    const categoryText = item.category ? `【${item.category}】` : '';
+    desc.textContent = `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`;
     const price = document.createElement('div');
     price.className = 'profile-store-price';
     price.textContent = formatMoney(item.price);
-    info.append(title, desc, price);
+    const stock = document.createElement('div');
+    stock.className = 'profile-store-desc';
+    stock.textContent = `库存：${getItemAvailableStock(item)}`;
+    info.append(title, desc, price, stock);
 
     const side = document.createElement('div');
     side.className = 'profile-store-side';
@@ -572,6 +811,12 @@ function addSelectedProductToCart(){
   const key = `${item.id}__${spec}`;
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
   const found = cart.find(i => i.key === key);
+  const inCartQty = getProfileStoreItemCartQuantity(item);
+  const availableStock = getItemAvailableStock(item);
+  if (inCartQty >= availableStock) {
+    showToast('库存不足');
+    return;
+  }
   if(found){
     found.quantity = (Number(found.quantity) || 0) + 1;
   }else{
@@ -676,7 +921,9 @@ function renderCartHubPage(){
   const frag = document.createDocumentFragment();
   groups.forEach(([sellerId, arr]) => {
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    const title = profile?.displayName || profile?.nickname || `商家 ${sellerId.slice(-6)}`;
+    const knownSeller = (state.sellerOrders || []).find((o) => o.sellerId === sellerId)?.sellerName
+      || (state.buyerOrders || []).find((o) => o.sellerId === sellerId)?.sellerName;
+    const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
     const count = arr.reduce((s, item) => s + (Number(item.quantity)||0), 0);
     const total = arr.reduce((s, item) => s + (Number(item.unitPrice)||0)*(Number(item.quantity)||0), 0);
     const card = document.createElement('div');
@@ -707,11 +954,12 @@ function renderCartHubPage(){
 }
 
 async function submitProfileOrder(){
-  const currentCart = getCurrentSellerCart();
-  if(!state.currentProfileUser?.id || !currentCart.length) return alert('请先选择商品');
+  const sellerId = state.currentCartSellerId || state.currentProfileUser?.id || '';
+  const currentCart = getCurrentSellerCart(sellerId);
+  if(!sellerId || !currentCart.length) return alert('请先选择商品');
   try{
     const payload = {
-      sellerId: state.currentProfileUser.id,
+      sellerId,
       items: currentCart.map(item => ({
         productId: item.productId,
         title: item.title,
@@ -721,13 +969,17 @@ async function submitProfileOrder(){
       }))
     };
     await api('/api/orders', { method:'POST', body: JSON.stringify(payload) });
-    state.profileCartBySeller[state.currentProfileUser.id] = [];
+    state.profileCartBySeller[sellerId] = [];
     updateProfileCartBar();
     renderProfileCartPage();
-    await loadProfileOrders();
+    await Promise.all([
+      loadBuyerOrders(),
+      state.currentProfileUser?.id ? loadProfileOrders() : Promise.resolve(),
+    ]);
     if(state.activeConversation?.id) await reloadActiveConversationMessages();
     alert('订单已提交');
-    window.openSecondaryPage('profileOrdersPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
+    const backTo = state.secondaryReturn || (state.activeConversation ? 'chat' : 'home');
+    window.openSecondaryPage('profileOrdersPage', backTo);
   }catch(e){
     alert(e.message || '提交订单失败');
   }
@@ -952,37 +1204,41 @@ function renderProfileOrders(){
 
     const actions = document.createElement('div');
     actions.className = 'profile-order-actions';
+    const canManage = state.currentUser?.id && state.currentUser.id === order.sellerId;
 
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'secondary-btn';
-    editBtn.textContent = '修改价格';
-    editBtn.addEventListener('click', async () => {
-      const raw = prompt('请输入新的总价', String(order.total || ''));
-      if(raw === null) return;
-      try{
-        await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-        await loadProfileOrders();
-      }catch(e){ alert(e.message || '修改失败'); }
-    });
-    actions.appendChild(editBtn);
-
-    if(order.status !== 'completed'){
-      const doneBtn = document.createElement('button');
-      doneBtn.type = 'button';
-      doneBtn.className = 'primary-btn';
-      doneBtn.textContent = '标记已完成';
-      doneBtn.addEventListener('click', async (e) => { e.stopPropagation();
+    if (canManage) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'secondary-btn';
+      editBtn.textContent = '修改价格';
+      editBtn.addEventListener('click', async () => {
+        const raw = prompt('请输入新的总价', String(order.total || ''));
+        if(raw === null) return;
         try{
-          await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
+          await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
           await loadProfileOrders();
-          if(state.activeConversation?.id) await reloadActiveConversationMessages();
-        }catch(e){ alert(e.message || '更新失败'); }
+        }catch(e){ alert(e.message || '修改失败'); }
       });
-      actions.appendChild(doneBtn);
+      actions.appendChild(editBtn);
+
+      if(order.status !== 'completed'){
+        const doneBtn = document.createElement('button');
+        doneBtn.type = 'button';
+        doneBtn.className = 'primary-btn';
+        doneBtn.textContent = '标记已完成';
+        doneBtn.addEventListener('click', async (e) => { e.stopPropagation();
+          try{
+            await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
+            await loadProfileOrders();
+            if(state.activeConversation?.id) await reloadActiveConversationMessages();
+          }catch(e){ alert(e.message || '更新失败'); }
+        });
+        actions.appendChild(doneBtn);
+      }
     }
 
-    card.append(title, sub, status, actions);
+    card.append(title, sub, status);
+    if (actions.childElementCount) card.appendChild(actions);
     card.addEventListener('click', () => openOrderDetail(order, 'seller'));
     frag.appendChild(card);
   });
@@ -1010,7 +1266,9 @@ function applyChatRelationshipState(){
   if(!$("chatSubtitle")) return;
   const peerId = conversationPeerId(state.activeConversation);
   if(!peerId) { $("chatSubtitle").textContent = ''; return; }
-  $("chatSubtitle").textContent = isFriendUser(peerId) ? '单聊' : '对方还不是你的好友';
+  const convFriendState = state.activeConversation?.peerIsFriend === true
+    || (state.conversations || []).find((c) => c.id === state.activeConversation?.id)?.peerIsFriend === true;
+  $("chatSubtitle").textContent = (convFriendState || isFriendUser(peerId)) ? '' : '对方还不是你的好友';
 }
 
 
@@ -1027,52 +1285,57 @@ function ensureDirectConversationForTrade() {
   return peerId;
 }
 
-function pickByPrompt(items, title, lineFormatter) {
-  if (!Array.isArray(items) || !items.length) return null;
-  const lines = items.map((item, i) => `${i + 1}. ${lineFormatter(item)}`).join('\n');
-  const raw = prompt(`${title}\n${lines}\n\n请输入序号`, '1');
-  if (raw === null) return null;
-  const idx = Number(raw) - 1;
-  if (!Number.isInteger(idx) || idx < 0 || idx >= items.length) {
-    alert('序号无效');
-    return null;
+function showTradePicker(title, items, renderLine, emptyText) {
+  const sheet = $("tradePickerSheet");
+  const list = $("tradePickerList");
+  const titleEl = $("tradePickerTitle");
+  if (!sheet || !list || !titleEl) return Promise.resolve(null);
+  titleEl.textContent = title;
+  list.innerHTML = '';
+  if (!Array.isArray(items) || !items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = emptyText || '暂无可选项';
+    list.appendChild(empty);
+  } else {
+    const frag = document.createDocumentFragment();
+    items.forEach((item, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'profile-order-card';
+      btn.innerHTML = `<div class="profile-order-title">${idx + 1}. ${escapeHTML(renderLine(item))}</div>`;
+      btn.addEventListener('click', () => close(item));
+      frag.appendChild(btn);
+    });
+    list.appendChild(frag);
   }
-  return items[idx];
+  sheet.classList.remove('hidden');
+  const closeBtn = $("tradePickerCloseBtn");
+  let resolve;
+  const p = new Promise((r) => { resolve = r; });
+  function close(val = null) {
+    sheet.classList.add('hidden');
+    state.tradePickerResolver = null;
+    resolve(val);
+  }
+  state.tradePickerResolver = close;
+  closeBtn.onclick = () => close(null);
+  return p;
 }
 
 async function sendContactCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
   await loadFriends(true);
-  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
-  if(!friends.length) return alert('你的好友列表为空，无法发送名片');
-  const picked = pickByPrompt(
-    friends,
-    '选择要发送的好友名片',
-    (f) => `${f.remark || f.displayName || f.username || '好友'} · ChatTrade ID：${f.appNumberId || f.username || '-'}`,
-  );
-  if(!picked) return;
-  await window.sendMessage({
-    type:'card',
-    card:{
-      cardType:'名片',
-      userId: picked.id,
-      title: picked.remark || picked.displayName || picked.username || '好友名片',
-      description:`ChatTrade ID：${picked.appNumberId || picked.username || '-'}`,
-      meta:'点击查看个人主页',
-      imageUrl: picked.avatarUrl || '',
-    },
-  });
+  renderContactCardPicker();
+  window.openSecondaryPage('contactCardPickerPage', 'chat');
 }
 
 async function sendProductCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
-  const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
-  if(!products.length) return alert('你还没有可发送的商品，请先发布商品');
-  const picked = pickByPrompt(products, '选择要发送的商品', (p) => `${p.title || '商品'} · ${formatMoney(p.price)}`);
-  if(!picked) return;
-  await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: picked.title || '商品', description: picked.desc || '', meta:`售价：${formatMoney(picked.price)}`, imageUrl: picked.image || picked.imageUrl || '' } });
+  await renderProductCardPicker();
+  window.openSecondaryPage('productCardPickerPage', 'chat');
 }
 
 function getOrdersBetweenUsers(peerId){
@@ -1089,12 +1352,143 @@ function getOrdersBetweenUsers(peerId){
 async function sendOrderCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
+  await renderOrderCardPicker();
+  window.openSecondaryPage('orderCardPickerPage', 'chat');
+}
+
+function extractContactCardUserId(card = {}){
+  if (!card || typeof card !== 'object') return '';
+  const directId = String(card.userId || card.uid || card.id || card.targetUserId || '').trim();
+  if (directId && directId !== 'null' && directId !== 'undefined') return directId;
+
+  const appIdRaw = String(card.appNumberId || card.appId || '').trim();
+  const desc = String(card.description || '').trim();
+  const meta = String(card.meta || '').trim();
+  const fromText = [appIdRaw, desc, meta].join(' ');
+  const appMatch = fromText.match(/CT\d{5,}/i);
+  const appId = appMatch ? appMatch[0].toUpperCase() : '';
+
+  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
+  if (appId) {
+    const friend = friends.find((f) => String(f.appNumberId || '').toUpperCase() === appId);
+    if (friend?.id) return friend.id;
+  }
+
+  const title = String(card.title || '').trim();
+  if (title) {
+    const friend = friends.find((f) => {
+      const names = [f.remark, f.displayName, f.username].map((v) => String(v || '').trim()).filter(Boolean);
+      return names.includes(title);
+    });
+    if (friend?.id) return friend.id;
+  }
+  return '';
+}
+
+function isContactCardPayload(card = {}){
+  const rawType = String(card.cardType || card.type || card.kind || '').trim().toLowerCase();
+  return rawType === '名片' || rawType === 'contact' || rawType === 'contact_card';
+}
+
+function renderContactCardPicker(){
+  const list = $("contactCardPickerList");
+  if(!list) return;
+  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
+  if(!friends.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '通讯录暂无好友可发送';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  friends.forEach((f) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'chat-item';
+    row.appendChild(createAvatarNode(f, f.displayName || f.username || '友'));
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;text-align:left;';
+    const name = document.createElement('strong');
+    name.textContent = f.remark || f.displayName || f.username || '好友';
+    const sub = document.createElement('div');
+    sub.className = 'preview';
+    sub.textContent = `ChatTrade ID：${f.appNumberId || f.username || '-'}`;
+    info.append(name, sub);
+    row.appendChild(info);
+    row.addEventListener('click', async () => {
+      await window.sendMessage({
+        type:'card',
+        card:{
+          cardType:'名片',
+          userId: f.id,
+          appNumberId: f.appNumberId || '',
+          title: f.remark || f.displayName || f.username || '好友名片',
+          description:`ChatTrade ID：${f.appNumberId || f.username || '-'}`,
+          meta:'个人名片',
+          imageUrl: f.avatarUrl || '',
+        },
+      });
+      if($("backBtn")) $("backBtn").click();
+    });
+    frag.appendChild(row);
+  });
+  list.replaceChildren(frag);
+}
+
+async function renderProductCardPicker(){
+  const list = $("productCardPickerList");
+  if(!list) return;
+  const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
+  if(!products.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '暂无可发送商品，请先发布';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  products.forEach((p) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'profile-order-card';
+    card.innerHTML = `<div class=\"profile-order-title\">${escapeHTML(p.title || '商品')}</div><div class=\"profile-order-sub\">${escapeHTML(p.desc || '')}</div><div class=\"profile-order-status\">${escapeHTML(formatMoney(p.price))}</div>`;
+    card.addEventListener('click', async () => {
+      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: p.desc || '', meta:`售价：${formatMoney(p.price)}`, imageUrl: p.image || p.imageUrl || '' } });
+      if($("backBtn")) $("backBtn").click();
+    });
+    frag.appendChild(card);
+  });
+  list.replaceChildren(frag);
+}
+
+async function renderOrderCardPicker(){
+  const list = $("orderCardPickerList");
+  if(!list) return;
+  const peerId = ensureDirectConversationForTrade();
+  if(!peerId) return;
   await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
   const orders = getOrdersBetweenUsers(peerId);
-  if(!orders.length) return alert('当前会话双方暂无可发送订单');
-  const picked = pickByPrompt(orders, '选择要发送的订单', (o) => `#${String(o.id||'').slice(-6)} · ${formatMoney(o.total)} · ${formatOrderStatusLabel(o.status)}`);
-  if(!picked) return;
-  await window.sendMessage({ type:'order_card', order:{ id:picked.id, buyerId:picked.buyerId, sellerId:picked.sellerId, title:`订单 #${String(picked.id||'').slice(-6)}`, summary:(picked.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容', total:picked.total, status:picked.status, pendingPrice:picked.pendingPrice||null, pendingPriceRequestedBy:picked.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!picked.priceAdjustmentLocked, role: state.currentUser?.id===picked.sellerId ? 'seller' : 'buyer' } });
+  if(!orders.length){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = '当前会话双方暂无可发送订单';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  orders.forEach((o) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'profile-order-card';
+    card.innerHTML = `<div class=\"profile-order-title\">订单 #${escapeHTML(String(o.id||'').slice(-6))} · ${escapeHTML(formatMoney(o.total))}</div><div class=\"profile-order-sub\">${escapeHTML((o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容')}</div><div class=\"profile-order-status\">${escapeHTML(formatOrderStatusLabel(o.status))}</div>`;
+    card.addEventListener('click', async () => {
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${String(o.id||'').slice(-6)}`, summary:(o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容', total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role: state.currentUser?.id===o.sellerId ? 'seller' : 'buyer' } });
+      if($("backBtn")) $("backBtn").click();
+    });
+    frag.appendChild(card);
+  });
+  list.replaceChildren(frag);
 }
 
 async function sendPaymentCodeInChat(){
@@ -1106,8 +1500,7 @@ async function sendPaymentCodeInChat(){
     ['alipay', '支付宝收款码', codes.alipay],
     ['cloudpay', '云闪付收款码', codes.cloudpay],
   ].filter(([, , url]) => !!url);
-  if(!options.length) return alert('你还没有配置收款码，请先到卖家中心-收款码管理设置');
-  const picked = pickByPrompt(options, '选择要发送的收款码', (o) => o[1]);
+  const picked = await showTradePicker(options.length ? '选择要发送的收款码' : '收款码列表', options, (o) => o[1], '你还没有配置收款码，请先到卖家中心设置');
   if(!picked) return;
   await window.sendMessage({ type:'card', card:{ cardType:'收款码', title:picked[1], description:'请核对金额后付款', meta:'仅用于当前订单沟通', imageUrl:picked[2] } });
 }
@@ -1242,11 +1635,16 @@ async function resizeImageFile(file, max = 1080, quality = 0.7) {
   return canvasToBlob(canvas, 'image/jpeg', quality);
 }
 async function uploadBinary(blob, fileName, contentType) {
+  const safeFileName = String(fileName || 'upload.bin')
+    .normalize('NFKD')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 120) || 'upload.bin';
   const res = await api('/api/upload', {
     method: 'POST',
     headers: {
       'Content-Type': contentType || blob.type || 'application/octet-stream',
-      'X-File-Name': fileName || 'upload.bin'
+      'X-File-Name': safeFileName
     },
     body: blob
   });
@@ -1375,53 +1773,64 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
       const c = msg.card || {};
       const card = document.createElement('div');
       card.className = 'trade-card';
-      const isContactCard = c.cardType === '名片';
+      const isContactCard = isContactCardPayload(c);
       if (isContactCard) {
         card.classList.add('contact-card-message');
       }
       const safeImage = normalizeMediaUrl(c.imageUrl || '');
-      if (safeImage) {
-        if (isContactCard) {
-          const head = document.createElement('div');
-          head.className = 'contact-card-message-head';
+      if (isContactCard) {
+        const head = document.createElement('div');
+        head.className = 'contact-card-message-head';
+        if (safeImage) {
           const avatar = document.createElement('img');
           avatar.className = 'contact-card-message-avatar';
           avatar.src = safeImage;
           head.appendChild(avatar);
-          const headTitle = document.createElement('div');
-          headTitle.className = 'trade-card-title';
-          headTitle.textContent = c.title || '好友名片';
-          head.appendChild(headTitle);
-          card.appendChild(head);
         } else {
-          const img = document.createElement('img');
-          img.className = 'trade-card-img';
-          img.src = safeImage;
-          img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
-          card.appendChild(img);
+          const avatar = document.createElement('div');
+          avatar.className = 'contact-card-message-avatar-fallback';
+          avatar.textContent = firstChar(c.title || '友');
+          head.appendChild(avatar);
         }
+        const headMeta = document.createElement('div');
+        const headTitle = document.createElement('div');
+        headTitle.className = 'trade-card-title';
+        headTitle.textContent = c.title || '好友名片';
+        const label = document.createElement('div');
+        label.className = 'contact-card-label';
+        label.textContent = c.meta || '个人名片';
+        headMeta.append(headTitle, label);
+        head.appendChild(headMeta);
+        card.appendChild(head);
+      } else if (safeImage) {
+        const img = document.createElement('img');
+        img.className = 'trade-card-img';
+        img.src = safeImage;
+        img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
+        card.appendChild(img);
       }
-      if (!(isContactCard && safeImage)) {
+      if (!isContactCard) {
         const title = document.createElement('div');
         title.className = 'trade-card-title';
         title.textContent = c.title || '闲置';
         card.appendChild(title);
       }
       const desc = document.createElement('div');
-      desc.style.fontSize = '12px';
-      desc.style.color = 'var(--text-muted)';
-      desc.style.marginBottom = '4px';
+      desc.className = 'trade-card-sub';
       desc.textContent = c.description || '';
       card.appendChild(desc);
-      const meta = document.createElement('div');
-      meta.className = 'trade-card-price';
-      meta.textContent = c.meta || '';
-      card.appendChild(meta);
-      if (isContactCard && c.userId) {
+      if (!isContactCard) {
+        const meta = document.createElement('div');
+        meta.className = 'trade-card-price';
+        meta.textContent = c.meta || '';
+        card.appendChild(meta);
+      }
+      const contactTargetUserId = isContactCard ? extractContactCardUserId(c) : '';
+      if (isContactCard && contactTargetUserId) {
         card.classList.add('clickable-card');
         card.addEventListener('click', (e) => {
           e.stopPropagation();
-          window.openUserProfile(c.userId, c.title || '用户');
+          window.openUserProfile(contactTargetUserId, c.title || '用户');
         });
       }
       wrap.appendChild(card);
@@ -1452,15 +1861,32 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
 }
 
 function formatOrderStatusLabel(status){
-  if(status === 'completed') return '已完成';
-  return '已接单';
+  const s = String(status || '').toLowerCase();
+  if (s === 'completed') return '已完成';
+  if (s === 'accepted' || s === 'processing' || s === 'in_progress') return '已接单';
+  if (s === 'pending' || s === 'created' || s === 'new') return '未接单';
+  return '未接单';
 }
 
 function buildOrderCardMessage(msg){
   const order = msg.order || {};
   const wrap = document.createElement('div');
-  wrap.className = 'trade-card';
+  wrap.className = 'trade-card clickable-card';
   wrap.dataset.orderId = order.id || '';
+
+  const safeOrderImage = normalizeMediaUrl(order.imageUrl || (order.items || []).find((item) => item && item.imageUrl)?.imageUrl || '');
+  if (safeOrderImage) {
+    const cover = document.createElement('img');
+    cover.className = 'trade-card-cover';
+    cover.src = safeOrderImage;
+    cover.alt = order.title || '订单商品';
+    cover.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.openImageViewer(safeOrderImage);
+    });
+    wrap.appendChild(cover);
+  }
+
   const title = document.createElement('div');
   title.className = 'trade-card-title';
   title.textContent = order.title || `订单 #${String(order.id || '').slice(-6) || '-'}`;
@@ -1475,16 +1901,19 @@ function buildOrderCardMessage(msg){
   status.textContent = formatOrderStatusLabel(order.status);
   wrap.append(title, sub, price, status);
 
+  const openDetail = (e) => {
+    if (e) e.stopPropagation();
+    openChatOrderDetail(order);
+  };
+  wrap.addEventListener('click', openDetail);
+
   const actions = document.createElement('div');
   actions.className = 'trade-card-actions';
   const detailBtn = document.createElement('button');
   detailBtn.type = 'button';
   detailBtn.className = 'secondary-btn';
   detailBtn.textContent = '查看详情';
-  detailBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openChatOrderDetail(order);
-  });
+  detailBtn.addEventListener('click', openDetail);
   actions.appendChild(detailBtn);
 
   const currentUserId = state.currentUser?.id || '';
@@ -1853,40 +2282,112 @@ function closeConversationSwipeRows(exceptWrap = null) {
   });
 }
 
+function bindConversationSwipeDismiss(){
+  const list = $("chatList");
+  if (!list || list.dataset.swipeDismissBound === '1') return;
+  list.dataset.swipeDismissBound = '1';
+  list.addEventListener('scroll', () => closeConversationSwipeRows(), { passive: true });
+  list.addEventListener('click', (e) => {
+    if (!e.target.closest('.chat-swipe-row')) closeConversationSwipeRows();
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#chatList .chat-swipe-row')) closeConversationSwipeRows();
+  }, true);
+}
+
 function attachConversationSwipeDelete(wrap, onDelete) {
   let startX = 0;
   let startY = 0;
-  let moved = false;
+  let dragDx = 0;
+  let suppressClick = false;
+  let tracking = false;
+  let axis = '';
   const threshold = 48;
   const content = wrap.querySelector('.chat-swipe-content');
   if (!content) return;
 
+  const begin = (x, y) => {
+    startX = x;
+    startY = y;
+    dragDx = 0;
+    suppressClick = false;
+    tracking = true;
+    axis = '';
+    closeConversationSwipeRows(wrap);
+  };
+
+  const move = (x, y, canPreventDefault = false, ev = null) => {
+    if (!tracking) return;
+    const dx = x - startX;
+    const dy = y - startY;
+    if (!axis) {
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (axis === 'x') {
+      dragDx = dx;
+      suppressClick = true;
+      if (canPreventDefault && ev && ev.cancelable) ev.preventDefault();
+    }
+  };
+
+  const finish = (x, y) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = dragDx || (x - startX);
+    const dy = y - startY;
+    if (Math.abs(dx) < Math.abs(dy)) {
+      setTimeout(() => { suppressClick = false; }, 180);
+      return;
+    }
+    if (dx <= -threshold) wrap.classList.add('revealed');
+    else if (dx >= threshold) wrap.classList.remove('revealed');
+    setTimeout(() => { suppressClick = false; }, 180);
+  };
+
   content.addEventListener('touchstart', (e) => {
     const t = e.touches?.[0];
     if (!t) return;
-    startX = t.clientX;
-    startY = t.clientY;
-    moved = false;
-    closeConversationSwipeRows(wrap);
+    begin(t.clientX, t.clientY);
   }, { passive: true });
 
   content.addEventListener('touchmove', (e) => {
     const t = e.touches?.[0];
     if (!t) return;
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    if (Math.abs(dx) > Math.abs(dy)) moved = true;
-  }, { passive: true });
+    move(t.clientX, t.clientY, true, e);
+  }, { passive: false });
 
   content.addEventListener('touchend', (e) => {
     const t = e.changedTouches?.[0];
     if (!t) return;
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    if (Math.abs(dx) < Math.abs(dy) || !moved) return;
-    if (dx <= -threshold) wrap.classList.add('revealed');
-    else if (dx >= threshold) wrap.classList.remove('revealed');
+    finish(t.clientX, t.clientY);
   }, { passive: true });
+
+  content.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    begin(e.clientX, e.clientY);
+  });
+
+  content.addEventListener('pointermove', (e) => {
+    if (!tracking) return;
+    if (e.pointerType === 'mouse' && (e.buttons & 1) !== 1) return;
+    move(e.clientX, e.clientY, false, null);
+  });
+
+  content.addEventListener('pointerup', (e) => {
+    finish(e.clientX, e.clientY);
+  });
+
+  content.addEventListener('pointercancel', () => {
+    tracking = false;
+    axis = '';
+    dragDx = 0;
+  });
+
+  content.addEventListener('click', (e) => {
+    if (!suppressClick) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
   const delBtn = wrap.querySelector('.chat-swipe-delete-btn');
   if (delBtn) {
@@ -2108,6 +2609,7 @@ function buildMallItemSignature(product) {
     id: product.id,
     title: product.title || '',
     price: product.price,
+    stock: product.stock,
     image: product.image || '',
     sellerId: product.sellerId || '',
     sellerName: product.sellerName || '',
@@ -2146,6 +2648,9 @@ function patchMallCard(card, product) {
   const price = document.createElement('div');
   price.className = 'product-price';
   price.textContent = `¥${product.price}`;
+  const stock = document.createElement('div');
+  stock.className = 'preview';
+  stock.textContent = `库存 ${Math.max(0, Math.floor(Number(product.stock || 0)))}`;
   const seller = document.createElement('div');
   seller.className = 'product-seller';
   seller.appendChild(createAvatarNode({avatarUrl: product.sellerAvatarUrl || product.sellerAvatar, displayName: product.sellerName}, product.sellerName));
@@ -2154,6 +2659,7 @@ function patchMallCard(card, product) {
   seller.appendChild(sellerName);
   info.appendChild(title);
   info.appendChild(price);
+  info.appendChild(stock);
   info.appendChild(seller);
   replacement.appendChild(info);
   if (card.parentNode) card.replaceWith(replacement);
@@ -2184,7 +2690,8 @@ const SECONDARY_PAGE_IDS = [
   'qrCodePage','editProfilePage','publishProductPage','myProductsPage','settingsPage','groupManagePage',
   'profileCartPage','profileOrdersPage','cartHubPage','buyerOrdersManagePage','sellerCenterPage','sellerPaymentPage',
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
-  'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage'
+  'contactCardPickerPage','productCardPickerPage','orderCardPickerPage',
+  'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage'
 ];
 
 window.openSecondaryPage = (page, backTo = 'home') => {
@@ -2213,6 +2720,7 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'editProfilePage') { if($("chatTitle")) $("chatTitle").textContent = '个人信息'; }
   else if (page === 'forgotPasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '找回密码'; }
   else if (page === 'changePasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '修改密码'; }
+  else if (page === 'changePhonePage') { if($("chatTitle")) $("chatTitle").textContent = '修改手机号'; }
   else if (page === 'publishProductPage') { if($("chatTitle")) $("chatTitle").textContent = '发布闲置'; }
   else if (page === 'myProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '我的闲置'; }
   else if (page === 'settingsPage') { if($("chatTitle")) $("chatTitle").textContent = '设置'; }
@@ -2224,6 +2732,9 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'sellerProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '商品管理'; }
   else if (page === 'productDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '商品详情'; }
   else if (page === 'orderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
+  else if (page === 'contactCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送名片'; }
+  else if (page === 'productCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送商品'; }
+  else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送订单'; }
   else if (page === 'broadcastManagePage') { if($("chatTitle")) $("chatTitle").textContent = '广播管理'; renderBroadcastDrafts(); }
   else if (page === 'broadcastEditorPage') { if($("chatTitle")) $("chatTitle").textContent = '广播编辑'; }
 
@@ -2427,7 +2938,34 @@ window.rejectRequest = async (requestId) => {
 
 window.deleteMyProduct = async (productId) => {
   if(!confirm("确定要下架并删除该商品吗？")) return;
-  try { await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) }); loadMyProducts(); loadMall(); } catch(e) { alert("删除失败：" + e.message); }
+  try {
+    await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) });
+    await refreshProductViews();
+  } catch(e) { alert("删除失败：" + e.message); }
+};
+
+window.updateSellerProductStock = async (productId, currentStock = 0) => {
+  const raw = prompt('请输入新的库存数量', String(Math.max(0, Math.floor(Number(currentStock || 0)))));
+  if (raw === null) return;
+  const stock = Math.max(0, Math.floor(Number(raw)));
+  if (!Number.isFinite(stock)) return alert('请输入有效库存');
+  try {
+    await api('/api/products/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, productId, stock }) });
+    await refreshProductViews();
+    showToast('库存已更新');
+  } catch (e) {
+    alert(e.message || '库存更新失败');
+  }
+};
+
+window.toggleSellerProductListed = async (productId, nextListed) => {
+  try {
+    await api('/api/products/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, productId, listed: !!nextListed }) });
+    await refreshProductViews();
+    showToast(nextListed ? '商品已上架' : '商品已下架');
+  } catch (e) {
+    alert(e.message || '商品状态更新失败');
+  }
 };
 
 window.deleteGroup = async (groupName) => {
@@ -2584,13 +3122,13 @@ function stopScanCamera(keepVideoHidden = false){
 window.openConversation = async (id, options = {}) => {
   const { skipFetch = false } = options;
   const conv = state.conversations.find(c => c.id === id);
-  state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
+  state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
   state.peerLastReadAt = state.activeConversation.peerLastReadAt; 
   if (conv) {
     conv.unread = 0;
     renderConversationListFromState();
   }
-  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
+  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","contactCardPickerPage","productCardPickerPage","orderCardPickerPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
   if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
   if($("chatListView")) $("chatListView").classList.add("hidden"); 
   if($("friendListView")) $("friendListView").classList.add("hidden");
@@ -2634,6 +3172,7 @@ window.openUserProfile = async (userId, fallbackName) => {
     const data = await api(`/api/users/${userId}/profile?viewerId=${state.currentUser.id}`);
     if (data.profile) {
       state.currentProfileUser = data.profile;
+      state.currentCartSellerId = data.profile.id || '';
       setAvatarContainer($("profileAvatar"), data.profile, fallbackName);
       
       const finalName = data.profile.remarkName || data.profile.nickname || fallbackName || '未知用户';
@@ -2847,6 +3386,32 @@ function bindAllEvents() {
   });
 
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'profile'));
+  on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
+  on("sendChangePhoneCodeBtn", "click", async () => {
+    const phone = $("changePhoneInput")?.value.trim();
+    if(!/^1\d{10}$/.test((phone || '').replace(/\s+/g, ''))) return alert('请输入11位手机号');
+    try {
+      const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
+      alert(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
+    } catch (e) {
+      alert(e.message || '发送失败');
+    }
+  });
+  on("submitChangePhoneBtn", "click", async () => {
+    const phone = $("changePhoneInput")?.value.trim();
+    const code = $("changePhoneCodeInput")?.value.trim();
+    if(!phone || !code) return alert('请填写手机号和验证码');
+    try {
+      const data = await api('/api/users/change-phone', { method:'POST', body: JSON.stringify({ phone, code }) });
+      state.currentUser = data.user || state.currentUser;
+      writeSession(state.currentUser);
+      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
+      alert('手机号修改成功');
+      if($("backBtn")) $("backBtn").click();
+    } catch (e) {
+      alert(e.message || '修改失败');
+    }
+  });
   on("submitChangePasswordBtn", "click", async () => {
     const oldPassword = $("oldPasswordInput")?.value || '';
     const newPassword = $("newPasswordInput")?.value || '';
@@ -2888,7 +3453,38 @@ function bindAllEvents() {
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
-  on("publishProductEntryBtn", "click", () => { window.openSecondaryPage("publishProductPage"); $("productTitleInput").value = ""; $("productDescInput").value = ""; $("productPriceInput").value = ""; $("productImagePreview").textContent = "+"; $("productImageInput").value = ""; state.tempProductImage = null; if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; } setPublishProductHint("可发布在个人主页，支持直接加减下单", "muted"); });
+  function openPublishProductPage(backTo = 'home', presetProduct = null) {
+    state.publishEditingProductId = presetProduct?.id || '';
+    window.openSecondaryPage('publishProductPage', backTo);
+    if($("productTitleInput")) $("productTitleInput").value = presetProduct?.title || "";
+    if($("productCategoryInput")) $("productCategoryInput").value = presetProduct?.category || "";
+    if($("productDescInput")) {
+      const baseDesc = String(presetProduct?.desc || '');
+      $("productDescInput").value = baseDesc.replace(/\n?\[预计出餐\]\s*\d+分钟/g, "").trim();
+    }
+    if($("productPriceInput")) $("productPriceInput").value = presetProduct?.price || "";
+    if($("productStockInput")) $("productStockInput").value = presetProduct?.stock || "";
+    if($("productPrepMinutesInput")) {
+      const match = String(presetProduct?.desc || '').match(/\[预计出餐\]\s*(\d+)分钟/);
+      $("productPrepMinutesInput").value = match ? match[1] : "";
+    }
+    if($("productSpecsInput")) $("productSpecsInput").value = Array.isArray(presetProduct?.specs) ? presetProduct.specs.join('/') : "";
+    if($("productImagePreview")) {
+      if (presetProduct?.image || presetProduct?.imageUrl) setImagePreview($("productImagePreview"), presetProduct.image || presetProduct.imageUrl);
+      else $("productImagePreview").textContent = "+";
+    }
+    if($("productImageInput")) $("productImageInput").value = "";
+    state.tempProductImage = presetProduct?.image || presetProduct?.imageUrl || null;
+    if($("submitProductBtn")){
+      $("submitProductBtn").disabled = false;
+      $("submitProductBtn").textContent = state.publishEditingProductId ? "保存并更新商品" : "立即发布到商城";
+    }
+    if ($("chatTitle")) $("chatTitle").textContent = state.publishEditingProductId ? '编辑商品' : '发布商品';
+    setPublishProductHint(state.publishEditingProductId ? "修改后将同步到商品管理、发现和个人主页" : "可发布多个商品，买家可在你的主页直接多选下单", "muted");
+  }
+
+  on("publishProductEntryBtn", "click", () => { openPublishProductPage('mall'); });
+  on("sellerProductsPublishBtn", "click", () => { openPublishProductPage('sellerProductsPage'); });
   on("productImagePreview", "click", () => { if($("productImageInput")) $("productImageInput").click(); });
   
   on("productImageInput", "change", async () => {
@@ -2914,26 +3510,51 @@ function bindAllEvents() {
 
   on("submitProductBtn", "click", async () => {
       const title = $("productTitleInput").value.trim();
-      const desc = $("productDescInput").value.trim();
+      const category = $("productCategoryInput")?.value.trim() || '';
+      const rawDesc = $("productDescInput").value.trim();
+      const prepMinutes = Math.max(0, Math.floor(Number($("productPrepMinutesInput")?.value || 0)));
+      const desc = prepMinutes > 0 ? `${rawDesc}
+[预计出餐] ${prepMinutes}分钟` : rawDesc;
+      const stock = Number($("productStockInput")?.value || 0);
+      const specsRaw = $("productSpecsInput")?.value.trim() || '';
       const price = $("productPriceInput").value.trim();
+      const specs = specsRaw
+        ? specsRaw.split('/').map((s) => s.trim()).filter(Boolean).slice(0, 12)
+        : [];
       const parsedPrice = parseMoney(price);
       if(title.length < 2){ setPublishProductHint('商品名称至少 2 个字', 'error'); return; }
+      if(category.length < 1){ setPublishProductHint('请填写商品分类', 'error'); return; }
       if(parsedPrice <= 0){ setPublishProductHint('请输入有效售价', 'error'); return; }
+      if(!Number.isFinite(stock) || stock <= 0){ setPublishProductHint('请输入有效库存（至少1）', 'error'); return; }
       if(!state.tempProductImage){ setPublishProductHint('请先上传商品图片', 'error'); return; }
-      if($("submitProductBtn")){ $("submitProductBtn").disabled = true; $("submitProductBtn").textContent = "发布中..."; }
-      setPublishProductHint('正在发布商品…');
+      if($("submitProductBtn")){ $("submitProductBtn").disabled = true; $("submitProductBtn").textContent = state.publishEditingProductId ? "更新中..." : "发布中..."; }
+      setPublishProductHint(state.publishEditingProductId ? '正在更新商品…' : '正在发布商品…');
       try {
-          await api('/api/products', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, title, desc, price: parsedPrice, image: state.tempProductImage }) });
-          setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
-          alert("发布成功！");
-          if($("submitProductBtn")) $("submitProductBtn").textContent = "立即发布到商城";
-          if($("backBtn")) $("backBtn").click();
-          loadMall();
+          const payload = { userId: state.currentUser.id, title, category, desc, stock, specs, price: parsedPrice, image: state.tempProductImage };
+          if (state.publishEditingProductId) {
+            await api('/api/products/update', { method: 'POST', body: JSON.stringify({ ...payload, productId: state.publishEditingProductId }) });
+            setPublishProductHint('商品已更新，展示页已同步', 'success');
+            alert("商品已更新！");
+          } else {
+            await api('/api/products', { method: 'POST', body: JSON.stringify(payload) });
+            setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
+            alert("发布成功！");
+          }
+          await refreshProductViews();
+          state.publishEditingProductId = '';
+          if (state.secondaryReturn === 'sellerProductsPage') {
+            window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
+          } else if($("backBtn")) {
+            $("backBtn").click();
+          }
       } catch(e) {
-          setPublishProductHint(e.message || '发布失败，请稍后再试', 'error');
+          setPublishProductHint(e.message || '操作失败，请稍后再试', 'error');
           alert(e.message);
       } finally {
-          if($("submitProductBtn")){ $("submitProductBtn").disabled = false; $("submitProductBtn").textContent = "立即发布到商城"; }
+          if($("submitProductBtn")){
+            $("submitProductBtn").disabled = false;
+            $("submitProductBtn").textContent = state.publishEditingProductId ? "保存并更新商品" : "立即发布到商城";
+          }
       }
   });
 
@@ -2959,6 +3580,7 @@ function bindAllEvents() {
       if(!state.currentUser) return; window.openSecondaryPage('editProfilePage');
       $("editNameInput").value = state.currentUser.displayName || ''; $("editSignatureInput").value = state.currentUser.signature || '';
       if($("editAppIdDisplay")) $("editAppIdDisplay").textContent = state.currentUser.appNumberId || '-';
+      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
       state.tempAvatarUrl = state.currentUser.avatarUrl || null;
       if (state.tempAvatarUrl) setImagePreview($("editAvatarPreview"), state.tempAvatarUrl, firstChar(state.currentUser?.displayName));
       else $("editAvatarPreview").textContent = firstChar(state.currentUser.displayName);
@@ -2986,8 +3608,14 @@ function bindAllEvents() {
 
   on("backBtn", "click", () => {
     try { stopScanCamera(); } catch(_) {}
-      const backTo = state.secondaryReturn; state.secondaryPage = null; state.secondaryReturn = null; 
+      const backTo = state.secondaryReturn;
+      const currentSecondary = state.secondaryPage;
+      state.secondaryPage = null; state.secondaryReturn = null; 
       SECONDARY_PAGE_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+      if (backTo && SECONDARY_PAGE_IDS.includes(backTo) && backTo !== currentSecondary) {
+          window.openSecondaryPage(backTo, 'profile');
+          return;
+      }
       if (backTo === 'chat' && state.activeConversation) {
           if($("backBtn")) $("backBtn").classList.remove('hidden'); 
           if($("chatView")) $("chatView").classList.remove('hidden'); 
@@ -3011,29 +3639,105 @@ function bindAllEvents() {
   on("globalNotifyBtn", "click", () => { alert("新消息通知目前跟随系统默认设置开启"); });
   on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage'); loadMyProducts(); });
-  on("buyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage'); });
+  on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
     await Promise.all([loadSellerOrders(), loadBuyerOrders()]);
-    syncSellerProducts();
+    await loadSellerProductsManage();
     const hero = document.querySelector('#sellerCenterPage .seller-center-hero span');
     if (hero) hero.textContent = `卖家订单 ${state.sellerOrders.length} / 买家订单 ${state.buyerOrders.length} / 商品 ${state.sellerProducts.length}`;
-    window.openSecondaryPage('sellerCenterPage');
+    window.openSecondaryPage('sellerCenterPage', 'profile');
   });
-  on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', state.secondaryReturn || 'profile'); });
-  on("sellerProductManageBtn", "click", () => { syncSellerProducts(); window.openSecondaryPage('sellerProductsPage', state.secondaryReturn || 'profile'); });
-  on("broadcastManageEntryBtn", "click", () => { renderBroadcastDrafts(); window.openSecondaryPage('broadcastManagePage', state.secondaryReturn || 'profile'); });
+  on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', 'sellerCenterPage'); });
+  on("buyerOrdersSearchInput", "input", () => { state.buyerOrderSearch = $("buyerOrdersSearchInput")?.value?.trim() || ''; renderBuyerOrdersManage(); });
+  on("buyerOrdersFromInput", "change", () => { state.buyerOrderFrom = $("buyerOrdersFromInput")?.value || ''; renderBuyerOrdersManage(); });
+  on("buyerOrdersToInput", "change", () => { state.buyerOrderTo = $("buyerOrdersToInput")?.value || ''; renderBuyerOrdersManage(); });
+  on("buyerOrdersClearFilterBtn", "click", () => { state.buyerOrderSearch=''; state.buyerOrderFrom=''; state.buyerOrderTo=''; renderBuyerOrdersManage(); });
+  on("buyerOrdersRangePresets", "click", (e) => {
+    const btn = e.target.closest('.order-filter-chip');
+    if (!btn) return;
+    const days = Number(btn.dataset.range || 0);
+    if (!days) return;
+    applyOrderQuickRange('buyer', days);
+  });
+  on("sellerOrdersSearchInput", "input", () => { state.sellerOrderSearch = $("sellerOrdersSearchInput")?.value?.trim() || ''; renderSellerOrdersManage(); });
+  on("sellerOrdersFromInput", "change", () => { state.sellerOrderFrom = $("sellerOrdersFromInput")?.value || ''; renderSellerOrdersManage(); });
+  on("sellerOrdersToInput", "change", () => { state.sellerOrderTo = $("sellerOrdersToInput")?.value || ''; renderSellerOrdersManage(); });
+  on("sellerOrdersClearFilterBtn", "click", () => { state.sellerOrderSearch=''; state.sellerOrderFrom=''; state.sellerOrderTo=''; renderSellerOrdersManage(); });
+  on("sellerOrdersRangePresets", "click", (e) => {
+    const btn = e.target.closest('.order-filter-chip');
+    if (!btn) return;
+    const days = Number(btn.dataset.range || 0);
+    if (!days) return;
+    applyOrderQuickRange('seller', days);
+  });
+  on("sellerProductManageBtn", "click", async () => { await loadSellerProductsManage(); window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage'); });
+  on("sellerProductsListedTab", "click", () => { state.sellerProductViewTab = 'listed'; renderSellerProductsManage(); });
+  on("sellerProductsUnlistedTab", "click", () => { state.sellerProductViewTab = 'unlisted'; renderSellerProductsManage(); });
+  on("sellerProductsSearchInput", "input", () => {
+    state.sellerProductSearch = $("sellerProductsSearchInput")?.value?.trim() || '';
+    renderSellerProductsManage();
+  });
+  on("sellerProductsSortSelect", "change", () => {
+    state.sellerProductSort = $("sellerProductsSortSelect")?.value || 'newest';
+    renderSellerProductsManage();
+  });
+  on("productDetailOpenSellerBtn", "click", async () => {
+    await loadSellerProductsManage();
+    window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
+  });
+  function renderSellerPaymentDraft(){
+    const draft = state.paymentCodeDraft || { wechat:'', alipay:'', cloudpay:'' };
+    setImagePreview($("sellerWxPayPreview"), draft.wechat, '+');
+    setImagePreview($("sellerAliPayPreview"), draft.alipay, '+');
+    setImagePreview($("sellerCloudPayPreview"), draft.cloudpay, '+');
+  }
+
+  async function uploadSellerPaymentCode(kind, file){
+    if (!file) return;
+    try {
+      const blob = await resizeImageFile(file, 1000, 0.8);
+      const url = await uploadBinary(blob, file.name || `${kind}_qrcode.jpg`, 'image/jpeg');
+      state.paymentCodeDraft = { ...(state.paymentCodeDraft || {}), [kind]: url };
+      renderSellerPaymentDraft();
+      showToast('收款码上传成功');
+    } catch (e) {
+      alert(e.message || '收款码上传失败');
+    }
+  }
+
   on("sellerPaymentManageBtn", "click", () => {
     const codes = state.currentUser?.paymentCodes || {};
-    if($("sellerWxPayInput")) $("sellerWxPayInput").value = codes.wechat || '';
-    if($("sellerAliPayInput")) $("sellerAliPayInput").value = codes.alipay || '';
-    if($("sellerCloudPayInput")) $("sellerCloudPayInput").value = codes.cloudpay || '';
-    window.openSecondaryPage('sellerPaymentPage', state.secondaryReturn || 'profile');
+    state.paymentCodeDraft = {
+      wechat: codes.wechat || '',
+      alipay: codes.alipay || '',
+      cloudpay: codes.cloudpay || '',
+    };
+    renderSellerPaymentDraft();
+    window.openSecondaryPage('sellerPaymentPage', 'sellerCenterPage');
+  });
+  on("sellerWxPayUploadBtn", "click", () => { $("sellerWxPayFileInput")?.click(); });
+  on("sellerAliPayUploadBtn", "click", () => { $("sellerAliPayFileInput")?.click(); });
+  on("sellerCloudPayUploadBtn", "click", () => { $("sellerCloudPayFileInput")?.click(); });
+  on("sellerWxPayFileInput", "change", async () => {
+    const file = $("sellerWxPayFileInput")?.files?.[0];
+    if($("sellerWxPayFileInput")) $("sellerWxPayFileInput").value = '';
+    await uploadSellerPaymentCode('wechat', file);
+  });
+  on("sellerAliPayFileInput", "change", async () => {
+    const file = $("sellerAliPayFileInput")?.files?.[0];
+    if($("sellerAliPayFileInput")) $("sellerAliPayFileInput").value = '';
+    await uploadSellerPaymentCode('alipay', file);
+  });
+  on("sellerCloudPayFileInput", "change", async () => {
+    const file = $("sellerCloudPayFileInput")?.files?.[0];
+    if($("sellerCloudPayFileInput")) $("sellerCloudPayFileInput").value = '';
+    await uploadSellerPaymentCode('cloudpay', file);
   });
   on("saveSellerPaymentBtn", "click", async () => {
     const paymentCodes = {
-      wechat: $("sellerWxPayInput")?.value?.trim() || '',
-      alipay: $("sellerAliPayInput")?.value?.trim() || '',
-      cloudpay: $("sellerCloudPayInput")?.value?.trim() || '',
+      wechat: state.paymentCodeDraft?.wechat || '',
+      alipay: state.paymentCodeDraft?.alipay || '',
+      cloudpay: state.paymentCodeDraft?.cloudpay || '',
     };
     try{
       const data = await api('/api/users/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, paymentCodes }) });
@@ -3232,6 +3936,15 @@ function bindAllEvents() {
   on("scanIdInput", "keydown", (e) => { if (e.key === 'Enter') submitScanRequest(); });
 
   on("profileAddFriendBtn", "click", () => sendFriendRequestToCurrentProfile());
+  on("profileSendMessageBtn", "click", async () => {
+    const p = state.currentProfileUser;
+    if(!p || !p.id || !state.currentUser) return;
+    try {
+      await openConversationWith(p.id, p.remarkName || p.nickname || p.username || p.displayName || '');
+    } catch(e) {
+      alert(e.message || '打开会话失败');
+    }
+  });
     on("myCartEntryBtn", "click", () => {
     renderCartHubPage();
     window.openSecondaryPage('cartHubPage', 'home');
@@ -3525,6 +4238,7 @@ async function loadMyProducts() {
     });
   } catch(e){
     console.warn('load my products failed', e);
+    const list = $("myProductsList");
     if (list) {
       const empty = document.createElement('div');
       empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;';
@@ -3537,7 +4251,9 @@ async function loadMyProducts() {
 async function loadMall() {
 
   try {
-    const data = await api('/api/mall?userId=' + state.currentUser.id);
+    const keyword = ($('mallSearchInput')?.value || '').trim();
+    const q = keyword ? `&q=${encodeURIComponent(keyword)}` : '';
+    const data = await api('/api/mall?userId=' + state.currentUser.id + q);
     const products = data.products || [];
     const list = $("mallList"); if (!list) return;
     const nextSignature = buildMallSignature(products);
@@ -3719,6 +4435,7 @@ async function loadFriends() {
       members.forEach((item) => { const itemKey = `${groupName}::${item.friend.id}`; nextFriendItemSignatures[itemKey] = buildFriendItemSignature(item, groupName); });
     });
     state.friendItemSignatures = nextFriendItemSignatures;
+    if (state.activeConversation?.id) applyChatRelationshipState();
   } catch(e) {
     console.warn('load friends failed', e);
     const container = $("friendList");
@@ -4173,7 +4890,7 @@ async function connectRealtime() {
   state.eventSource.addEventListener('conversation_updated', () => { loadConversations(); scheduleTradeReminderRefresh(180); });
   state.eventSource.addEventListener('friends_updated', loadFriends);
   state.eventSource.addEventListener('friend_request_updated', loadFriendRequests);
-  state.eventSource.addEventListener('mall_updated', loadMall);
+  state.eventSource.addEventListener('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
   state.eventSource.addEventListener('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); renderConversationListFromState(); });
   state.eventSource.addEventListener('order_updated', () => { scheduleTradeReminderRefresh(120); });
   state.eventSource.addEventListener('typing_indicator', (e) => {
@@ -4302,6 +5019,7 @@ function sortConversationsInPlace() {
   });
 }
 function renderConversationListFromState() {
+  bindConversationSwipeDismiss();
   const keyword = $("searchInput") ? $("searchInput").value.trim().toLowerCase() : "";
   let filteredConvs = state.conversations || [];
   if (keyword) filteredConvs = filteredConvs.filter(c => (c.title || '').toLowerCase().includes(keyword));
@@ -4403,6 +5121,7 @@ async function loadConversations() {
       if (next) Object.assign(state.activeConversation, {
         title: next.title || state.activeConversation.title,
         peerAvatarUrl: next.peerAvatarUrl || state.activeConversation.peerAvatarUrl,
+        peerIsFriend: next.peerIsFriend === true,
         muted: !!next.muted,
         pinned: !!next.pinned,
         clearedAt: next.clearedAt || 0,
@@ -4411,6 +5130,7 @@ async function loadConversations() {
         lastMessageAt: next.lastMessageAt || 0,
         preview: next.preview || ''
       });
+      applyChatRelationshipState();
     }
     sortConversationsInPlace();
     renderConversationListFromState();
