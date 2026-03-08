@@ -8,13 +8,37 @@ function isValidMediaUrl(value) {
   return /^https?:\/\//i.test(url) || url.startsWith('/uploads/');
 }
 
+function normalizeStock(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
+}
+
+function normalizeListed(value, defaultValue = true) {
+  if (value === undefined) return !!defaultValue;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    if (v === 'false' || v === '0') return false;
+    if (v === 'true' || v === '1') return true;
+  }
+  return !!value;
+}
+
 function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist, broadcastAll }) {
   const title = normalizeText(body.title, 80);
+  const category = normalizeText(body.category, 24);
   const desc = normalizeText(body.desc, 500);
   const price = normalizeText(body.price, 24);
+  const specs = Array.isArray(body.specs)
+    ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
+    : [];
+  const stock = normalizeStock(body.stock);
   const image = String(body.image || '').trim().slice(0, 512);
   if (!title || !price || !image) {
     return { ok: false, status: 400, error: 'missing_fields' };
+  }
+  if (stock <= 0) {
+    return { ok: false, status: 400, error: 'invalid_stock' };
   }
   if (!isValidMediaUrl(image)) {
     return { ok: false, status: 400, error: 'invalid_image_url' };
@@ -23,9 +47,13 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   authUser.products.unshift({
     id: uid('p'),
     title,
+    category,
     desc,
     price,
     image,
+    specs,
+    stock,
+    listed: normalizeListed(body.listed, true),
     createdAt: Date.now(),
   });
   rebuildMallIndex();
@@ -42,7 +70,46 @@ function deleteProduct({ authUser, productId, rebuildMallIndex, schedulePersist,
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
+function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broadcastAll }) {
+  const productId = String(body.productId || '').trim();
+  if (!productId) return { ok: false, status: 400, error: 'missing_product_id' };
+  const product = (authUser.products || []).find((p) => p.id === productId);
+  if (!product) return { ok: false, status: 404, error: 'not_found' };
+
+  if (body.title !== undefined) {
+    const title = normalizeText(body.title, 80);
+    if (!title) return { ok: false, status: 400, error: 'invalid_title' };
+    product.title = title;
+  }
+  if (body.category !== undefined) product.category = normalizeText(body.category, 24);
+  if (body.desc !== undefined) product.desc = normalizeText(body.desc, 500);
+  if (body.price !== undefined) {
+    const price = normalizeText(body.price, 24);
+    if (!price) return { ok: false, status: 400, error: 'invalid_price' };
+    product.price = price;
+  }
+  if (body.stock !== undefined) {
+    const stock = normalizeStock(body.stock);
+    if (stock < 0) return { ok: false, status: 400, error: 'invalid_stock' };
+    product.stock = stock;
+  }
+  if (body.specs !== undefined) {
+    product.specs = Array.isArray(body.specs)
+      ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
+      : [];
+  }
+  if (body.listed !== undefined) {
+    product.listed = normalizeListed(body.listed, product.listed !== false);
+  }
+
+  rebuildMallIndex();
+  schedulePersist('product_update', { userId: authUser.id, productId: product.id });
+  broadcastAll('mall_updated', {});
+  return { ok: true, status: 200, payload: { ok: true, product } };
+}
+
 module.exports = {
   createProduct,
   deleteProduct,
+  updateProduct,
 };
