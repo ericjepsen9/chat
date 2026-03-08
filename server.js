@@ -1231,7 +1231,10 @@ const server = http.createServer(async (req, res) => {
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误' });
       const verify = consumePhoneCode(phone, code, 'reset');
-      if (!verify.ok) return sendJson(res, verify.status, { error: verify.error });
+      if (!verify.ok) {
+        const statusCode = verify.retryAfterSec ? 429 : 400;
+        return sendJson(res, statusCode, { error: verify.error || '验证码错误或已过期', retryAfterSec: verify.retryAfterSec || 0 });
+      }
       const existing = findUserByPhone(phone);
       if (existing && existing.id !== context.authUser.id) return sendJson(res, 409, { error: '该手机号已被注册' });
       const result = updateUserProfile({

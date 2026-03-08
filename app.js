@@ -1929,7 +1929,7 @@ function buildOrderCardMessage(msg){
   const currentUserId = state.currentUser?.id || '';
   const isParticipant = currentUserId && (currentUserId === order.buyerId || currentUserId === order.sellerId);
   const pendingRequester = order.pendingPriceRequestedBy || '';
-  const hasPendingPrice = Number(order.pendingPrice || 0) >= 0 && !!pendingRequester;
+  const hasPendingPrice = order.pendingPrice != null && !!pendingRequester;
   const isPriceLocked = !!order.priceAdjustmentLocked;
 
   const canRequest = isParticipant && order.status !== 'completed' && !hasPendingPrice && !isPriceLocked;
@@ -2785,7 +2785,6 @@ window.copyText = (enc) => { navigator.clipboard ? navigator.clipboard.writeText
 window.deleteLocalMsg = async (id) => {
   const prevMessages = [...state.messages];
   state.messages = state.messages.filter(m => m.id !== id);
-    state.peerLastReadAt = Number((data && data.peerLastReadAt) || state.peerLastReadAt || 0);
   if (!removeMessageFromView(id)) renderMessages();
   applyLastOutgoingReadState();
   try {
@@ -4520,6 +4519,11 @@ async function fetchMessages(before = 0) {
 }
 
 let callTimer = null; let callStartTime = 0; let outgoingTimeoutTimer = null; let incomingTimeoutTimer = null; let connectTimeoutTimer = null; let lastCallAttemptAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && callTimer && !hasActiveCallSession()) {
+    clearInterval(callTimer); callTimer = null;
+  }
+});
 function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); if($("callDuration")) $("callDuration").textContent = `${m}:${s}`; }
 function describeMediaAccessError(err, mode) {
   const name = err && err.name ? err.name : '';
