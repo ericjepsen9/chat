@@ -996,9 +996,10 @@ async function submitProfileOrder(){
 }
 
 async function loadProfileOrders(){
-  if(!state.currentProfileUser?.id || !state.currentUser) return;
+  const profileUserId = state.currentProfileUser?.id;
+  if(!profileUserId || !state.currentUser) return;
   try{
-    const data = await api(`/api/orders?sellerId=${state.currentProfileUser.id}`);
+    const data = await api(`/api/orders?sellerId=${profileUserId}`);
     state.profileOrders = data.orders || [];
   }catch(_){
     state.profileOrders = [];
@@ -2087,8 +2088,8 @@ function replaceMessageInView(msg) {
   const prev = index > 0 ? state.messages[index - 1] : null;
   existing.replaceWith(buildMessageChunk(msg, prev?.createdAt || 0));
   refreshMessageReadReceipts();
-  return true;
   applyLastOutgoingReadState();
+  return true;
 }
 function removeMessageFromView(messageId) {
   const chatView = $('chatView');
@@ -2783,12 +2784,14 @@ window.playAudio = (url, el) => {
 
 window.copyText = (enc) => { navigator.clipboard ? navigator.clipboard.writeText(decodeURIComponent(enc)) : alert('已复制'); };
 window.deleteLocalMsg = async (id) => {
+  if (!state.activeConversation?.id) return;
+  const conversationId = state.activeConversation.id;
   const prevMessages = [...state.messages];
   state.messages = state.messages.filter(m => m.id !== id);
   if (!removeMessageFromView(id)) renderMessages();
   applyLastOutgoingReadState();
   try {
-    await api(`/api/conversations/${state.activeConversation.id}/messages/${id}/delete`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
+    await api(`/api/conversations/${conversationId}/messages/${id}/delete`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
     syncActiveConversationListMeta();
     renderConversationListFromState();
     loadConversations();
@@ -3594,7 +3597,7 @@ function bindAllEvents() {
       if(!name) return alert("名字不能为空");
       try {
           const data = await api('/api/users/update', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, displayName: name, signature: sign, avatarUrl: state.tempAvatarUrl }) });
-          state.currentUser = data.user; writeSession(state.currentUser); alert("资料修改成功！");
+          state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); alert("资料修改成功！");
           if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName;
           if($("myProfileAvatar")) {
               if(state.currentUser.avatarUrl) setImagePreview($("myProfileAvatar"), state.currentUser.avatarUrl, firstChar(state.currentUser.displayName));
@@ -4852,7 +4855,7 @@ async function connectRealtime() {
   }
   if (!sseToken) {
     state.eventSource = null;
-    setTimeout(() => { if (state.currentUser) connectRealtime(); }, 1500);
+    setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, 1500);
     return;
   }
   state.eventSource = new EventSource(`/api/events?sse=${encodeURIComponent(sseToken)}`);
@@ -4998,7 +5001,7 @@ async function connectRealtime() {
       }
     }
   });
-  state.eventSource.onerror = () => { if(state.eventSource){state.eventSource.close(); state.eventSource=null;} setTimeout(() => { if (state.currentUser) connectRealtime(); }, 1500); };
+  state.eventSource.onerror = () => { if(state.eventSource){state.eventSource.close(); state.eventSource=null;} setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, 1500); };
 }
 
 window.addEventListener('pagehide', () => {
@@ -5179,8 +5182,8 @@ async function bootstrap() {
     if($("profileUsername")) $("profileUsername").textContent = `ID: ${state.currentUser.appNumberId}`; 
     setAvatarContainer($("myProfileAvatar"), state.currentUser, state.currentUser.displayName);
     
-    connectRealtime(); 
-    
+    connectRealtime().catch(() => {});
+
     ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) $(t+'Tab').classList.remove('active'); });
     if($('messagesTab')) $('messagesTab').classList.add('active');
     ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
