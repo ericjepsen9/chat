@@ -37,6 +37,16 @@ async function api(p, o={}) {
 function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
 
+function normalizePhoneInput(phone){
+  const digits = String(phone || '').replace(/\D+/g, '');
+  let normalized = digits;
+  if (normalized.startsWith('86') && normalized.length === 13 && normalized[2] === '1') {
+    normalized = normalized.slice(2);
+  }
+  if (!/^1\d{10}$/.test(normalized)) return '';
+  return normalized;
+}
+
 const state = { 
   currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], 
   friends: [], friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
@@ -3260,9 +3270,8 @@ function bindAllEvents() {
   _eventsBound = true;
 
   on("doLoginBtn", "click", async () => {
-      const phone = $("loginPhone")?.value.trim(); const p = $("loginPassword").value;
+      const phone = normalizePhoneInput($("loginPhone")?.value.trim()); const p = $("loginPassword").value;
       if(!phone || !p) return alert("请输入手机号和密码！");
-      if(!/^1\d{10}$/.test(phone.replace(/\s+/g, ''))) return alert('请输入11位手机号');
       const loginBtn = $("doLoginBtn");
       loginBtn.disabled = true;
       const prevText = loginBtn.textContent;
@@ -3279,9 +3288,8 @@ function bindAllEvents() {
   });
 
   on("sendLoginCodeBtn", "click", async () => {
-      const phone = $("loginCodePhone")?.value.trim();
-      if(!phone) return alert('请输入手机号');
-      if(!/^1\d{10}$/.test(phone.replace(/\s+/g, ''))) return alert('请输入11位手机号');
+      const phone = normalizePhoneInput($("loginCodePhone")?.value.trim());
+      if(!phone) return alert('请输入11位手机号');
       const sendBtn = $("sendLoginCodeBtn");
       sendBtn.disabled = true;
       const prevText = sendBtn.textContent;
@@ -3300,10 +3308,9 @@ function bindAllEvents() {
   });
 
   on("doLoginCodeBtn", "click", async () => {
-      const phone = $("loginCodePhone")?.value.trim();
+      const phone = normalizePhoneInput($("loginCodePhone")?.value.trim());
       const code = $("loginCodeInput")?.value.trim();
       if(!phone || !code) return alert('请输入手机号和验证码');
-      if(!/^1\d{10}$/.test(phone.replace(/\s+/g, ''))) return alert('请输入11位手机号');
       if(!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
       const loginCodeBtn = $("doLoginCodeBtn");
       loginCodeBtn.disabled = true;
@@ -3321,9 +3328,8 @@ function bindAllEvents() {
   });
 
   on("doRegisterBtn", "click", async () => {
-      const n = $("registerDisplayName").value.trim(); const u = $("registerUsername").value.trim(); const p = $("registerPassword").value; const phone = $("registerPhone")?.value.trim();
+      const n = $("registerDisplayName").value.trim(); const u = $("registerUsername").value.trim(); const p = $("registerPassword").value; const phone = normalizePhoneInput($("registerPhone")?.value.trim());
       if(!n || !u || !p || !phone) return alert("请填写完整信息（含手机号）！");
-      if(!/^1\d{10}$/.test(phone.replace(/\s+/g, ''))) return alert('请输入11位手机号');
       if(!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return alert('登录账号需为3-32位英文、数字或下划线');
       if((p || '').length < 4) return alert('密码至少4位');
       const registerBtn = $("doRegisterBtn");
@@ -3342,9 +3348,8 @@ function bindAllEvents() {
 
   on("forgotPasswordBtn", "click", () => window.openSecondaryPage('forgotPasswordPage', 'home'));
   on("sendForgotCodeBtn", "click", async () => {
-    const phone = $("forgotPhoneInput")?.value.trim();
-    if(!phone) return alert('请输入手机号');
-    if(!/^1\d{10}$/.test(phone.replace(/\s+/g, ''))) return alert('请输入11位手机号');
+    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
+    if(!phone) return alert('请输入11位手机号');
     const sendBtn = $("sendForgotCodeBtn");
     sendBtn.disabled = true;
     const prevText = sendBtn.textContent;
@@ -3362,11 +3367,10 @@ function bindAllEvents() {
     }
   });
   on("submitForgotPasswordBtn", "click", async () => {
-    const phone = $("forgotPhoneInput")?.value.trim();
+    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
     const code = $("forgotCodeInput")?.value.trim();
     const newPassword = $("forgotNewPasswordInput")?.value || '';
     if(!phone || !code || !newPassword) return alert('请填写完整信息');
-    if(!/^1\d{10}$/.test(phone.replace(/\s+/g, ''))) return alert('请输入11位手机号');
     if(!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
     if((newPassword || '').length < 4) return alert('新密码至少4位');
     const submitBtn = $("submitForgotPasswordBtn");
@@ -3388,8 +3392,8 @@ function bindAllEvents() {
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'profile'));
   on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
   on("sendChangePhoneCodeBtn", "click", async () => {
-    const phone = $("changePhoneInput")?.value.trim();
-    if(!/^1\d{10}$/.test((phone || '').replace(/\s+/g, ''))) return alert('请输入11位手机号');
+    const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
+    if(!phone) return alert('请输入11位手机号');
     try {
       const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
       alert(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
@@ -3398,7 +3402,7 @@ function bindAllEvents() {
     }
   });
   on("submitChangePhoneBtn", "click", async () => {
-    const phone = $("changePhoneInput")?.value.trim();
+    const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     const code = $("changePhoneCodeInput")?.value.trim();
     if(!phone || !code) return alert('请填写手机号和验证码');
     try {

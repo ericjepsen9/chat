@@ -89,7 +89,11 @@ const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 function normalizePhone(phone) {
   const raw = String(phone || '').trim();
-  const normalized = raw.replace(/\s+/g, '');
+  const digits = raw.replace(/\D+/g, '');
+  let normalized = digits;
+  if (normalized.startsWith('86') && normalized.length === 13 && normalized[2] === '1') {
+    normalized = normalized.slice(2);
+  }
   if (!/^1\d{10}$/.test(normalized)) return '';
   return normalized;
 }
