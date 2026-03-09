@@ -1386,7 +1386,8 @@ function getOrdersBetweenUsers(peerId){
 async function sendOrderCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
-  await renderOrderCardPicker();
+  state.orderPickerTab = 'bought';
+  await renderOrderCardPicker('bought');
   window.openSecondaryPage('orderCardPickerPage', 'chat');
 }
 
@@ -1941,7 +1942,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         card.classList.add('clickable-card');
         card.addEventListener('click', (e) => {
           e.stopPropagation();
-          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [] };
+          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], sellerId: msg.senderId || '' };
           openProductDetail(productItem, false);
         });
       }
@@ -3219,6 +3220,7 @@ async function startScanCamera(){
     if ($('scanHintText')) $('scanHintText').textContent = '相机不可用，请使用相册或手动输入';
     const input = $('scanCaptureInput');
     if (input) {
+      input.setAttribute('capture', 'environment');
       input.value = '';
       input.click();
     }
@@ -4326,11 +4328,17 @@ function bindAllEvents() {
       renderOrderCardPicker(tab.dataset.tab);
     });
   }
-  // Product detail buy now (same as add to cart for now)
+  // Product detail - add to cart via spec sheet
+  on("productDetailAddCartBtn", "click", () => {
+    const item = state.selectedProductDetail;
+    if(!item) return;
+    openProductSpecSheet(item);
+  });
+  // Product detail - buy now: add to cart and go to cart
   on("productDetailBuyNowBtn", "click", () => {
     const item = state.selectedProductDetail;
     if(!item) return;
-    alert('已加入购物车');
+    openProductSpecSheet(item);
   });
 
   const handleImageUpload = async (e) => { 
