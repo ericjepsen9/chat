@@ -282,6 +282,61 @@ function orderStatusText(status){
   return formatOrderStatusLabel(status);
 }
 
+function buildOrderCard(order, role){
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'profile-order-card';
+
+  const header = document.createElement('div');
+  header.className = 'order-card-header';
+  const idSpan = document.createElement('span');
+  idSpan.className = 'order-card-id';
+  idSpan.textContent = `#${String(order.id || '').slice(-6)}`;
+  const statusSpan = document.createElement('span');
+  const st = String(order.status || '').toLowerCase();
+  statusSpan.className = 'order-card-status' + (st === 'completed' ? ' s-done' : (st === 'accepted' || st === 'processing' || st === 'in_progress') ? ' s-active' : ' s-pending');
+  statusSpan.textContent = orderStatusText(order.status);
+  header.append(idSpan, statusSpan);
+
+  const body = document.createElement('div');
+  body.className = 'order-card-body';
+  const itemsText = document.createElement('div');
+  itemsText.className = 'order-card-items';
+  itemsText.textContent = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容';
+  body.appendChild(itemsText);
+
+  const footer = document.createElement('div');
+  footer.className = 'order-card-footer';
+  const price = document.createElement('span');
+  price.className = 'order-card-price';
+  price.textContent = formatMoney(order.total);
+  const time = document.createElement('span');
+  time.className = 'order-card-time';
+  time.textContent = order.createdAt ? formatTime(order.createdAt) : '';
+  footer.append(price, time);
+
+  card.append(header, body, footer);
+
+  if(order.status === 'completed'){
+    const actions = document.createElement('div');
+    actions.className = 'order-card-actions';
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'order-card-del-btn';
+    delBtn.textContent = '删除';
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if(!confirm('确认删除该订单？')) return;
+      await deleteOrderRecord(order.id);
+    });
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+  }
+
+  card.addEventListener('click', () => openOrderDetail(order, role));
+  return card;
+}
+
 function renderBuyerOrdersManage(){
   const list = $("buyerOrdersManageList");
   if(!list) return;
@@ -289,46 +344,13 @@ function renderBuyerOrdersManage(){
   const rows = (state.buyerOrders || []).filter((o) => orderMatchesFilters(o, 'buyer'));
   if(!rows.length){
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无购买订单';
+    empty.className = 'order-empty-state';
+    empty.innerHTML = '<div class="order-empty-icon">🧾</div><div>暂无购买订单</div>';
     list.replaceChildren(empty);
     return;
   }
   const frag = document.createDocumentFragment();
-  rows.forEach(order => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = `订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total)}`;
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容';
-    const status = document.createElement('div');
-    status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
-    status.textContent = orderStatusText(order.status);
-    card.append(title, sub, status);
-
-    if(order.status === 'completed'){
-      const actions = document.createElement('div');
-      actions.className = 'profile-order-actions';
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'secondary-btn';
-      delBtn.textContent = '删除订单';
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if(!confirm('确认删除该订单？')) return;
-        await deleteOrderRecord(order.id);
-      });
-      actions.appendChild(delBtn);
-      card.appendChild(actions);
-    }
-
-    card.addEventListener('click', () => openOrderDetail(order, 'buyer'));
-    frag.appendChild(card);
-  });
+  rows.forEach(order => frag.appendChild(buildOrderCard(order, 'buyer')));
   list.replaceChildren(frag);
 }
 
@@ -340,46 +362,13 @@ function renderSellerOrdersManage(){
   const rows = (state.sellerOrders || []).filter((o) => orderMatchesFilters(o, 'seller'));
   if(!rows.length){
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无卖家订单';
+    empty.className = 'order-empty-state';
+    empty.innerHTML = '<div class="order-empty-icon">📋</div><div>暂无卖家订单</div>';
     list.replaceChildren(empty);
     return;
   }
   const frag = document.createDocumentFragment();
-  rows.forEach(order => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = `订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total)}`;
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容';
-    const status = document.createElement('div');
-    status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
-    status.textContent = orderStatusText(order.status);
-    card.append(title, sub, status);
-
-    if(order.status === 'completed'){
-      const actions = document.createElement('div');
-      actions.className = 'profile-order-actions';
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'secondary-btn';
-      delBtn.textContent = '删除订单';
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if(!confirm('确认删除该订单？')) return;
-        await deleteOrderRecord(order.id);
-      });
-      actions.appendChild(delBtn);
-      card.appendChild(actions);
-    }
-
-    card.addEventListener('click', () => openOrderDetail(order, 'seller'));
-    frag.appendChild(card);
-  });
+  rows.forEach(order => frag.appendChild(buildOrderCard(order, 'seller')));
   list.replaceChildren(frag);
 }
 
@@ -3706,6 +3695,7 @@ function bindAllEvents() {
   on("buyerOrdersFromInput", "change", () => { state.buyerOrderFrom = $("buyerOrdersFromInput")?.value || ''; renderBuyerOrdersManage(); });
   on("buyerOrdersToInput", "change", () => { state.buyerOrderTo = $("buyerOrdersToInput")?.value || ''; renderBuyerOrdersManage(); });
   on("buyerOrdersClearFilterBtn", "click", () => { state.buyerOrderSearch=''; state.buyerOrderFrom=''; state.buyerOrderTo=''; renderBuyerOrdersManage(); });
+  on("buyerFilterToggleBtn", "click", () => { const d = $("buyerFilterDrawer"); if(d) d.classList.toggle('open'); $("buyerFilterToggleBtn")?.classList.toggle('active'); });
   on("buyerOrdersRangePresets", "click", (e) => {
     const btn = e.target.closest('.order-filter-chip');
     if (!btn) return;
@@ -3717,6 +3707,7 @@ function bindAllEvents() {
   on("sellerOrdersFromInput", "change", () => { state.sellerOrderFrom = $("sellerOrdersFromInput")?.value || ''; renderSellerOrdersManage(); });
   on("sellerOrdersToInput", "change", () => { state.sellerOrderTo = $("sellerOrdersToInput")?.value || ''; renderSellerOrdersManage(); });
   on("sellerOrdersClearFilterBtn", "click", () => { state.sellerOrderSearch=''; state.sellerOrderFrom=''; state.sellerOrderTo=''; renderSellerOrdersManage(); });
+  on("sellerFilterToggleBtn", "click", () => { const d = $("sellerFilterDrawer"); if(d) d.classList.toggle('open'); $("sellerFilterToggleBtn")?.classList.toggle('active'); });
   on("sellerOrdersRangePresets", "click", (e) => {
     const btn = e.target.closest('.order-filter-chip');
     if (!btn) return;

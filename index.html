@@ -290,12 +290,14 @@
 
 
         <section id="buyerOrdersManagePage" class="chat-list-view hidden order-flow-page">
-          <div class="order-filter-panel">
-            <label class="order-filter-label" for="buyerOrdersSearchInput">搜索订单</label>
+          <div class="order-toolbar">
             <div class="order-search-wrap">
               <span class="order-search-icon">🔎</span>
-              <input id="buyerOrdersSearchInput" class="ui-input order-filter-search" placeholder="订单号 / 商品名 / 对方昵称" />
+              <input id="buyerOrdersSearchInput" class="order-search-input" placeholder="搜索订单号 / 商品名 / 对方昵称" />
             </div>
+            <button type="button" class="order-filter-toggle" id="buyerFilterToggleBtn">筛选</button>
+          </div>
+          <div class="order-filter-drawer" id="buyerFilterDrawer">
             <div class="order-filter-grid">
               <label class="order-filter-field">
                 <span>开始时间</span>
@@ -310,7 +312,7 @@
               <button type="button" class="order-filter-chip" data-range="1">今天</button>
               <button type="button" class="order-filter-chip" data-range="7">近7天</button>
               <button type="button" class="order-filter-chip" data-range="30">近30天</button>
-              <button id="buyerOrdersClearFilterBtn" type="button" class="secondary-btn order-filter-clear">清空筛选</button>
+              <button id="buyerOrdersClearFilterBtn" type="button" class="order-filter-chip order-filter-clear-chip">清空</button>
             </div>
           </div>
           <div id="buyerOrdersManageList" class="profile-orders-list"></div>
@@ -378,12 +380,14 @@
         </section>
 
         <section id="sellerOrdersPage" class="chat-list-view hidden order-flow-page">
-          <div class="order-filter-panel">
-            <label class="order-filter-label" for="sellerOrdersSearchInput">搜索订单</label>
+          <div class="order-toolbar">
             <div class="order-search-wrap">
               <span class="order-search-icon">🔎</span>
-              <input id="sellerOrdersSearchInput" class="ui-input order-filter-search" placeholder="订单号 / 商品名 / 买家昵称" />
+              <input id="sellerOrdersSearchInput" class="order-search-input" placeholder="搜索订单号 / 商品名 / 买家昵称" />
             </div>
+            <button type="button" class="order-filter-toggle" id="sellerFilterToggleBtn">筛选</button>
+          </div>
+          <div class="order-filter-drawer" id="sellerFilterDrawer">
             <div class="order-filter-grid">
               <label class="order-filter-field">
                 <span>开始时间</span>
@@ -398,7 +402,7 @@
               <button type="button" class="order-filter-chip" data-range="1">今天</button>
               <button type="button" class="order-filter-chip" data-range="7">近7天</button>
               <button type="button" class="order-filter-chip" data-range="30">近30天</button>
-              <button id="sellerOrdersClearFilterBtn" type="button" class="secondary-btn order-filter-clear">清空筛选</button>
+              <button id="sellerOrdersClearFilterBtn" type="button" class="order-filter-chip order-filter-clear-chip">清空</button>
             </div>
           </div>
           <div id="sellerOrdersList" class="profile-orders-list"></div>
