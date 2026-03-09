@@ -2303,7 +2303,8 @@ function buildConversationItemSignature(conv) {
     pinned: isConversationPinned(conv),
     avatar: conv.peerAvatarUrl || '',
     clearedAt: getConversationClearedAt(conv),
-    lastMessageAt: conv.lastMessageAt || 0
+    lastMessageAt: conv.lastMessageAt || 0,
+    isActive: !!(state.activeConversation && state.activeConversation.id === conv.id)
   });
 }
 function createEmptyChatListNode() {
@@ -2450,6 +2451,7 @@ function buildConversationRow(conv) {
   btn.className = 'chat-item';
   if (isPinned) btn.classList.add('is-pinned');
   if (isMuted) btn.classList.add('is-muted');
+  if (state.activeConversation && state.activeConversation.id === conv.id) btn.classList.add('is-active');
   btn.dataset.conversationId = conv.id;
   if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => {
     await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
@@ -3257,6 +3259,7 @@ window.sendMessage = async (payload) => {
   const tempMsg = { id: 'temp_'+Date.now(), senderId: state.currentUser.id, createdAt: Date.now(), clientMessageId, ...payload };
   state.messages.push(tempMsg);
   appendMessageToView(tempMsg);
+  const cv = $("chatView"); if (cv) setTimeout(() => { cv.scrollTop = cv.scrollHeight; }, 10);
   syncActiveConversationListMeta();
   renderConversationListFromState();
   try {
@@ -3501,6 +3504,13 @@ function bindAllEvents() {
   on("loginCodeTab", "click", () => switchLoginMode('code'));
 
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
+
+  // Load older messages when scrolling near top
+  if ($("chatView")) $("chatView").addEventListener("scroll", () => {
+    const cv = $("chatView");
+    if (!cv || cv.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
+    fetchMessages(state.oldestMessageTime);
+  });
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
   function initTagInput(wrapperId, inputId) {
@@ -4537,10 +4547,10 @@ function applyLastOutgoingReadState(){
   try{
     if(!chatView) return;
     chatView.querySelectorAll('.message-read-state').forEach(el=> el.remove());
-    const outgoing = [...chatView.querySelectorAll('.msg.me[data-mid]')];
+    const outgoing = [...chatView.querySelectorAll('article.message-row.me[data-id]')];
     if(!outgoing.length) return;
     const last = outgoing[outgoing.length - 1];
-    const mid = last.dataset.mid || '';
+    const mid = last.dataset.id || '';
     if(!mid) return;
     const msgs = (state.messages || []).filter(Boolean);
     const lastMsg = [...msgs].reverse().find(m => String(m.id || '') === String(mid) || String(m.clientMessageId || '') === String(mid));

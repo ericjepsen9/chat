@@ -471,6 +471,7 @@ input, textarea { font-size: var(--font-body); }
 /* V36 conversation list polish */
 .chat-item{ position:relative; }
 .chat-item.is-pinned{ background:#f7f7f8; }
+.chat-item.is-active{ background:#e6f2ff; }
 .chat-item-avatar{ flex-shrink:0; }
 .chat-item-main{ flex:1; min-width:0; text-align:left; display:flex; flex-direction:column; gap:4px; }
 .chat-item-title-row{ display:flex; align-items:center; gap:8px; min-width:0; }
