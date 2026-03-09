@@ -140,8 +140,6 @@
             <div class="publish-form-title">商品信息</div>
             <label class="publish-field-label" for="productTitleInput">商品名称</label>
             <input id="productTitleInput" type="text" class="publish-field-input" placeholder="如：招牌鸡腿饭 / 二手 AirPods" />
-            <label class="publish-field-label" for="productCategoryInput">分类</label>
-            <input id="productCategoryInput" type="text" class="publish-field-input" placeholder="如：盖饭 / 炸物 / 数码配件" />
             <label class="publish-field-label" for="productDescInput">商品描述</label>
             <textarea id="productDescInput" class="publish-field-input" placeholder="口味、成色、份量、可自提/配送说明等" rows="4"></textarea>
           </div>
@@ -155,13 +153,17 @@
               </div>
               <div>
                 <label class="publish-field-label" for="productStockInput">库存</label>
-                <input id="productStockInput" type="number" min="1" step="1" class="publish-field-input" placeholder="如：20" />
+                <input id="productStockInput" type="number" min="1" step="1" pattern="[0-9]*" inputmode="numeric" class="publish-field-input" placeholder="如：20" />
               </div>
             </div>
-            <label class="publish-field-label" for="productPrepMinutesInput">预计出餐/备货（分钟）</label>
-            <input id="productPrepMinutesInput" type="number" min="0" step="1" class="publish-field-input" placeholder="如：15" />
-            <label class="publish-field-label" for="productSpecsInput">规格/口味（用 / 分隔）</label>
-            <input id="productSpecsInput" type="text" class="publish-field-input" placeholder="如：大份/中份/小份 或 黑色/白色" />
+            <label class="publish-field-label">分类</label>
+            <div id="productCategoryTags" class="tag-input-wrap">
+              <input id="productCategoryInput" type="text" class="tag-text-input" placeholder="输入后按回车添加" />
+            </div>
+            <label class="publish-field-label">规格/口味</label>
+            <div id="productSpecsTags" class="tag-input-wrap">
+              <input id="productSpecsInput" type="text" class="tag-text-input" placeholder="输入后按回车添加" />
+            </div>
           </div>
 
           <div class="publish-form-card">

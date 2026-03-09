@@ -3472,22 +3472,57 @@ function bindAllEvents() {
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
+  function initTagInput(wrapperId, inputId) {
+    const wrap = $(wrapperId); const input = $(inputId);
+    if (!wrap || !input) return { getTags: () => [], setTags: () => {} };
+    let tags = [];
+    function render() {
+      wrap.querySelectorAll('.tag-item').forEach(el => el.remove());
+      tags.forEach((tag, i) => {
+        const span = document.createElement('span');
+        span.className = 'tag-item';
+        span.textContent = tag;
+        const btn = document.createElement('button');
+        btn.className = 'tag-item-remove';
+        btn.type = 'button';
+        btn.textContent = '\u00d7';
+        btn.addEventListener('click', (e) => { e.stopPropagation(); tags.splice(i, 1); render(); });
+        span.appendChild(btn);
+        wrap.insertBefore(span, input);
+      });
+    }
+    function addTag(text) {
+      const t = text.trim();
+      if (!t || tags.includes(t) || tags.length >= 12) return;
+      tags.push(t);
+      render();
+    }
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(input.value); input.value = ''; }
+      if (e.key === 'Backspace' && !input.value && tags.length) { tags.pop(); render(); }
+    });
+    input.addEventListener('blur', () => { if (input.value.trim()) { addTag(input.value); input.value = ''; } });
+    wrap.addEventListener('click', () => input.focus());
+    return {
+      getTags: () => [...tags],
+      setTags: (arr) => { tags = Array.isArray(arr) ? arr.filter(Boolean).slice(0, 12) : []; render(); }
+    };
+  }
+  const categoryTags = initTagInput('productCategoryTags', 'productCategoryInput');
+  const specsTags = initTagInput('productSpecsTags', 'productSpecsInput');
+
   function openPublishProductPage(backTo = 'home', presetProduct = null) {
     state.publishEditingProductId = presetProduct?.id || '';
     window.openSecondaryPage('publishProductPage', backTo);
     if($("productTitleInput")) $("productTitleInput").value = presetProduct?.title || "";
-    if($("productCategoryInput")) $("productCategoryInput").value = presetProduct?.category || "";
+    categoryTags.setTags(presetProduct?.category ? presetProduct.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean) : []);
     if($("productDescInput")) {
       const baseDesc = String(presetProduct?.desc || '');
       $("productDescInput").value = baseDesc.replace(/\n?\[预计出餐\]\s*\d+分钟/g, "").trim();
     }
     if($("productPriceInput")) $("productPriceInput").value = presetProduct?.price || "";
     if($("productStockInput")) $("productStockInput").value = presetProduct?.stock || "";
-    if($("productPrepMinutesInput")) {
-      const match = String(presetProduct?.desc || '').match(/\[预计出餐\]\s*(\d+)分钟/);
-      $("productPrepMinutesInput").value = match ? match[1] : "";
-    }
-    if($("productSpecsInput")) $("productSpecsInput").value = Array.isArray(presetProduct?.specs) ? presetProduct.specs.join('/') : "";
+    specsTags.setTags(Array.isArray(presetProduct?.specs) ? presetProduct.specs : []);
     if($("productImagePreview")) {
       if (presetProduct?.image || presetProduct?.imageUrl) setImagePreview($("productImagePreview"), presetProduct.image || presetProduct.imageUrl);
       else $("productImagePreview").textContent = "+";
@@ -3529,20 +3564,16 @@ function bindAllEvents() {
 
   on("submitProductBtn", "click", async () => {
       const title = $("productTitleInput").value.trim();
-      const category = $("productCategoryInput")?.value.trim() || '';
-      const rawDesc = $("productDescInput").value.trim();
-      const prepMinutes = Math.max(0, Math.floor(Number($("productPrepMinutesInput")?.value || 0)));
-      const desc = prepMinutes > 0 ? `${rawDesc}
-[预计出餐] ${prepMinutes}分钟` : rawDesc;
-      const stock = Number($("productStockInput")?.value || 0);
-      const specsRaw = $("productSpecsInput")?.value.trim() || '';
+      const categoryArr = categoryTags.getTags();
+      const category = categoryArr.join('/');
+      const desc = $("productDescInput").value.trim();
+      const stockVal = $("productStockInput")?.value || '';
+      const stock = Math.floor(Number(stockVal));
+      const specs = specsTags.getTags();
       const price = $("productPriceInput").value.trim();
-      const specs = specsRaw
-        ? specsRaw.split('/').map((s) => s.trim()).filter(Boolean).slice(0, 12)
-        : [];
       const parsedPrice = parseMoney(price);
       if(title.length < 2){ setPublishProductHint('商品名称至少 2 个字', 'error'); return; }
-      if(category.length < 1){ setPublishProductHint('请填写商品分类', 'error'); return; }
+      if(categoryArr.length < 1){ setPublishProductHint('请添加至少一个分类标签', 'error'); return; }
       if(parsedPrice <= 0){ setPublishProductHint('请输入有效售价', 'error'); return; }
       if(!Number.isFinite(stock) || stock <= 0){ setPublishProductHint('请输入有效库存（至少1）', 'error'); return; }
       if(!state.tempProductImage){ setPublishProductHint('请先上传商品图片', 'error'); return; }
@@ -3579,6 +3610,10 @@ function bindAllEvents() {
 
   on("productTitleInput", "input", () => setPublishProductHint(''));
   on("productPriceInput", "input", () => setPublishProductHint(''));
+  on("productStockInput", "input", () => {
+    const el = $("productStockInput"); if (!el) return;
+    el.value = el.value.replace(/[^0-9]/g, '');
+  });
   on("editAvatarPreview", "click", () => { if($("editAvatarInput")) $("editAvatarInput").click(); });
   on("editAvatarInput", "change", async () => {
       const file = $("editAvatarInput").files?.[0]; if (!file) return;
