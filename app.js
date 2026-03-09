@@ -4742,6 +4742,7 @@ async function loadFriends() {
 
 function applyLastOutgoingReadState(){
   try{
+    const chatView = $("chatView");
     if(!chatView) return;
     chatView.querySelectorAll('.message-read-state').forEach(el=> el.remove());
     const outgoing = [...chatView.querySelectorAll('article.message-row.me[data-id]')];
@@ -4813,6 +4814,19 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); if($("callDuration")) $("callDuration").textContent = `${m}:${s}`; }
+function scheduleConnectTimeout(){
+  clearTimeout(connectTimeoutTimer);
+  connectTimeoutTimer = setTimeout(() => {
+    if(state.rtc.phase === 'connecting'){
+      finalizeCall({ alertText: '连接超时', event: 'cancel', reason: 'connect_timeout' });
+    }
+  }, 30000);
+}
+function clearAllCallTimers(){
+  clearTimeout(outgoingTimeoutTimer); outgoingTimeoutTimer = null;
+  clearTimeout(incomingTimeoutTimer); incomingTimeoutTimer = null;
+  clearTimeout(connectTimeoutTimer); connectTimeoutTimer = null;
+}
 function describeMediaAccessError(err, mode) {
   const name = err && err.name ? err.name : '';
   if (name === 'NotAllowedError' || name === 'PermissionDeniedError') return mode === 'video' ? '摄像头或麦克风权限被拒绝，请在浏览器设置中允许访问。' : '麦克风权限被拒绝，请在浏览器设置中允许访问。';
