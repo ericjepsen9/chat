@@ -2237,6 +2237,97 @@ input, textarea { font-size: var(--font-body); }
 }
 
 
+/* ── Settings form pages (change password / phone) ── */
+.settings-form-page{
+  background:#ededed !important;
+  padding:16px 14px !important;
+}
+.settings-form-card{
+  background:#fff;
+  border-radius:14px;
+  padding:20px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.settings-form-label{
+  font-size:13px;
+  color:#6b7280;
+  font-weight:500;
+  margin-top:8px;
+}
+.settings-form-label:first-child{
+  margin-top:0;
+}
+.settings-form-input{
+  width:100%;
+  height:44px;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  background:#f9fafb;
+  padding:0 14px;
+  font-size:15px;
+  color:#1f2937;
+  outline:none;
+  box-sizing:border-box;
+  transition:border-color .2s,box-shadow .2s;
+}
+.settings-form-input:focus{
+  border-color:#07c160;
+  box-shadow:0 0 0 3px rgba(7,193,96,.12);
+  background:#fff;
+}
+.settings-form-input::placeholder{
+  color:#c0c4cc;
+}
+.settings-code-row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.settings-code-row .settings-form-input{
+  flex:1;
+  min-width:0;
+}
+.settings-code-btn{
+  flex-shrink:0;
+  height:44px;
+  padding:0 16px;
+  border:1px solid #07c160;
+  border-radius:10px;
+  background:#fff;
+  color:#07c160;
+  font-size:14px;
+  font-weight:600;
+  white-space:nowrap;
+  cursor:pointer;
+  transition:all .15s;
+}
+.settings-code-btn:active{
+  background:#ecfdf5;
+}
+.settings-code-btn:disabled{
+  border-color:#d1d5db;
+  color:#9ca3af;
+  cursor:not-allowed;
+}
+.settings-form-submit{
+  margin-top:16px;
+  width:100%;
+  height:46px;
+  border:none;
+  border-radius:10px;
+  background:#07c160;
+  color:#fff;
+  font-size:16px;
+  font-weight:600;
+  cursor:pointer;
+  transition:opacity .15s;
+}
+.settings-form-submit:active{
+  opacity:.85;
+}
+
 .payment-code-card{
   background:#fff;
   border-radius:18px;
