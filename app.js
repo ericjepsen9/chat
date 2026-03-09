@@ -58,7 +58,8 @@ const state = {
   buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
-  typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {} 
+  typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {},
+  mallTab: 'nearby', userLocation: null, userLocationName: '正在定位...'
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 
@@ -2262,11 +2263,14 @@ function buildMallSignature(products) {
   return JSON.stringify(products.map((p) => ({
     id: p.id,
     title: p.title || '',
+    desc: p.desc || '',
     price: p.price,
     image: p.image || '',
     sellerId: p.sellerId || '',
     sellerName: p.sellerName || '',
-    sellerAvatarUrl: p.sellerAvatarUrl || p.sellerAvatar || ''
+    sellerAvatarUrl: p.sellerAvatarUrl || p.sellerAvatar || '',
+    location: p.location || '',
+    distance: p.distance ?? null
   })));
 }
 function isConversationMuted(conv) {
@@ -2658,12 +2662,15 @@ function buildMallItemSignature(product) {
   return JSON.stringify({
     id: product.id,
     title: product.title || '',
+    desc: product.desc || '',
     price: product.price,
     stock: product.stock,
     image: product.image || '',
     sellerId: product.sellerId || '',
     sellerName: product.sellerName || '',
-    sellerAvatarUrl: product.sellerAvatarUrl || product.sellerAvatar || ''
+    sellerAvatarUrl: product.sellerAvatarUrl || product.sellerAvatar || '',
+    location: product.location || '',
+    distance: product.distance ?? null
   });
 }
 function buildMallCard(product) {
@@ -2708,9 +2715,21 @@ function patchMallCard(card, product) {
   sellerName.textContent = product.sellerName || '';
   seller.appendChild(sellerName);
   info.appendChild(title);
+  if (product.desc) {
+    const desc = document.createElement('div');
+    desc.className = 'product-desc';
+    desc.textContent = product.desc;
+    info.appendChild(desc);
+  }
   info.appendChild(price);
-  info.appendChild(stock);
   info.appendChild(seller);
+  if (product.location || product.distance != null) {
+    const loc = document.createElement('div');
+    loc.className = 'product-location';
+    const distText = product.distance != null ? (product.distance < 1 ? `${Math.round(product.distance * 1000)}m` : `${product.distance.toFixed(1)}km`) : '';
+    loc.textContent = (product.location || '附近') + (distText ? ` · ${distText}` : '');
+    info.appendChild(loc);
+  }
   replacement.appendChild(info);
   if (card.parentNode) card.replaceWith(replacement);
   return replacement;
@@ -3579,6 +3598,20 @@ function bindAllEvents() {
   }
 
   on("publishProductEntryBtn", "click", () => { openPublishProductPage('mall'); });
+
+  // Mall location refresh
+  on("mallLocationRefreshBtn", "click", () => { refreshUserLocation(); });
+
+  // Mall tab switching
+  if ($("mallTabs")) $("mallTabs").addEventListener("click", (e) => {
+    const tab = e.target.closest('.mall-tab');
+    if (!tab || !tab.dataset.mallTab) return;
+    $("mallTabs").querySelectorAll('.mall-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    state.mallTab = tab.dataset.mallTab;
+    state.mallListSignature = '';
+    loadMall();
+  });
   on("sellerProductsPublishBtn", "click", () => { openPublishProductPage('sellerProductsPage'); });
   on("productImagePreview", "click", () => { if($("productImageInput")) $("productImageInput").click(); });
   
@@ -4254,7 +4287,7 @@ function setMainTab(tab) {
 
   if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; loadConversations(); loadSystemMessages(); scheduleTradeReminderRefresh(0); } 
   else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; loadFriends(); loadFriendRequests(); } 
-  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; loadMall(); } 
+  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); loadMall(); } 
   else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; }
   if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
 }
@@ -4348,12 +4381,40 @@ async function loadMyProducts() {
   }
 }
 
+function refreshUserLocation() {
+  if (!navigator.geolocation) {
+    state.userLocationName = '定位不可用';
+    if ($('mallLocationText')) $('mallLocationText').textContent = state.userLocationName;
+    return;
+  }
+  state.userLocationName = '正在定位...';
+  if ($('mallLocationText')) $('mallLocationText').textContent = state.userLocationName;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      state.userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      state.userLocationName = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+      if ($('mallLocationText')) $('mallLocationText').textContent = '当前位置 · ' + state.userLocationName;
+      if (state.mallTab === 'nearby') { state.mallListSignature = ''; loadMall(); }
+    },
+    () => {
+      state.userLocationName = '定位失败，点击重试';
+      if ($('mallLocationText')) $('mallLocationText').textContent = state.userLocationName;
+    },
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+  );
+}
+
 async function loadMall() {
 
   try {
     const keyword = ($('mallSearchInput')?.value || '').trim();
-    const q = keyword ? `&q=${encodeURIComponent(keyword)}` : '';
-    const data = await api('/api/mall?userId=' + state.currentUser.id + q);
+    let qs = 'userId=' + state.currentUser.id;
+    if (keyword) qs += '&q=' + encodeURIComponent(keyword);
+    if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
+    if (state.mallTab === 'price') qs += '&sort=price';
+    else if (state.mallTab === 'latest') qs += '&sort=latest';
+    else qs += '&sort=nearby';
+    const data = await api('/api/mall?' + qs);
     const products = data.products || [];
     const list = $("mallList"); if (!list) return;
     const nextSignature = buildMallSignature(products);
@@ -4364,7 +4425,7 @@ async function loadMall() {
       state.mallItemSignatures = {};
       const empty = document.createElement('div');
       empty.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;';
-      empty.textContent = '商城目前空空如也，快去发布吧';
+      empty.textContent = state.mallTab === 'nearby' ? '附近暂无闲置商品，快去发布吧' : '暂无商品，快去发布吧';
       list.replaceChildren(empty);
       return;
     }

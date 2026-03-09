@@ -75,9 +75,19 @@
         </section>
 
         <section id="mallView" class="chat-list-view hidden">
+          <div id="mallLocationBar" class="mall-location-bar">
+            <span class="mall-location-icon">📍</span>
+            <span id="mallLocationText" class="mall-location-text">正在定位...</span>
+            <button id="mallLocationRefreshBtn" type="button" class="mall-location-refresh">⟳</button>
+          </div>
           <div class="toolbar" style="display:flex; gap:10px;">
-             <input id="mallSearchInput" placeholder="搜索闲置商品..." style="flex:1;" />
-             <button id="publishProductEntryBtn" class="primary-btn" style="background:#ff9500;">发布闲置</button>
+             <input id="mallSearchInput" placeholder="搜索附近闲置商品..." style="flex:1;" />
+             <button id="publishProductEntryBtn" class="sp-publish-btn" style="width:auto; padding:0 16px;">发布闲置</button>
+          </div>
+          <div id="mallTabs" class="mall-tabs">
+            <button type="button" class="mall-tab active" data-mall-tab="nearby">附近</button>
+            <button type="button" class="mall-tab" data-mall-tab="latest">最新</button>
+            <button type="button" class="mall-tab" data-mall-tab="price">价格</button>
           </div>
           <div id="mallList" style="flex:1; overflow-y:auto; background:#f2f2f6; padding-bottom: 20px;"></div>
         </section>
