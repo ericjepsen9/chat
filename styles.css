@@ -189,6 +189,7 @@ input, textarea { font-size: var(--font-body); }
 #profileView > button.chat-item,
 #settingsPage > button.chat-item {
   margin: 0 10px;
+  width: calc(100% - 20px);
   background: #fff;
 }
 
