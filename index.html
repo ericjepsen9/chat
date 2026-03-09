@@ -133,49 +133,51 @@
         </section>
 
         <section id="publishProductPage" class="chat-list-view hidden publish-product-page">
-          <div class="publish-page-hero">
-            <strong>发布商品</strong><span>信息越完整，转化越高</span>
-          </div>
           <div class="publish-form-card">
-            <div class="publish-form-title">商品信息</div>
-            <label class="publish-field-label" for="productTitleInput">商品名称</label>
-            <input id="productTitleInput" type="text" class="publish-field-input" placeholder="如：招牌鸡腿饭 / 二手 AirPods" />
-            <label class="publish-field-label" for="productDescInput">商品描述</label>
-            <textarea id="productDescInput" class="publish-field-input" placeholder="口味、成色、份量、可自提/配送说明等" rows="4"></textarea>
+            <label class="publish-field-label" for="productTitleInput">标题</label>
+            <input id="productTitleInput" type="text" class="publish-field-input" placeholder="描述一下你的宝贝，如：全新 AirPods Pro" maxlength="50" />
+            <label class="publish-field-label" for="productDescInput">详细描述</label>
+            <textarea id="productDescInput" class="publish-field-input" placeholder="成色、使用时长、是否包邮、交易方式等" rows="4"></textarea>
           </div>
 
           <div class="publish-form-card">
-            <div class="publish-form-title">售卖设置（参考外卖）</div>
             <div class="publish-grid-two">
               <div>
-                <label class="publish-field-label" for="productPriceInput">售价（¥）</label>
-                <input id="productPriceInput" type="number" class="publish-field-input" placeholder="如：29.9" />
+                <label class="publish-field-label" for="productPriceInput">价格</label>
+                <div class="publish-price-wrap">
+                  <span class="publish-price-prefix">¥</span>
+                  <input id="productPriceInput" type="number" class="publish-field-input publish-price-input" placeholder="0.00" />
+                </div>
               </div>
               <div>
                 <label class="publish-field-label" for="productStockInput">库存</label>
-                <input id="productStockInput" type="number" min="1" step="1" pattern="[0-9]*" inputmode="numeric" class="publish-field-input" placeholder="如：20" />
+                <input id="productStockInput" type="number" min="1" step="1" pattern="[0-9]*" inputmode="numeric" class="publish-field-input" placeholder="1" />
               </div>
-            </div>
-            <label class="publish-field-label">分类</label>
-            <div id="productCategoryTags" class="tag-input-wrap">
-              <input id="productCategoryInput" type="text" class="tag-text-input" placeholder="输入后按回车添加" />
-            </div>
-            <label class="publish-field-label">规格/口味</label>
-            <div id="productSpecsTags" class="tag-input-wrap">
-              <input id="productSpecsInput" type="text" class="tag-text-input" placeholder="输入后按回车添加" />
             </div>
           </div>
 
           <div class="publish-form-card">
-            <div class="publish-form-title">商品图片</div>
-            <div id="productImagePreview" class="publish-image-preview">+</div>
+            <label class="publish-field-label">分类</label>
+            <div id="productCategoryTags" class="tag-input-wrap">
+              <input id="productCategoryInput" type="text" class="tag-text-input" placeholder="回车添加，如：数码" />
+            </div>
+            <label class="publish-field-label">规格</label>
+            <div id="productSpecsTags" class="tag-input-wrap">
+              <input id="productSpecsInput" type="text" class="tag-text-input" placeholder="回车添加，如：黑色" />
+            </div>
+          </div>
+
+          <div class="publish-form-card">
+            <label class="publish-field-label">图片</label>
+            <div id="productImagePreview" class="publish-image-preview">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
             <input type="file" id="productImageInput" accept="image/*" class="hidden" />
-            <div id="productPublishHint" class="publish-hint">可发布在个人主页，支持直接加减下单</div>
+            <div id="productPublishHint" class="publish-hint">上传商品实拍图，提升买家信任</div>
           </div>
 
           <div class="publish-submit-wrap">
-            <div class="publish-submit-tip">支持先发布后编辑，商品管理页可继续改库存与上下架</div>
-            <button id="submitProductBtn" class="primary-btn publish-submit-btn">立即发布到商城</button>
+            <button id="submitProductBtn" class="primary-btn publish-submit-btn">发布</button>
           </div>
         </section>
 

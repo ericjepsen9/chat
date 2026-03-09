@@ -3531,7 +3531,7 @@ function bindAllEvents() {
     state.tempProductImage = presetProduct?.image || presetProduct?.imageUrl || null;
     if($("submitProductBtn")){
       $("submitProductBtn").disabled = false;
-      $("submitProductBtn").textContent = state.publishEditingProductId ? "保存并更新商品" : "立即发布到商城";
+      $("submitProductBtn").textContent = state.publishEditingProductId ? "保存" : "发布";
     }
     if ($("chatTitle")) $("chatTitle").textContent = state.publishEditingProductId ? '编辑商品' : '发布商品';
     setPublishProductHint(state.publishEditingProductId ? "修改后将同步到商品管理、发现和个人主页" : "可发布多个商品，买家可在你的主页直接多选下单", "muted");
@@ -3603,7 +3603,7 @@ function bindAllEvents() {
       } finally {
           if($("submitProductBtn")){
             $("submitProductBtn").disabled = false;
-            $("submitProductBtn").textContent = state.publishEditingProductId ? "保存并更新商品" : "立即发布到商城";
+            $("submitProductBtn").textContent = state.publishEditingProductId ? "保存" : "发布";
           }
       }
   });
