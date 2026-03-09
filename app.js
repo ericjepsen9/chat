@@ -505,14 +505,12 @@ function openProductDetail(item, fromSeller = false){
   if($("productDetailTitle")) $("productDetailTitle").textContent = item.title || '商品';
   if($("productDetailDesc")) $("productDetailDesc").textContent = item.desc || '商品详情页为图片、文字、价格与规格';
   if($("productDetailPrice")) $("productDetailPrice").textContent = formatMoney(item.price);
+  const stock = Math.max(0, Math.floor(Number(item.stock || 0)));
+  if($("productDetailStock")) $("productDetailStock").textContent = `库存 ${stock}`;
   const specsEl = $("productDetailSpecs");
   if(specsEl){
     const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格', '标准版', '高配版'];
     const frag = document.createDocumentFragment();
-    const stockChip = document.createElement('span');
-    stockChip.className = 'spec-option-chip';
-    stockChip.textContent = `库存 ${Math.max(0, Math.floor(Number(item.stock || 0)))}`;
-    frag.appendChild(stockChip);
     specs.forEach(spec => {
       const chip = document.createElement('span');
       chip.className = 'spec-option-chip';
@@ -522,6 +520,8 @@ function openProductDetail(item, fromSeller = false){
     specsEl.replaceChildren(frag);
   }
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
+  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller);
+  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller);
   window.openSecondaryPage('productDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
@@ -1538,8 +1538,9 @@ async function renderProductCardPicker(){
   products.forEach((p) => {
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'profile-order-card';
-    card.innerHTML = `<div class=\"profile-order-title\">${escapeHTML(p.title || '商品')}</div><div class=\"profile-order-sub\">${escapeHTML(p.desc || '')}</div><div class=\"profile-order-status\">${escapeHTML(formatMoney(p.price))}</div>`;
+    card.className = 'picker-product-card';
+    const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
+    card.innerHTML = `<img class="picker-product-img" src="${escapeHTML(imgUrl)}" alt="" /><div class="picker-product-info"><div class="picker-product-name">${escapeHTML(p.title || '商品')}</div><div class="picker-product-price">${escapeHTML(formatMoney(p.price))}</div></div>`;
     card.addEventListener('click', async () => {
       await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: p.desc || '', meta:`售价：${formatMoney(p.price)}`, imageUrl: p.image || p.imageUrl || '' } });
       if($("backBtn")) $("backBtn").click();
@@ -1549,28 +1550,45 @@ async function renderProductCardPicker(){
   list.replaceChildren(frag);
 }
 
-async function renderOrderCardPicker(){
+async function renderOrderCardPicker(filterTab){
   const list = $("orderCardPickerList");
   if(!list) return;
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
   await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
-  const orders = getOrdersBetweenUsers(peerId);
+  const allOrders = getOrdersBetweenUsers(peerId);
+  const tab = filterTab || state.orderPickerTab || 'bought';
+  state.orderPickerTab = tab;
+  // Update tab active states
+  const tabBar = $("orderPickerTabs");
+  if(tabBar){
+    tabBar.querySelectorAll('.picker-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+  }
+  const orders = allOrders.filter(o => {
+    if(tab === 'bought') return o.buyerId === state.currentUser?.id;
+    return o.sellerId === state.currentUser?.id;
+  });
   if(!orders.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = '当前会话双方暂无可发送订单';
+    empty.textContent = tab === 'bought' ? '暂无从对方购买的订单' : '暂无卖给对方的订单';
     list.replaceChildren(empty);
     return;
   }
   const frag = document.createDocumentFragment();
   orders.forEach((o) => {
+    const isBuyer = o.buyerId === state.currentUser?.id;
+    const role = isBuyer ? 'buyer' : 'seller';
+    const roleLabel = isBuyer ? '买家' : '卖家';
+    const itemsSummary = (o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，') || '订单内容';
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'profile-order-card';
-    card.innerHTML = `<div class=\"profile-order-title\">订单 #${escapeHTML(String(o.id||'').slice(-6))} · ${escapeHTML(formatMoney(o.total))}</div><div class=\"profile-order-sub\">${escapeHTML((o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容')}</div><div class=\"profile-order-status\">${escapeHTML(formatOrderStatusLabel(o.status))}</div>`;
+    card.className = 'picker-order-card';
+    card.innerHTML = `<div class="picker-order-top"><span class="picker-order-id">#${escapeHTML(String(o.id||'').slice(-6))}</span><span class="picker-order-role ${role}">${roleLabel}</span></div><div class="picker-order-items">${escapeHTML(itemsSummary)}</div><div class="picker-order-bottom"><span class="picker-order-total">${escapeHTML(formatMoney(o.total))}</span><span class="picker-order-status">${escapeHTML(formatOrderStatusLabel(o.status))}</span></div>`;
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${String(o.id||'').slice(-6)}`, summary:(o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，')||'订单内容', total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role: state.currentUser?.id===o.sellerId ? 'seller' : 'buyer' } });
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${String(o.id||'').slice(-6)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
@@ -2861,8 +2879,8 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'productDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '商品详情'; }
   else if (page === 'orderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
   else if (page === 'contactCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送名片'; }
-  else if (page === 'productCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送商品'; }
-  else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送订单'; }
+  else if (page === 'productCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '我的商品'; }
+  else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '相关订单'; state.orderPickerTab = 'bought'; }
   else if (page === 'broadcastManagePage') { if($("chatTitle")) $("chatTitle").textContent = '广播管理'; renderBroadcastDrafts(); }
   else if (page === 'broadcastEditorPage') { if($("chatTitle")) $("chatTitle").textContent = '广播编辑'; }
   else if (page === 'cartHubPage') { if($("chatTitle")) $("chatTitle").textContent = '购物车'; renderCartHubPage(); }
@@ -4300,6 +4318,20 @@ function bindAllEvents() {
   on("btnSendProductCard", "click", async () => { await sendProductCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnSendOrderCard", "click", async () => { await sendOrderCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnSendPaymentCode", "click", async () => { await sendPaymentCodeInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
+  // Order picker tab switching
+  if($("orderPickerTabs")){
+    $("orderPickerTabs").addEventListener('click', (e) => {
+      const tab = e.target.closest('.picker-tab');
+      if(!tab) return;
+      renderOrderCardPicker(tab.dataset.tab);
+    });
+  }
+  // Product detail buy now (same as add to cart for now)
+  on("productDetailBuyNowBtn", "click", () => {
+    const item = state.selectedProductDetail;
+    if(!item) return;
+    alert('已加入购物车');
+  });
 
   const handleImageUpload = async (e) => { 
       const input = e.target; const file = input.files?.[0]; if (!file) return; input.value = "";

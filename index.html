@@ -468,19 +468,23 @@
           <div id="sellerProductsList" class="profile-store-list"></div>
         </section>
 
-        <section id="productDetailPage" class="chat-list-view hidden order-flow-page">
-          <div class="product-detail-card">
-            <img id="productDetailImage" class="product-detail-image" alt="" />
-            <div class="product-detail-body">
-              <strong id="productDetailTitle" class="product-detail-title">商品</strong>
-              <div id="productDetailDesc" class="product-detail-desc">-</div>
-              <div id="productDetailPrice" class="product-detail-price">¥0.00</div>
-              <div id="productDetailSpecs" class="product-detail-specs"></div>
+        <section id="productDetailPage" class="chat-list-view hidden pd-page">
+          <div class="pd-image-wrap">
+            <img id="productDetailImage" class="pd-hero-image" alt="" />
+          </div>
+          <div class="pd-info-card">
+            <div class="pd-price-row">
+              <span id="productDetailPrice" class="pd-price">¥0.00</span>
+              <span id="productDetailStock" class="pd-stock-tag">库存 0</span>
             </div>
-            <div class="product-detail-actions">
-              <button id="productDetailAddCartBtn" type="button" class="primary-btn">加入购物车</button>
-              <button id="productDetailOpenSellerBtn" type="button" class="secondary-btn">卖家管理</button>
-            </div>
+            <strong id="productDetailTitle" class="pd-title">商品</strong>
+            <div id="productDetailDesc" class="pd-desc">-</div>
+            <div id="productDetailSpecs" class="pd-specs"></div>
+          </div>
+          <div class="pd-bottom-bar">
+            <button id="productDetailAddCartBtn" type="button" class="pd-btn-cart">加入购物车</button>
+            <button id="productDetailBuyNowBtn" type="button" class="pd-btn-buy">立即购买</button>
+            <button id="productDetailOpenSellerBtn" type="button" class="pd-btn-seller hidden">卖家管理</button>
           </div>
         </section>
 
@@ -597,14 +601,24 @@
           </div>
         </section>
 
-        <section id="productCardPickerPage" class="chat-list-view hidden order-flow-page">
-          <div class="order-flow-head"><strong>选择商品</strong><span>发送商品卡片</span></div>
-          <div id="productCardPickerList" class="profile-orders-list"></div>
+        <section id="productCardPickerPage" class="chat-list-view hidden picker-page">
+          <div class="picker-header">
+            <strong>我的商品</strong>
+            <span class="picker-hint">点击商品发送卡片给对方</span>
+          </div>
+          <div id="productCardPickerList" class="picker-grid"></div>
         </section>
 
-        <section id="orderCardPickerPage" class="chat-list-view hidden order-flow-page">
-          <div class="order-flow-head"><strong>选择订单</strong><span>发送订单卡片</span></div>
-          <div id="orderCardPickerList" class="profile-orders-list"></div>
+        <section id="orderCardPickerPage" class="chat-list-view hidden picker-page">
+          <div class="picker-header">
+            <strong>相关订单</strong>
+            <span class="picker-hint">点击订单发送卡片给对方</span>
+          </div>
+          <div class="picker-tab-bar" id="orderPickerTabs">
+            <button type="button" class="picker-tab active" data-tab="bought">我购买的</button>
+            <button type="button" class="picker-tab" data-tab="sold">我卖出的</button>
+          </div>
+          <div id="orderCardPickerList" class="picker-order-list"></div>
         </section>
 
         <div id="productSpecSheet" class="profile-action-sheet hidden">
