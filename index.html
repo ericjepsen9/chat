@@ -409,19 +409,21 @@
         </section>
 
         <section id="sellerProductsPage" class="chat-list-view hidden order-flow-page">
-          <div class="order-flow-head"><strong>商品管理</strong><span>搜索 / 排序 / 上下架 / 删除</span></div>
           <div class="seller-products-toolbar">
-            <button id="sellerProductsPublishBtn" type="button" class="primary-btn">发布商品</button>
-            <div class="seller-products-tabs">
-              <button id="sellerProductsListedTab" type="button" class="secondary-btn active">已上架</button>
-              <button id="sellerProductsUnlistedTab" type="button" class="secondary-btn">未上架</button>
+            <button id="sellerProductsPublishBtn" type="button" class="sp-publish-btn">＋ 发布商品</button>
+            <div class="sp-tabs">
+              <button id="sellerProductsListedTab" type="button" class="sp-tab active">已上架</button>
+              <button id="sellerProductsUnlistedTab" type="button" class="sp-tab">未上架</button>
             </div>
-            <input id="sellerProductsSearchInput" class="ui-input" placeholder="搜索商品名/分类/描述" />
-            <select id="sellerProductsSortSelect" class="ui-input">
+            <div class="sp-search-wrap">
+              <span class="sp-search-icon">🔎</span>
+              <input id="sellerProductsSearchInput" class="sp-search-input" placeholder="搜索商品名/分类/描述" />
+            </div>
+            <select id="sellerProductsSortSelect" class="sp-sort-select">
               <option value="newest">按最新发布</option>
-              <option value="price_asc">按价格从低到高</option>
-              <option value="price_desc">按价格从高到低</option>
-              <option value="stock_desc">按库存从高到低</option>
+              <option value="price_asc">价格从低到高</option>
+              <option value="price_desc">价格从高到低</option>
+              <option value="stock_desc">库存从高到低</option>
             </select>
           </div>
           <div id="sellerProductsList" class="profile-store-list"></div>

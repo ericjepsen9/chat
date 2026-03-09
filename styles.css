@@ -200,7 +200,6 @@ input, textarea { font-size: var(--font-body); }
 #sellerCenterPage .seller-center-hero,
 #buyerOrdersManagePage .order-flow-head,
 #sellerOrdersPage .order-flow-head,
-#sellerProductsPage .order-flow-head,
 #orderDetailPage .order-flow-head,
 #broadcastManagePage .order-flow-head,
 #broadcastEditorPage .order-flow-head,
@@ -1721,29 +1720,186 @@ input, textarea { font-size: var(--font-body); }
 
 
 
+/* ── Seller products toolbar ── */
 .seller-products-toolbar{
-  margin: 0 16px 12px;
   display:flex;
   flex-direction:column;
   gap:10px;
+  margin-bottom:12px;
 }
-.seller-products-toolbar .primary-btn{
-  width: 100%;
-  background:#ff9500;
+.sp-publish-btn{
+  width:100%;
+  height:44px;
+  border:none;
+  border-radius:12px;
+  background:#07c160;
+  color:#fff;
+  font-size:15px;
+  font-weight:600;
+  cursor:pointer;
+  transition:opacity .15s;
 }
-.seller-products-tabs{
+.sp-publish-btn:active{opacity:.8;}
+.sp-tabs{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:8px;
 }
-.seller-products-tabs .secondary-btn.active{
-  border-color:#ff9500;
-  color:#ff9500;
-  background:#fff7ed;
-}
-#sellerProductsSearchInput,
-#sellerProductsSortSelect{
+.sp-tab{
+  height:38px;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
   background:#fff;
+  color:#6b7280;
+  font-size:14px;
+  font-weight:500;
+  cursor:pointer;
+  transition:all .15s;
+}
+.sp-tab.active{
+  border-color:#07c160;
+  color:#07c160;
+  background:#ecfdf5;
+  font-weight:600;
+}
+.sp-search-wrap{
+  position:relative;
+}
+.sp-search-icon{
+  position:absolute;
+  left:12px;
+  top:50%;
+  transform:translateY(-50%);
+  font-size:13px;
+  pointer-events:none;
+}
+.sp-search-input{
+  width:100%;
+  height:40px;
+  border:none;
+  border-radius:12px;
+  background:#fff;
+  padding:0 12px 0 34px;
+  font-size:14px;
+  color:#1f2937;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+  outline:none;
+  box-sizing:border-box;
+  transition:box-shadow .2s;
+}
+.sp-search-input:focus{box-shadow:0 0 0 2px rgba(7,193,96,.25);}
+.sp-search-input::placeholder{color:#b0b7c3;}
+.sp-sort-select{
+  width:100%;
+  height:40px;
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  background:#fff;
+  padding:0 12px;
+  font-size:14px;
+  color:#374151;
+  outline:none;
+  -webkit-appearance:none;
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236b7280'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 12px center;
+}
+
+/* ── Seller product cards ── */
+.sp-card{
+  background:#fff;
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+  cursor:pointer;
+  transition:transform .12s;
+}
+.sp-card:active{transform:scale(.985);}
+.sp-card-img{
+  width:100%;
+  height:160px;
+  object-fit:cover;
+  display:block;
+  background:#f3f4f6;
+}
+.sp-card-body{
+  padding:12px;
+}
+.sp-card-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:4px;
+}
+.sp-card-title{
+  font-size:15px;
+  font-weight:700;
+  color:#111827;
+  line-height:1.35;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  min-width:0;
+}
+.sp-card-desc{
+  font-size:12px;
+  color:#9ca3af;
+  line-height:1.45;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  margin-bottom:8px;
+}
+.sp-card-meta{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  margin-bottom:10px;
+}
+.sp-card-price{
+  font-size:17px;
+  font-weight:800;
+  color:#111827;
+}
+.sp-card-stock{
+  font-size:12px;
+  color:#6b7280;
+}
+.sp-card-stock.low{
+  color:#ef4444;
+  font-weight:600;
+}
+.sp-card-actions{
+  display:flex;
+  gap:8px;
+  border-top:1px solid #f3f4f6;
+  padding-top:10px;
+}
+.sp-action-btn{
+  flex:1;
+  height:32px;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  background:#fff;
+  color:#374151;
+  font-size:12px;
+  font-weight:500;
+  cursor:pointer;
+  transition:all .15s;
+}
+.sp-action-btn:active{background:#f9fafb;}
+.sp-action-btn.accent{
+  border-color:#07c160;
+  color:#07c160;
+  background:#ecfdf5;
+}
+.sp-action-btn.danger{
+  border-color:#fecaca;
+  color:#ef4444;
+  background:#fef2f2;
 }
 
 

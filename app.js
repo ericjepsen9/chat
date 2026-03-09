@@ -410,58 +410,72 @@ function renderSellerProductsManage(){
   const products = getFilteredSellerProducts();
   if(!products.length){
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布';
+    empty.className = 'order-empty-state';
+    empty.innerHTML = '<div class="order-empty-icon">📦</div><div>' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布') + '</div>';
     list.replaceChildren(empty);
     return;
   }
   const frag = document.createDocumentFragment();
   products.forEach(item => {
     const card = document.createElement('div');
-    card.className = 'profile-store-item';
+    card.className = 'sp-card';
     card.addEventListener('click', () => openProductDetail(item, true));
-    const img = document.createElement('img');
-    img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
-    img.alt = item.title || '商品';
 
-    const info = document.createElement('div');
-    info.className = 'profile-store-info';
+    const imgUrl = normalizeMediaUrl(item.image || item.imageUrl) || '';
+    if (imgUrl) {
+      const img = document.createElement('img');
+      img.className = 'sp-card-img';
+      img.src = imgUrl;
+      img.alt = item.title || '商品';
+      card.appendChild(img);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'sp-card-body';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'sp-card-top';
     const title = document.createElement('div');
-    title.className = 'profile-store-title';
+    title.className = 'sp-card-title';
     title.textContent = item.title || '未命名商品';
-    const desc = document.createElement('div');
-    desc.className = 'profile-store-desc';
-    const tag = item.listed === false ? '未上架' : '已上架';
-    desc.textContent = `[${tag}] ${item.desc || '可在商品详情页继续编辑文案与规格'}`;
-    const price = document.createElement('div');
-    price.className = 'profile-store-price';
-    price.textContent = formatMoney(item.price);
-    const stock = document.createElement('div');
-    stock.className = 'profile-store-desc';
-    stock.textContent = `库存：${Math.max(0, Math.floor(Number(item.stock || 0)))}`;
-    info.append(title, desc, price, stock);
+    topRow.appendChild(title);
+    body.appendChild(topRow);
 
-    const side = document.createElement('div');
-    side.className = 'profile-store-side';
-    side.style.display = 'flex';
-    side.style.flexDirection = 'column';
-    side.style.gap = '8px';
+    const desc = document.createElement('div');
+    desc.className = 'sp-card-desc';
+    desc.textContent = item.desc || '可在商品详情页继续编辑文案与规格';
+    body.appendChild(desc);
+
+    const meta = document.createElement('div');
+    meta.className = 'sp-card-meta';
+    const price = document.createElement('span');
+    price.className = 'sp-card-price';
+    price.textContent = formatMoney(item.price);
+    const stockNum = Math.max(0, Math.floor(Number(item.stock || 0)));
+    const stockSpan = document.createElement('span');
+    stockSpan.className = 'sp-card-stock' + (stockNum === 0 ? ' low' : '');
+    stockSpan.textContent = `库存 ${stockNum}`;
+    meta.append(price, stockSpan);
+    body.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'sp-card-actions';
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
-    editBtn.className = 'secondary-btn';
+    editBtn.className = 'sp-action-btn';
     editBtn.textContent = '编辑';
     editBtn.addEventListener('click', (e) => { e.stopPropagation(); openPublishProductPage('sellerProductsPage', item); });
 
     const stockBtn = document.createElement('button');
     stockBtn.type = 'button';
-    stockBtn.className = 'secondary-btn';
+    stockBtn.className = 'sp-action-btn';
     stockBtn.textContent = '改库存';
     stockBtn.addEventListener('click', (e) => { e.stopPropagation(); window.updateSellerProductStock(item.id, item.stock || 0); });
 
     const listedBtn = document.createElement('button');
     listedBtn.type = 'button';
-    listedBtn.className = 'secondary-btn';
+    listedBtn.className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
     listedBtn.textContent = item.listed === false ? '上架' : '下架';
     listedBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -470,12 +484,13 @@ function renderSellerProductsManage(){
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
-    delBtn.className = 'secondary-btn';
+    delBtn.className = 'sp-action-btn danger';
     delBtn.textContent = '删除';
     delBtn.addEventListener('click', (e) => { e.stopPropagation(); window.deleteMyProduct(item.id); });
 
-    side.append(editBtn, stockBtn, listedBtn, delBtn);
-    card.append(img, info, side);
+    actions.append(editBtn, stockBtn, listedBtn, delBtn);
+    body.appendChild(actions);
+    card.appendChild(body);
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
