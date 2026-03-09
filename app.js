@@ -36,6 +36,19 @@ async function api(p, o={}) {
 }
 function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
+function showToast(msg, duration = 2000){
+  let el = document.getElementById('_toast');
+  if(!el){
+    el = document.createElement('div');
+    el.id = '_toast';
+    el.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.76);color:#fff;padding:10px 22px;border-radius:8px;font-size:14px;z-index:99999;pointer-events:none;opacity:0;transition:opacity .25s;white-space:nowrap;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, duration);
+}
 
 function normalizePhoneInput(phone){
   const digits = String(phone || '').replace(/\D+/g, '');
@@ -1195,8 +1208,8 @@ function renderSellerCenterPage(){
   if($("chatTitle")) $("chatTitle").textContent = '卖家中心';
 }
 
-function renderBuyerOrdersPage(){
-  loadProfileOrders();
+async function renderBuyerOrdersPage(){
+  await loadProfileOrders();
 }
 
 function openBroadcastDetail(title, summary){
@@ -1774,7 +1787,7 @@ function formatConversationTime(timestamp) {
   const startMsg = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const diffDays = Math.round((startToday - startMsg) / 86400000);
   if (diffDays <= 0) return hhmm;
-  if (diffDays == 1) return '昨天';
+  if (diffDays === 1) return '昨天';
   if (diffDays < 7) return ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
@@ -2147,8 +2160,8 @@ async function reloadActiveConversationMessages(){
     state.messages = data.messages || [];
     state.peerLastReadAt = Number((data && data.peerLastReadAt) || state.peerLastReadAt || 0);
     renderMessages();
-    applyLastOutgoingReadState?.();
-    loadConversations?.();
+    applyLastOutgoingReadState();
+    loadConversations();
   }catch(_){}
 }
 
@@ -4164,7 +4177,7 @@ function bindAllEvents() {
     const p = state.currentProfileUser;
     if(!p || !p.id || !state.currentUser) return;
     try {
-      await openConversationWith(p.id, p.remarkName || p.nickname || p.username || p.displayName || '');
+      await window.openPrivateChat(p.id);
     } catch(e) {
       alert(e.message || '打开会话失败');
     }
@@ -4983,7 +4996,7 @@ function refreshAfterCallStateChange(conversationId) {
     loadConversations();
     if (conversationId && state.activeConversation && state.activeConversation.id === conversationId) {
       Promise.resolve().then(async () => {
-        try { await fetchMessages(); refreshMessageReadReceipts?.(); } catch(_) {}
+        try { await fetchMessages(); refreshMessageReadReceipts(); } catch(_) {}
       });
     }
   } catch(_) {}
@@ -5023,7 +5036,7 @@ function insertCallRecordMessage(ev, meta = {}){
     const msg = { id: 'call_'+Date.now(), senderId: 'system', type:'system', text, createdAt: new Date().toISOString() };
     state.messages = (state.messages || []).concat([msg]);
     appendMessageToView(msg);
-    applyLastOutgoingReadState?.();
+    applyLastOutgoingReadState();
   }catch(_){}
 }
 
