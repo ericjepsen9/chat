@@ -558,7 +558,7 @@ function renderOrderDetailPage(){
 
 async function updateSelectedOrderPrice(){
   const order = state.selectedOrderDetail;
-  if(!order) return;
+  if(!order?.id) return;
   const raw = prompt('请输入新的总价', String(order.total || ''));
   if(raw === null) return;
   try{
@@ -573,7 +573,7 @@ async function updateSelectedOrderPrice(){
 
 async function completeSelectedOrder(){
   const order = state.selectedOrderDetail;
-  if(!order) return;
+  if(!order?.id) return;
   try{
     const data = await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
     state.selectedOrderDetail = data.order || order;
@@ -969,7 +969,7 @@ function renderCartHubPage(){
     goBtn.addEventListener('click', () => {
       state.currentCartSellerId = sellerId;
       renderProfileCartPage();
-      window.openSecondaryPage('profileCartPage', state.secondaryReturn || 'home');
+      window.openSecondaryPage('profileCartPage', 'cartHubPage');
     });
     line.appendChild(document.createElement('span'));
     line.appendChild(goBtn);
@@ -1239,6 +1239,7 @@ function renderProfileOrders(){
       editBtn.className = 'secondary-btn';
       editBtn.textContent = '修改价格';
       editBtn.addEventListener('click', async () => {
+        if(!order.id) return;
         const raw = prompt('请输入新的总价', String(order.total || ''));
         if(raw === null) return;
         try{
@@ -1254,6 +1255,7 @@ function renderProfileOrders(){
         doneBtn.className = 'primary-btn';
         doneBtn.textContent = '标记已完成';
         doneBtn.addEventListener('click', async (e) => { e.stopPropagation();
+          if(!order.id) return;
           try{
             await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
             await loadProfileOrders();
@@ -1859,6 +1861,13 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
           e.stopPropagation();
           window.openUserProfile(contactTargetUserId, c.title || '用户');
         });
+      } else if (!isContactCard) {
+        card.classList.add('clickable-card');
+        card.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [] };
+          openProductDetail(productItem, false);
+        });
       }
       wrap.appendChild(card);
     } else if (msg.type === 'order_card') {
@@ -1957,11 +1966,12 @@ function buildOrderCardMessage(msg){
     reqBtn.textContent = '申请改价';
     reqBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if(!order.id) return;
       const raw = prompt('申请改价金额', String(order.total || ''));
       if(raw === null) return;
       try{
         await api(`/api/orders/${order.id}/price-request`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-        await reloadActiveConversationMessages();
+        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
       }catch(err){ alert(err.message || '申请失败'); }
     });
     actions.appendChild(reqBtn);
@@ -1975,9 +1985,10 @@ function buildOrderCardMessage(msg){
     confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`;
     confirmBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if(!order.id) return;
       try{
         await api(`/api/orders/${order.id}/price-confirm`, { method:'POST', body: JSON.stringify({ total: Number(order.pendingPrice || order.total || 0) }) });
-        await reloadActiveConversationMessages();
+        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
       }catch(err){ alert(err.message || '确认失败'); }
     });
     actions.appendChild(confirmBtn);
@@ -2764,6 +2775,10 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送订单'; }
   else if (page === 'broadcastManagePage') { if($("chatTitle")) $("chatTitle").textContent = '广播管理'; renderBroadcastDrafts(); }
   else if (page === 'broadcastEditorPage') { if($("chatTitle")) $("chatTitle").textContent = '广播编辑'; }
+  else if (page === 'cartHubPage') { if($("chatTitle")) $("chatTitle").textContent = '购物车'; renderCartHubPage(); }
+  else if (page === 'profileCartPage') { if($("chatTitle")) $("chatTitle").textContent = '结算'; renderProfileCartPage(); }
+  else if (page === 'profileOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '我的订单'; renderProfileOrders(); }
+  else if (page === 'chatOrderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
 
 };
 
@@ -4014,6 +4029,8 @@ function bindAllEvents() {
     window.openSecondaryPage('profileCartPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
   });
   on("submitProfileOrderBtn", "click", submitProfileOrder);
+  on("orderDetailEditPriceBtn", "click", updateSelectedOrderPrice);
+  on("orderDetailCompleteBtn", "click", completeSelectedOrder);
   on("closeSpecSheetBtn", "click", closeProductSpecSheet);
   on("confirmAddToCartBtn", "click", addSelectedProductToCart);
   on("saveProductEditorBtn", "click", () => {
