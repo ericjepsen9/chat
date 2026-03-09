@@ -620,6 +620,10 @@ function renderBroadcastDrafts(){
     sub.className = 'profile-order-sub';
     sub.textContent = item.summary || '-';
     card.append(title, sub);
+    card.addEventListener('click', () => {
+      state.selectedBroadcastDraft = item;
+      openBroadcastDetail(item.title, item.summary);
+    });
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
@@ -4202,6 +4206,24 @@ function bindAllEvents() {
     if($("productEditorDesc")) $("productEditorDesc").value = '';
   });
 
+  on("createBroadcastBtn", "click", () => {
+    if($("broadcastTitleInput")) $("broadcastTitleInput").value = '';
+    if($("broadcastSummaryInput")) $("broadcastSummaryInput").value = '';
+    if($("broadcastTargetInput")) $("broadcastTargetInput").value = '';
+    window.openSecondaryPage('broadcastEditorPage', 'broadcastManagePage');
+  });
+  on("saveBroadcastDraftBtn", "click", saveBroadcastDraft);
+  on("sendBroadcastNowBtn", "click", async () => {
+    const draft = state.selectedBroadcastDraft;
+    if(!draft) return alert('请先选择一条广播');
+    const title = draft.title || '广播通知';
+    const summary = draft.summary || '';
+    try {
+      await window.sendMessage({ type: 'broadcast_card', broadcast: { title, summary, cover: '' } });
+      showToast('广播已发送');
+      if($("backBtn")) $("backBtn").click();
+    } catch(e) { alert(e.message || '发送失败'); }
+  });
 
   on("profileMoreBtn", "click", () => showProfileActionSheet());
   on("profileStoreMoreBtn", "click", () => { state.profileStoreExpanded = !state.profileStoreExpanded; renderProfileStore(); });
