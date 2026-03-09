@@ -3986,6 +3986,7 @@ function bindAllEvents() {
   on("profileMoreBtn", "click", () => showProfileActionSheet());
   on("profileStoreMoreBtn", "click", () => { state.profileStoreExpanded = !state.profileStoreExpanded; renderProfileStore(); });
   on("closeProfileActionSheetBtn", "click", hideProfileActionSheet);
+  on("profileActionSheet", "click", (e) => { if(e.target === $("profileActionSheet")) hideProfileActionSheet(); });
   on("profileActionRemarkBtn", "click", async () => {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();

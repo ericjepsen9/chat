@@ -806,31 +806,26 @@ input, textarea { font-size: var(--font-body); }
 /* V55 profile detail redesign */
 .profile-detail-page{ background:#f5f6f8; }
 .profile-hero{
-  position:relative; padding:18px 16px 20px;
-  background:linear-gradient(180deg,#1f6fe5 0%, #0d56c5 100%);
-  color:#fff; overflow:hidden;
+  position:relative; padding:20px 16px 16px;
+  background:#fff;
+  color:#1a1a1a; overflow:hidden;
 }
-.profile-hero-backdrop{
-  position:absolute; inset:0;
-  background:radial-gradient(circle at top right, rgba(255,255,255,.18), transparent 36%);
-  pointer-events:none;
-}
+.profile-hero-backdrop{ display:none; }
 .profile-hero-main{ position:relative; display:flex; align-items:center; gap:14px; }
-.profile-hero-avatar{ flex:0 0 72px; box-shadow:0 8px 18px rgba(0,0,0,.14); }
+.profile-hero-avatar{ flex:0 0 64px; box-shadow:0 2px 8px rgba(0,0,0,.08); }
 .profile-hero-info{ min-width:0; flex:1; }
 .profile-hero-send-btn{
-  border:1px solid rgba(255,255,255,.38);
-  background:rgba(255,255,255,.16);
+  border:1px solid #ff5722;
+  background:#ff5722;
   color:#fff;
-  border-radius:12px;
-  height:38px;
-  padding:0 14px;
-  font-size:14px;
-  font-weight:700;
+  border-radius:20px;
+  height:34px;
+  padding:0 16px;
+  font-size:13px;
+  font-weight:600;
   white-space:nowrap;
-  backdrop-filter: blur(4px);
 }
-.profile-hero-send-btn:active{ opacity:.88; }
+.profile-hero-send-btn:active{ opacity:.85; }
 .profile-store-item{
   border:1px solid #eceff3;
 }
@@ -843,23 +838,24 @@ input, textarea { font-size: var(--font-body); }
   height:34px;
   border:0;
   border-radius:999px;
-  background:rgba(255,255,255,.18);
-  color:#fff;
+  background:transparent;
+  color:#999;
   font-size:24px;
   line-height:1;
 }
 .profile-hero-name{
-  display:block; font-size:28px; line-height:1.2; font-weight:800;
+  display:block; font-size:22px; line-height:1.3; font-weight:700; color:#1a1a1a;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.profile-hero-id{ margin-top:8px; font-size:14px; line-height:1.4; opacity:.92; font-family:monospace; }
+.profile-hero-id{ margin-top:4px; font-size:13px; line-height:1.4; color:#999; font-family:monospace; }
 .profile-hero-signature{
-  position:relative; margin-top:14px; font-size:14px; line-height:1.5;
-  opacity:.95; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  position:relative; margin-top:12px; font-size:13px; line-height:1.5;
+  color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  padding-top:12px; border-top:1px solid #f0f0f0;
 }
 .profile-detail-card{
-  margin:-10px 12px 0; background:#fff; border-radius:18px;
-  box-shadow:0 6px 16px rgba(15,23,42,.06); overflow:hidden;
+  margin:10px 12px 0; background:#fff; border-radius:12px;
+  box-shadow:0 1px 4px rgba(0,0,0,.05); overflow:hidden;
 }
 .profile-detail-row{
   width:100%; display:flex; align-items:center; justify-content:space-between;
