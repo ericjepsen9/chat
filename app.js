@@ -2160,9 +2160,14 @@ function summarizeMessagePreview(msg) {
   if (msg.type === 'system') return String(msg.text || '');
   if (msg.type === 'image') return '[图片]';
   if (msg.type === 'audio') return '[语音]';
-  if (msg.type === 'card') return '[商品]';
-  if (msg.type === 'order_card') return '[交易提醒]';
-  if (msg.type === 'broadcast_card') return '[系统消息]';
+  if (msg.type === 'card') {
+    if (isContactCardPayload(msg.card || {})) return '[名片]';
+    const ct = String((msg.card || {}).cardType || '').trim();
+    if (ct === '收款码') return '[收款码]';
+    return '[商品]';
+  }
+  if (msg.type === 'order_card') return '[订单]';
+  if (msg.type === 'broadcast_card') return '[图文通知]';
   return String(msg.text || '');
 }
 
@@ -2446,8 +2451,13 @@ function buildConversationRow(conv) {
   if (isPinned) btn.classList.add('is-pinned');
   if (isMuted) btn.classList.add('is-muted');
   btn.dataset.conversationId = conv.id;
-  if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => { await loadBuyerOrders(); await loadSellerOrders(); window.openSecondaryPage('buyerOrdersManagePage', state.secondaryReturn || 'messages'); });
-  else if (conv.syntheticType === 'system') btn.addEventListener('click', () => { const latest = (state.systemMessages || [])[0]; if(latest) openBroadcastDetail(latest.title || '系统消息', latest.summary || ''); });
+  if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => {
+    await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
+    const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
+    if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
+    else window.openSecondaryPage('buyerOrdersManagePage', 'home');
+  });
+  else if (conv.syntheticType === 'system') btn.addEventListener('click', () => { window.openSecondaryPage('systemMessagesPage', 'home'); });
   else btn.addEventListener('click', () => window.openConversation(conv.id));
 
   const avatarWrap = document.createElement('div');
@@ -2729,7 +2739,8 @@ const SECONDARY_PAGE_IDS = [
   'profileCartPage','profileOrdersPage','cartHubPage','buyerOrdersManagePage','sellerCenterPage','sellerPaymentPage',
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
   'contactCardPickerPage','productCardPickerPage','orderCardPickerPage',
-  'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage'
+  'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage',
+  'systemMessagesPage'
 ];
 
 window.openSecondaryPage = (page, backTo = 'home') => {
@@ -2779,6 +2790,7 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'profileCartPage') { if($("chatTitle")) $("chatTitle").textContent = '结算'; renderProfileCartPage(); }
   else if (page === 'profileOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '我的订单'; renderProfileOrders(); }
   else if (page === 'chatOrderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
+  else if (page === 'systemMessagesPage') { if($("chatTitle")) $("chatTitle").textContent = '系统消息'; renderSystemMessagesList(); }
 
 };
 
@@ -5106,7 +5118,7 @@ function renderConversationListFromState() {
     id: '__trade_alert__',
     title: '交易提醒',
     preview: `待处理 ${tradeOrders.length} 单（拉黑不影响交易提醒）`,
-    unread: 0,
+    unread: tradeOrders.length,
     muted: false,
     pinned: true,
     peerAvatarUrl: '',
@@ -5115,11 +5127,12 @@ function renderConversationListFromState() {
     syntheticType: 'trade',
   } : null;
   const latestSystem = (state.systemMessages || [])[0];
+  const systemHasNew = latestSystem && Number(latestSystem.createdAt || 0) > (state.systemMessagesReadAt || 0);
   const systemConv = latestSystem ? {
     id: '__system_message__',
     title: '系统消息',
     preview: latestSystem.title || '新通知',
-    unread: 0,
+    unread: systemHasNew ? 1 : 0,
     muted: false,
     pinned: true,
     peerAvatarUrl: '',
@@ -5187,6 +5200,40 @@ async function loadSystemMessages(){
     state.systemMessages = [];
   }
   renderConversationListFromState();
+}
+
+function renderSystemMessagesList(){
+  const list = $("systemMessagesList");
+  if(!list) return;
+  const msgs = state.systemMessages || [];
+  if(!msgs.length){
+    const empty = document.createElement('div');
+    empty.className = 'order-empty-state';
+    empty.innerHTML = '<div class="order-empty-icon">📢</div><div>暂无系统消息</div>';
+    list.replaceChildren(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  msgs.forEach(msg => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'profile-order-card';
+    const title = document.createElement('div');
+    title.className = 'profile-order-title';
+    title.textContent = msg.title || '系统通知';
+    const sub = document.createElement('div');
+    sub.className = 'profile-order-sub';
+    sub.textContent = msg.summary || msg.text || '';
+    const time = document.createElement('div');
+    time.className = 'order-card-time';
+    time.style.marginTop = '6px';
+    time.textContent = msg.createdAt ? formatTime(msg.createdAt) : '';
+    card.append(title, sub, time);
+    card.addEventListener('click', () => openBroadcastDetail(msg.title || '系统消息', msg.summary || msg.text || ''));
+    frag.appendChild(card);
+  });
+  list.replaceChildren(frag);
+  state.systemMessagesReadAt = Date.now();
 }
 
 async function loadConversations() {
