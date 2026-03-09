@@ -578,9 +578,7 @@ async function updateSelectedOrderPrice(){
   try{
     const data = await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
     state.selectedOrderDetail = data.order || order;
-    await loadSellerOrders();
-    await loadProfileOrders();
-        if(state.activeConversation?.id) await reloadActiveConversationMessages();
+    await Promise.all([loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
     renderOrderDetailPage();
   }catch(e){ alert(e.message || '修改失败'); }
 }
@@ -591,9 +589,7 @@ async function completeSelectedOrder(){
   try{
     const data = await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
     state.selectedOrderDetail = data.order || order;
-    await loadSellerOrders();
-    await loadProfileOrders();
-    await loadBuyerOrders();
+    await Promise.all([loadSellerOrders(), loadProfileOrders(), loadBuyerOrders()]);
     renderOrderDetailPage();
   }catch(e){ alert(e.message || '更新失败'); }
 }
@@ -2165,8 +2161,8 @@ async function reloadActiveConversationMessages(){
     state.peerLastReadAt = Number((data && data.peerLastReadAt) || state.peerLastReadAt || 0);
     renderMessages();
     applyLastOutgoingReadState();
-    loadConversations();
-  }catch(_){}
+    loadConversations().catch(() => {});
+  }catch(e){ console.warn('reloadActiveConversationMessages failed:', e); }
 }
 
 function appendMessageToView(msg) {
@@ -3078,7 +3074,9 @@ window.showContextMenu = function(event, msg) {
   if (y < rect.height + 20) { y = y + 20; } else { y = y - rect.height - 15; }
   menu.style.left = `${x}px`; menu.style.top = `${y}px`;
   menu.style.visibility = '';
-  const closeMenu = (e) => { if(e && e.target.closest('#contextMenu')) return; menu.classList.add('hidden'); menu.replaceChildren(); document.removeEventListener('click', closeMenu, true); document.removeEventListener('touchstart', closeMenu, true); };
+  if (state._ctxMenuClose) { document.removeEventListener('click', state._ctxMenuClose, true); document.removeEventListener('touchstart', state._ctxMenuClose, true); }
+  const closeMenu = (e) => { if(e && e.target.closest('#contextMenu')) return; menu.classList.add('hidden'); menu.replaceChildren(); document.removeEventListener('click', closeMenu, true); document.removeEventListener('touchstart', closeMenu, true); state._ctxMenuClose = null; };
+  state._ctxMenuClose = closeMenu;
   setTimeout(() => { document.addEventListener('click', closeMenu, true); document.addEventListener('touchstart', closeMenu, true); }, 0);
 };
 
@@ -3088,7 +3086,7 @@ window.openProductChat = async (sellerId, title, price, image) => {
     const data = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ creatorId: state.currentUser.id, memberIds: [sellerId] }) });
     await window.openConversation(data.conversation.id);
     $("messageInput").value = `你好，我想买你的【${title}】`; $("messageInput").dispatchEvent(new Event("input"));
-    window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: '来自ChatTrade商城', imageUrl: image } });
+    window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: '来自ChatTrade商城', imageUrl: image } }).catch(() => {});
   } catch(e) { alert("发起交易沟通失败"); }
 };
 
@@ -3626,12 +3624,18 @@ function bindAllEvents() {
 
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
 
-  // Load older messages when scrolling near top
-  if ($("chatView")) $("chatView").addEventListener("scroll", () => {
-    const cv = $("chatView");
-    if (!cv || cv.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
-    fetchMessages(state.oldestMessageTime);
-  });
+  // Load older messages when scrolling near top (throttled)
+  if ($("chatView")) {
+    let _scrollThrottled = false;
+    $("chatView").addEventListener("scroll", () => {
+      if (_scrollThrottled) return;
+      _scrollThrottled = true;
+      setTimeout(() => { _scrollThrottled = false; }, 200);
+      const cv = $("chatView");
+      if (!cv || cv.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
+      fetchMessages(state.oldestMessageTime);
+    }, { passive: true });
+  }
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
   function initTagInput(wrapperId, inputId) {
@@ -4432,8 +4436,8 @@ function bindAllEvents() {
     else finalizeCall({ event: 'end', reason: 'hangup' });
   });
 
-  on("searchInput", "input", () => loadConversations());
-  on("friendSearchInput", "input", () => loadFriends());
+  on("searchInput", "input", () => { loadConversations().catch(() => {}); });
+  on("friendSearchInput", "input", () => { loadFriends().catch(() => {}); });
 
   const emojiList = ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚"];
   if($("emojiPanel")) {
@@ -4456,9 +4460,9 @@ function setMainTab(tab) {
   if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
   ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) { $(id).classList.add('hidden'); } });
 
-  if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; loadConversations(); loadSystemMessages(); scheduleTradeReminderRefresh(0); } 
-  else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; loadFriends(); loadFriendRequests(); } 
-  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); loadMall(); } 
+  if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; loadConversations().catch(() => {}); loadSystemMessages().catch(() => {}); scheduleTradeReminderRefresh(0); }
+  else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; loadFriends().catch(() => {}); loadFriendRequests().catch(() => {}); }
+  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); loadMall().catch(() => {}); } 
   else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; }
   if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
 }
@@ -5203,16 +5207,16 @@ async function connectRealtime() {
   applyLastOutgoingReadState();
       state.oldestMessageTime = state.messages[0]?.createdAt || 0;
       syncActiveConversationListMeta();
-      renderConversationListFromState();
-      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
+      scheduleRenderConversationList();
+      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
     } else if(state.activeConversation && state.activeConversation.id === data.conversationId) {
       await fetchMessages();
-      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
+      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
       syncActiveConversationListMeta();
-      renderConversationListFromState();
+      scheduleRenderConversationList();
     } else if (data.message) {
       applyIncomingConversationMeta(data.conversationId, data.message);
-      renderConversationListFromState();
+      scheduleRenderConversationList();
       if (data.message.type === 'order_card') scheduleTradeReminderRefresh(120);
     } else {
       loadConversations();
@@ -5224,19 +5228,19 @@ async function connectRealtime() {
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
       if (!applyRecalledMessageLocally(data.messageId, data.senderId)) { fetchMessages(); }
       syncActiveConversationListMeta();
-      renderConversationListFromState();
+      scheduleRenderConversationList();
     } else if (data.message) {
       applyIncomingConversationMeta(data.conversationId, data.message);
-      renderConversationListFromState();
+      scheduleRenderConversationList();
     } else {
       loadConversations();
     }
   });
-  state.eventSource.addEventListener('conversation_updated', () => { loadConversations(); scheduleTradeReminderRefresh(180); });
+  state.eventSource.addEventListener('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
   state.eventSource.addEventListener('friends_updated', loadFriends);
   state.eventSource.addEventListener('friend_request_updated', loadFriendRequests);
   state.eventSource.addEventListener('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
-  state.eventSource.addEventListener('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); renderConversationListFromState(); });
+  state.eventSource.addEventListener('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); scheduleRenderConversationList(); });
   state.eventSource.addEventListener('order_updated', () => { scheduleTradeReminderRefresh(120); });
   state.eventSource.addEventListener('typing_indicator', (e) => {
     const data = safeParseEventData(e);
@@ -5362,6 +5366,11 @@ function sortConversationsInPlace() {
     if (bPinned !== aPinned) return bPinned - aPinned;
     return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
   });
+}
+let _renderConvListTimer = null;
+function scheduleRenderConversationList() {
+  if (_renderConvListTimer) return;
+  _renderConvListTimer = requestAnimationFrame(() => { _renderConvListTimer = null; renderConversationListFromState(); });
 }
 function renderConversationListFromState() {
   bindConversationSwipeDismiss();
