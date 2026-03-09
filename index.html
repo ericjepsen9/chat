@@ -558,9 +558,18 @@
           <div id="profileOrdersList" class="profile-orders-list"></div>
         </section>
 
-        <section id="contactCardPickerPage" class="chat-list-view hidden order-flow-page">
-          <div class="order-flow-head"><strong>选择名片</strong><span>从通讯录选择并发送</span></div>
-          <div id="contactCardPickerList" class="profile-orders-list"></div>
+        <section id="contactCardPickerPage" class="chat-list-view hidden">
+          <div class="ccp-toolbar">
+            <input id="ccpSearchInput" type="text" class="ccp-search-input" placeholder="搜索好友昵称..." />
+          </div>
+          <div id="contactCardPickerList" class="ccp-list"></div>
+          <div id="ccpConfirmBar" class="ccp-confirm-bar hidden">
+            <div class="ccp-selected-info">
+              <div id="ccpSelectedAvatar" class="ccp-selected-avatar"></div>
+              <span id="ccpSelectedName" class="ccp-selected-name">-</span>
+            </div>
+            <button id="ccpConfirmBtn" type="button" class="ccp-confirm-btn">发送名片</button>
+          </div>
         </section>
 
         <section id="productCardPickerPage" class="chat-list-view hidden order-flow-page">

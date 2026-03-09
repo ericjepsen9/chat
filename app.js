@@ -1357,8 +1357,12 @@ async function sendContactCardInChat(){
   const peerId = ensureDirectConversationForTrade();
   if(!peerId) return;
   await loadFriends(true);
+  state._ccpSelectedFriend = null;
+  if ($("ccpSearchInput")) $("ccpSearchInput").value = '';
+  if ($("ccpConfirmBar")) $("ccpConfirmBar").classList.add('hidden');
   renderContactCardPicker();
   window.openSecondaryPage('contactCardPickerPage', 'chat');
+  if ($("chatTitle")) $("chatTitle").textContent = '选择名片';
 }
 
 async function sendProductCardInChat(){
@@ -1420,49 +1424,102 @@ function isContactCardPayload(card = {}){
   return rawType === '名片' || rawType === 'contact' || rawType === 'contact_card';
 }
 
-function renderContactCardPicker(){
+function renderContactCardPicker(keyword){
   const list = $("contactCardPickerList");
   if(!list) return;
-  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
-  if(!friends.length){
+  const search = (keyword ?? ($("ccpSearchInput")?.value || '')).trim().toLowerCase();
+  const allFriends = state.friends || [];
+
+  // Group friends
+  const grouped = new Map();
+  const customGroups = getCustomGroups();
+  customGroups.forEach(g => grouped.set(g, []));
+  allFriends.forEach(item => {
+    const f = item.friend;
+    if (!f) return;
+    if (search && !(f.displayName || '').toLowerCase().includes(search) && !(f.remark || '').toLowerCase().includes(search) && !(f.username || '').toLowerCase().includes(search)) return;
+    const groupName = item.group || '我的好友';
+    if (!grouped.has(groupName)) grouped.set(groupName, []);
+    grouped.get(groupName).push(f);
+  });
+
+  // Count total visible
+  let totalVisible = 0;
+  grouped.forEach(members => { totalVisible += members.length; });
+  if (totalVisible === 0) {
     const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '通讯录暂无好友可发送';
+    empty.className = 'ccp-empty';
+    empty.textContent = search ? '未找到匹配的好友' : '通讯录暂无好友可发送';
     list.replaceChildren(empty);
     return;
   }
+
   const frag = document.createDocumentFragment();
-  friends.forEach((f) => {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'chat-item';
-    row.appendChild(createAvatarNode(f, f.displayName || f.username || '友'));
-    const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0;text-align:left;';
-    const name = document.createElement('strong');
-    name.textContent = f.remark || f.displayName || f.username || '好友';
-    const sub = document.createElement('div');
-    sub.className = 'preview';
-    sub.textContent = `ChatTrade ID：${f.appNumberId || f.username || '-'}`;
-    info.append(name, sub);
-    row.appendChild(info);
-    row.addEventListener('click', async () => {
-      await window.sendMessage({
-        type:'card',
-        card:{
-          cardType:'名片',
-          userId: f.id,
-          appNumberId: f.appNumberId || '',
-          title: f.remark || f.displayName || f.username || '好友名片',
-          description:`ChatTrade ID：${f.appNumberId || f.username || '-'}`,
-          meta:'个人名片',
-          imageUrl: f.avatarUrl || '',
-        },
+  grouped.forEach((members, groupName) => {
+    if (!members.length) return;
+    const section = document.createElement('div');
+    section.dataset.groupName = groupName;
+
+    const header = document.createElement('div');
+    header.className = 'qq-group-header expanded';
+    header.dataset.role = 'friend-group-header';
+    header.textContent = groupName + ' ';
+    const count = document.createElement('span');
+    count.style.cssText = 'color:#8e8e93;font-size:12px;margin-left:6px;';
+    count.textContent = String(members.length);
+    header.appendChild(count);
+    header.addEventListener('click', () => window.toggleQQGroup(header));
+
+    const content = document.createElement('div');
+    content.className = 'qq-group-content expanded';
+    content.dataset.role = 'friend-group-content';
+
+    members.forEach(f => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'ccp-friend-row';
+      row.dataset.friendId = f.id;
+      row.appendChild(createAvatarNode(f, f.displayName || f.username || '友'));
+      const info = document.createElement('div');
+      info.className = 'ccp-friend-info';
+      const name = document.createElement('div');
+      name.className = 'ccp-friend-name';
+      name.textContent = f.remark || f.displayName || f.username || '好友';
+      const sub = document.createElement('div');
+      sub.className = 'ccp-friend-id';
+      sub.textContent = 'ID: ' + (f.appNumberId || f.username || '-');
+      info.append(name, sub);
+      row.appendChild(info);
+      const check = document.createElement('div');
+      check.className = 'ccp-check';
+      row.appendChild(check);
+
+      row.addEventListener('click', () => {
+        // Deselect previous
+        list.querySelectorAll('.ccp-friend-row.selected').forEach(el => {
+          el.classList.remove('selected');
+          const c = el.querySelector('.ccp-check');
+          if (c) c.textContent = '';
+        });
+        // Select this one
+        row.classList.add('selected');
+        check.textContent = '✓';
+        state._ccpSelectedFriend = f;
+        // Update confirm bar
+        const bar = $("ccpConfirmBar");
+        if (bar) bar.classList.remove('hidden');
+        if ($("ccpSelectedName")) $("ccpSelectedName").textContent = f.remark || f.displayName || f.username || '好友';
+        const avatarWrap = $("ccpSelectedAvatar");
+        if (avatarWrap) { avatarWrap.replaceChildren(); avatarWrap.appendChild(createAvatarNode(f, f.displayName || f.username || '友')); }
       });
-      if($("backBtn")) $("backBtn").click();
+
+      content.appendChild(row);
     });
-    frag.appendChild(row);
+
+    section.append(header, content);
+    frag.appendChild(section);
   });
+
   list.replaceChildren(frag);
 }
 
@@ -4201,6 +4258,28 @@ function bindAllEvents() {
   on("btnCallVoice", "click", () => { window.startCall('voice'); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnCallVideo", "click", () => { window.startCall('video'); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnSendContactCard", "click", async () => { await sendContactCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
+
+  // Contact card picker: search and confirm
+  on("ccpSearchInput", "input", () => { renderContactCardPicker(); });
+  on("ccpConfirmBtn", "click", async () => {
+    const f = state._ccpSelectedFriend;
+    if (!f) return;
+    await window.sendMessage({
+      type: 'card',
+      card: {
+        cardType: '名片',
+        userId: f.id,
+        appNumberId: f.appNumberId || '',
+        title: f.remark || f.displayName || f.username || '好友名片',
+        description: 'ChatTrade ID: ' + (f.appNumberId || f.username || '-'),
+        meta: '个人名片',
+        imageUrl: f.avatarUrl || '',
+      },
+    });
+    state._ccpSelectedFriend = null;
+    if ($("backBtn")) $("backBtn").click();
+  });
+
   on("btnSendProductCard", "click", async () => { await sendProductCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnSendOrderCard", "click", async () => { await sendOrderCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnSendPaymentCode", "click", async () => { await sendPaymentCodeInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
