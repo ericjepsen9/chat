@@ -64,17 +64,29 @@ let isMuted = false, isCameraOff = false, isSpeaker = false;
 
 const isFriendUser = (userId) => !!(userId && (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId));
 
+function getPendingFriendRequest(userId) {
+  return state.friendRequests.find(r => r.status === 'pending' && (r.sender?.id === userId || r.fromUser?.id === userId));
+}
+
 function updateProfileDetailActions(){
   const p = state.currentProfileUser;
   if(!p) return;
   const isFriend = !!p.isFriend || isFriendUser(p.id);
   const isSelf = p.id === state.currentUser?.id;
-  if($("profileAddFriendBtn")) $("profileAddFriendBtn").classList.toggle("hidden", isFriend);
+  const pendingReq = !isFriend && !isSelf ? getPendingFriendRequest(p.id) : null;
+  if($("profileAddFriendBtn")) $("profileAddFriendBtn").classList.toggle("hidden", isFriend || !!pendingReq);
   if($("profileStrangerHint")) $("profileStrangerHint").classList.toggle("hidden", isFriend);
   if($("profileActionRemarkBtn")) $("profileActionRemarkBtn").style.display = isFriend ? '' : 'none';
   if($("profileActionMoveGroupBtn")) $("profileActionMoveGroupBtn").style.display = isFriend ? '' : 'none';
   if($("profileSendMessageBtn")) $("profileSendMessageBtn").classList.toggle("hidden", isSelf);
-  if($("profilePrimaryActions")) $("profilePrimaryActions").classList.toggle('hidden', isFriend || isSelf);
+  if($("profilePrimaryActions")) $("profilePrimaryActions").classList.toggle('hidden', isFriend || isSelf || !!pendingReq);
+  if($("profileFriendRequestActions")) {
+    $("profileFriendRequestActions").classList.toggle('hidden', !pendingReq);
+    if (pendingReq) {
+      if($("profileAcceptRequestBtn")) $("profileAcceptRequestBtn").onclick = () => window.acceptRequest(pendingReq.id);
+      if($("profileRejectRequestBtn")) $("profileRejectRequestBtn").onclick = () => window.rejectRequest(pendingReq.id);
+    }
+  }
 }
 
 
@@ -2935,7 +2947,7 @@ window.openProductChat = async (sellerId, title, price, image) => {
 };
 
 window.acceptRequest = async (requestId) => {
-  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); alert('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '操作失败'); }
+  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); alert('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '操作失败'); }
 };
 
 window.rejectRequest = async (requestId) => {
@@ -2943,6 +2955,7 @@ window.rejectRequest = async (requestId) => {
   try {
     await api('/api/friends/reject', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) });
     await loadFriendRequests();
+    updateProfileDetailActions();
   } catch (e) {
     alert(e.message || '操作失败');
   }
@@ -4329,17 +4342,10 @@ async function loadFriendRequests() {
         const senderName = sender.displayName || sender.username || sender.id || '未知用户';
         const row = document.createElement('div');
         row.className = 'chat-item';
-        row.style.cursor = 'default';
+        row.style.cursor = 'pointer';
         const avatarWrap = document.createElement('div');
         avatarWrap.className = 'avatar-click-wrap';
         setAvatarContainer(avatarWrap, sender, senderName);
-        avatarWrap.addEventListener('click', (event) => {
-          const target = event.target;
-          if (!(target instanceof Element)) return;
-          if (!target.closest('.avatar')) return;
-          event.stopPropagation();
-          if(sender.id) window.openUserProfile(sender.id, senderName);
-        });
         row.appendChild(avatarWrap);
         const info = document.createElement('div');
         info.style.cssText = 'flex:1;min-width:0;text-align:left;';
@@ -4351,6 +4357,7 @@ async function loadFriendRequests() {
         info.appendChild(strong);
         info.appendChild(preview);
         row.appendChild(info);
+        row.addEventListener('click', () => { if(sender.id) window.openUserProfile(sender.id, senderName); });
         if (r.status === 'pending') {
           const actions = document.createElement('div');
           actions.style.cssText = 'display:flex; gap:8px; margin-left:auto;';
@@ -4358,11 +4365,11 @@ async function loadFriendRequests() {
           acceptBtn.className = 'primary-btn';
           acceptBtn.style.cssText = 'min-height:36px; padding:0 14px; font-size:13px;';
           acceptBtn.textContent = '同意';
-          acceptBtn.addEventListener('click', () => window.acceptRequest(r.id));
+          acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); window.acceptRequest(r.id); });
           const rejectBtn = document.createElement('button');
           rejectBtn.className = 'secondary-btn';
           rejectBtn.textContent = '拒绝';
-          rejectBtn.addEventListener('click', () => window.rejectRequest(r.id));
+          rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); window.rejectRequest(r.id); });
           actions.appendChild(rejectBtn);
           actions.appendChild(acceptBtn);
           row.appendChild(actions);
