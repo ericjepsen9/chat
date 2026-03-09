@@ -3408,7 +3408,7 @@ function bindAllEvents() {
     }
   });
 
-  on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'profile'));
+  on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'settingsPage'));
   on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
   on("sendChangePhoneCodeBtn", "click", async () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
@@ -3693,7 +3693,7 @@ function bindAllEvents() {
 
   on("logoutBtn", "click", async () => { if(confirm("确定要退出登录吗？")) { try { await api('/api/logout', { method: 'POST' }); } catch (e) { console.warn('logout api failed, fallback to local logout', e); } localStorage.removeItem(SESSION_KEY); location.reload(); } });
   on("clearCacheBtn", "click", () => { if(confirm("确定清理本地缓存吗？")) { localStorage.clear(); location.reload(); } });
-  on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage'); });
+  on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
   on("globalNotifyBtn", "click", () => { alert("新消息通知目前跟随系统默认设置开启"); });
   on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage'); loadMyProducts(); });
@@ -3809,7 +3809,7 @@ function bindAllEvents() {
   });
 
   on("privacySettingsBtn", "click", async () => {
-      window.openSecondaryPage('privacyPage');
+      window.openSecondaryPage('privacyPage', 'settingsPage');
       try {
           const data = await api(`/api/blacklist?userId=${state.currentUser.id}`);
           const list = $("blacklistContainer"); if(!list) return;
