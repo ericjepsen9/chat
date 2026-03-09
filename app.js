@@ -2840,6 +2840,7 @@ window.openSecondaryPage = (page, backTo = 'home') => {
     if($("chatTitle")) $("chatTitle").textContent = '扫一扫';
     if($("scanManualPanel")) $("scanManualPanel").classList.add('hidden');
     if($("scanIdInput")) $("scanIdInput").value = '';
+    if($("scanHintText")) $("scanHintText").textContent = '将二维码放入框内，即可自动扫描';
     setTimeout(() => { startScanCamera(); }, 0);
   }
   else if (page === 'privacyPage') { if($("chatTitle")) $("chatTitle").textContent = '黑名单管理'; }
@@ -3195,7 +3196,9 @@ async function startScanCamera(){
   const video = $('scanVideo');
   if (!video) return;
   stopScanCamera();
+  if ($('scanHintText')) $('scanHintText').textContent = '正在启动相机...';
   const openCaptureFallback = () => {
+    if ($('scanHintText')) $('scanHintText').textContent = '相机不可用，请使用相册或手动输入';
     const input = $('scanCaptureInput');
     if (input) {
       input.value = '';
@@ -3209,12 +3212,16 @@ async function startScanCamera(){
     video.srcObject = stream;
     video.classList.remove('hidden');
     $('scanFallbackBox')?.classList.add('hidden');
+    if ($('scanHintText')) $('scanHintText').textContent = '将二维码放入框内，即可自动扫描';
 
     let detector = null;
     if ('BarcodeDetector' in window) {
       try { detector = state.scanDetector = state.scanDetector || new BarcodeDetector({ formats: ['qr_code'] }); } catch(_) {}
     }
-    if (!detector) return; // keep camera preview; user can switch to input
+    if (!detector) {
+      if ($('scanHintText')) $('scanHintText').textContent = '实时扫描不可用，请使用相册识别';
+      return;
+    }
     const detectLoop = async () => {
       if (!state.scanStream || !video) return;
       if (video.readyState >= 2) {
@@ -3227,6 +3234,7 @@ async function startScanCamera(){
             if (value && $('scanIdInput')) {
               $('scanIdInput').value = value;
               $('scanManualPanel')?.classList.remove('hidden');
+              if ($('scanHintText')) $('scanHintText').textContent = '已识别到二维码';
               stopScanCamera(true);
               return;
             }
@@ -4109,6 +4117,15 @@ function bindAllEvents() {
     if(!$("scanManualPanel")?.classList.contains('hidden') && $("scanIdInput")) $("scanIdInput").focus();
   });
   on("startCameraScanBtn", "click", startScanCamera);
+  on("scanFromAlbumBtn", "click", () => {
+    const input = $('scanCaptureInput');
+    if (input) { input.removeAttribute('capture'); input.value = ''; input.click(); }
+  });
+  on("scanMyQrBtn", "click", () => {
+    window.openSecondaryPage("qrCodePage", "scanPage");
+    if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`;
+    if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`;
+  });
   on("scanCaptureInput", "change", async (e) => {
     const file = e?.target?.files?.[0];
     if (!file) return;

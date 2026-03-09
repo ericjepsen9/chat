@@ -284,21 +284,46 @@
         </section>
 
         <section id="scanPage" class="chat-list-view hidden scan-container">
-          <div id="scanCameraWrap" class="scan-camera-wrap">
-            <video id="scanVideo" class="scan-video hidden" autoplay playsinline muted></video>
-            <div id="scanFallbackBox" class="scan-fallback-box">
-              <div class="scan-box"><div class="scan-line"></div></div>
+          <div class="scan-viewfinder-area">
+            <div id="scanCameraWrap" class="scan-camera-wrap">
+              <video id="scanVideo" class="scan-video hidden" autoplay playsinline muted></video>
+              <div id="scanFallbackBox" class="scan-fallback-box">
+                <div class="scan-box">
+                  <span class="scan-corner scan-corner-tl"></span>
+                  <span class="scan-corner scan-corner-tr"></span>
+                  <span class="scan-corner scan-corner-bl"></span>
+                  <span class="scan-corner scan-corner-br"></span>
+                  <div class="scan-line"></div>
+                </div>
+              </div>
             </div>
+            <div id="scanHintText" class="scan-hint-text">将二维码放入框内，即可自动扫描</div>
           </div>
           <input id="scanCaptureInput" type="file" accept="image/*" capture="environment" class="hidden" />
-          <div class="scan-entry-actions">
-            <button id="startCameraScanBtn" class="primary-btn">扫码</button>
-            <button id="toggleManualScanBtn" class="secondary-btn">输入</button>
+          <div class="scan-bottom-actions">
+            <button id="startCameraScanBtn" type="button" class="scan-action-item">
+              <span class="scan-action-icon">📷</span>
+              <span class="scan-action-label">扫码</span>
+            </button>
+            <button id="scanFromAlbumBtn" type="button" class="scan-action-item">
+              <span class="scan-action-icon">🖼️</span>
+              <span class="scan-action-label">相册</span>
+            </button>
+            <button id="toggleManualScanBtn" type="button" class="scan-action-item">
+              <span class="scan-action-icon">⌨️</span>
+              <span class="scan-action-label">手动输入</span>
+            </button>
+            <button id="scanMyQrBtn" type="button" class="scan-action-item">
+              <span class="scan-action-icon">📋</span>
+              <span class="scan-action-label">我的二维码</span>
+            </button>
           </div>
-
           <div id="scanManualPanel" class="scan-manual-panel hidden">
-             <input id="scanIdInput" placeholder="输入对方 ChatTrade ID" />
-             <button id="scanSubmitBtn" class="primary-btn">发送好友请求</button>
+            <div class="scan-manual-card">
+              <div class="scan-manual-title">手动添加好友</div>
+              <input id="scanIdInput" class="scan-manual-input" placeholder="输入对方 ChatTrade ID" />
+              <button id="scanSubmitBtn" type="button" class="scan-manual-submit">发送好友请求</button>
+            </div>
           </div>
         </section>
 
