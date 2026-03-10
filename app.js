@@ -4359,6 +4359,84 @@ function bindAllEvents() {
     $('presetManagePanel')?.classList.remove('hidden');
   }
 
+  // ---- Drag-to-reorder state ----
+  let _dragState = null; // { startIdx, currentIdx, ghostEl, startY, rowHeight }
+
+  function _getPresetArr() {
+    return _presetManageType === 'category' ? _categoryPresets : _specPresets;
+  }
+
+  function _startDrag(e, idx, row) {
+    const list = $('presetManageList');
+    if (!list) return;
+    const touch = e.touches ? e.touches[0] : e;
+    const rect = row.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    // Create ghost element
+    const ghost = row.cloneNode(true);
+    ghost.className = 'preset-manage-item preset-drag-ghost';
+    ghost.style.width = rect.width + 'px';
+    ghost.style.top = (rect.top - listRect.top + list.scrollTop) + 'px';
+    list.style.position = 'relative';
+    list.appendChild(ghost);
+    row.classList.add('preset-drag-placeholder');
+    _dragState = {
+      startIdx: idx,
+      currentIdx: idx,
+      ghostEl: ghost,
+      placeholderEl: row,
+      startY: touch.clientY,
+      ghostStartTop: rect.top - listRect.top + list.scrollTop,
+      rowHeight: rect.height,
+      listEl: list,
+      listTop: listRect.top,
+    };
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+  }
+
+  function _moveDrag(e) {
+    if (!_dragState) return;
+    e.preventDefault();
+    const touch = e.touches ? e.touches[0] : e;
+    const dy = touch.clientY - _dragState.startY;
+    _dragState.ghostEl.style.top = (_dragState.ghostStartTop + dy) + 'px';
+    // Determine new index based on position
+    const items = _getPresetArr();
+    const centerY = touch.clientY - _dragState.listTop + _dragState.listEl.scrollTop;
+    let newIdx = Math.round(centerY / _dragState.rowHeight);
+    newIdx = Math.max(0, Math.min(items.length - 1, newIdx));
+    if (newIdx !== _dragState.currentIdx) {
+      // Move placeholder in DOM
+      const rows = Array.from(_dragState.listEl.querySelectorAll('.preset-manage-item:not(.preset-drag-ghost)'));
+      if (rows[newIdx]) {
+        if (newIdx > _dragState.currentIdx) {
+          rows[newIdx].after(_dragState.placeholderEl);
+        } else {
+          rows[newIdx].before(_dragState.placeholderEl);
+        }
+      }
+      _dragState.currentIdx = newIdx;
+    }
+  }
+
+  function _endDrag() {
+    if (!_dragState) return;
+    const { startIdx, currentIdx, ghostEl } = _dragState;
+    ghostEl.remove();
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
+    if (startIdx !== currentIdx) {
+      const arr = _getPresetArr();
+      const [moved] = arr.splice(startIdx, 1);
+      arr.splice(currentIdx, 0, moved);
+      saveProductPresets();
+      renderPresetChips();
+    }
+    _dragState = null;
+    renderPresetManageList();
+  }
+
   function renderPresetManageList() {
     const list = $('presetManageList');
     if (!list) return;
@@ -4371,10 +4449,14 @@ function bindAllEvents() {
     items.forEach((item, i) => {
       const row = document.createElement('div');
       row.className = 'preset-manage-item';
-      row.innerHTML = `<span class="preset-manage-item-text"></span><button type="button" class="preset-manage-item-edit">编辑</button><button type="button" class="preset-manage-item-del">删除</button>`;
+      row.setAttribute('data-idx', i);
+      row.innerHTML = `<span class="preset-drag-handle">☰</span><span class="preset-manage-item-text"></span><button type="button" class="preset-manage-item-edit">编辑</button><button type="button" class="preset-manage-item-del">删除</button>`;
       row.querySelector('.preset-manage-item-text').textContent = item;
+      // Drag handle events
+      const handle = row.querySelector('.preset-drag-handle');
+      handle.addEventListener('mousedown', (e) => { e.preventDefault(); _startDrag(e, i, row); });
+      handle.addEventListener('touchstart', (e) => { _startDrag(e, i, row); }, { passive: false });
       row.querySelector('.preset-manage-item-edit').addEventListener('click', () => {
-        // Replace text with inline input
         const textEl = row.querySelector('.preset-manage-item-text');
         const inp = document.createElement('input');
         inp.className = 'preset-manage-input';
@@ -4406,6 +4488,12 @@ function bindAllEvents() {
       list.appendChild(row);
     });
   }
+
+  // Global drag event listeners
+  document.addEventListener('mousemove', _moveDrag);
+  document.addEventListener('mouseup', _endDrag);
+  document.addEventListener('touchmove', _moveDrag, { passive: false });
+  document.addEventListener('touchend', _endDrag);
 
   on('manageCategoryBtn', 'click', () => openPresetManagePanel('category'));
   on('manageSpecBtn', 'click', () => openPresetManagePanel('spec'));

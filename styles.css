@@ -1980,7 +1980,32 @@ input, textarea { font-size: var(--font-body); }
 .preset-manage-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid #e5e7eb;font-size:16px;font-weight:600;}
 .preset-manage-close{background:none;border:none;font-size:22px;color:#999;cursor:pointer;padding:0 4px;}
 .preset-manage-list{flex:1;overflow-y:auto;padding:8px 0;}
-.preset-manage-item{display:flex;align-items:center;padding:10px 16px;gap:10px;}
+.preset-manage-item{display:flex;align-items:center;padding:10px 16px;gap:10px;background:#fff;transition:box-shadow .15s, background .15s;}
+.preset-drag-handle{
+  cursor:grab;
+  color:#c0c4cc;
+  font-size:18px;
+  line-height:1;
+  padding:4px 2px;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  flex-shrink:0;
+}
+.preset-drag-handle:active{cursor:grabbing;color:#999;}
+.preset-manage-item.preset-drag-placeholder{
+  opacity:.3;
+  background:#f5f7fa;
+}
+.preset-drag-ghost{
+  position:absolute!important;
+  left:0;
+  z-index:10;
+  box-shadow:0 4px 16px rgba(0,0,0,.12);
+  border-radius:8px;
+  pointer-events:none;
+  opacity:.92;
+}
 .preset-manage-item-text{flex:1;font-size:14px;color:#333;}
 .preset-manage-item-edit,.preset-manage-item-del{background:none;border:none;font-size:13px;cursor:pointer;padding:2px 6px;}
 .preset-manage-item-edit{color:#07c160;}
