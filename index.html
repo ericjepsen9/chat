@@ -19,7 +19,7 @@
         <div class="auth-welcome-bottom">
           <button id="authGoLogin" type="button" class="auth-btn-primary">登录</button>
           <button id="authGoRegister" type="button" class="auth-btn-outline">注册</button>
-          <p class="auth-agreement">登录即代表你已同意<a href="javascript:void(0)">《服务协议》</a>和<a href="javascript:void(0)">《隐私政策》</a></p>
+          <p class="auth-agreement">登录即代表你已同意<a href="javascript:void(0)" class="auth-open-terms">《服务协议》</a>和<a href="javascript:void(0)" class="auth-open-privacy">《隐私政策》</a></p>
         </div>
       </div>
 
@@ -36,7 +36,7 @@
             <input id="loginPhone" type="tel" placeholder="请输入手机号" autocomplete="tel" maxlength="11" />
           </div>
           <div class="auth-check-row">
-            <label class="auth-checkbox"><input type="checkbox" id="loginAgreeCheck" checked /><span class="auth-checkmark"></span>我已阅读并同意<a href="javascript:void(0)">服务协议</a>和<a href="javascript:void(0)">隐私政策</a></label>
+            <label class="auth-checkbox"><input type="checkbox" id="loginAgreeCheck" checked /><span class="auth-checkmark"></span>我已阅读并同意<a href="javascript:void(0)" class="auth-open-terms">服务协议</a>和<a href="javascript:void(0)" class="auth-open-privacy">隐私政策</a></label>
           </div>
           <button id="loginPhoneNextBtn" type="button" class="auth-btn-primary" disabled>下一步</button>
           <div class="auth-alt-actions">
@@ -104,7 +104,7 @@
             <input id="registerPhone" type="tel" placeholder="请输入手机号" autocomplete="tel" maxlength="11" />
           </div>
           <div class="auth-check-row">
-            <label class="auth-checkbox"><input type="checkbox" id="regAgreeCheck" checked /><span class="auth-checkmark"></span>我已阅读并同意<a href="javascript:void(0)">服务协议</a>和<a href="javascript:void(0)">隐私政策</a></label>
+            <label class="auth-checkbox"><input type="checkbox" id="regAgreeCheck" checked /><span class="auth-checkmark"></span>我已阅读并同意<a href="javascript:void(0)" class="auth-open-terms">服务协议</a>和<a href="javascript:void(0)" class="auth-open-privacy">隐私政策</a></label>
           </div>
           <button id="regPhoneNextBtn" type="button" class="auth-btn-primary" disabled>下一步</button>
         </div>
@@ -175,6 +175,16 @@
             </div>
           </div>
           <button id="authForgotSubmitBtn" type="button" class="auth-btn-primary" style="margin-top:24px;">重置密码</button>
+        </div>
+      </div>
+
+      <!-- Auth: Terms Viewer -->
+      <div id="authTermsView" class="auth-step hidden">
+        <div class="auth-page" style="padding:0;">
+          <button type="button" class="auth-back-btn" id="authTermsBackBtn">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <div class="legal-content" style="margin-top:50px;" id="authTermsContent"></div>
         </div>
       </div>
     </div>
@@ -259,6 +269,9 @@
           <button id="clearCacheBtn" class="chat-item" style="justify-content:space-between; margin-top:8px;">清理本地缓存 <span>▶</span></button>
           <button id="changePasswordBtn" class="chat-item" style="justify-content:space-between;">修改密码 <span>▶</span></button>
           <button id="changePhoneBtn" class="chat-item" style="justify-content:space-between;">修改手机号 <span>▶</span></button>
+          <button id="openTermsPageBtn" class="chat-item" style="justify-content:space-between; margin-top:8px;">用户服务协议 <span>▶</span></button>
+          <button id="openPrivacyPageBtn" class="chat-item" style="justify-content:space-between;">隐私保护政策 <span>▶</span></button>
+          <button id="openAboutPageBtn" class="chat-item" style="justify-content:space-between;">关于 ChatTrade <span>▶</span></button>
           <button id="logoutBtn" class="chat-item" style="color:#ff3b30; text-align:center; justify-content:center; margin-top:20px; font-weight:bold;">退出当前账号</button>
         </section>
 
@@ -395,6 +408,106 @@
         <section id="privacyPage" class="chat-list-view hidden">
           <div class="group-title">黑名单成员 (点击即可移出)</div>
           <div id="blacklistContainer" style="flex:1; overflow-y:auto;"></div>
+        </section>
+
+        <section id="termsPage" class="chat-list-view hidden legal-page">
+          <div class="legal-content">
+            <h3>ChatTrade 用户服务协议</h3>
+            <p class="legal-update">更新日期：2026年3月1日 &nbsp; 生效日期：2026年3月10日</p>
+            <h4>一、服务条款的接受</h4>
+            <p>欢迎使用 ChatTrade（以下简称"本平台"）。在您注册、登录或使用本平台服务前，请您仔细阅读本协议的全部内容。一旦您使用本平台服务，即表示您已充分阅读、理解并同意接受本协议的约束。</p>
+            <h4>二、服务内容</h4>
+            <p>本平台为用户提供即时通讯、商品交易、内容分享等服务。具体服务内容以平台实际提供的为准。本平台有权随时变更、中断或终止部分或全部服务，并在平台公告通知用户。</p>
+            <h4>三、用户注册与账号管理</h4>
+            <p>1. 用户须使用真实有效的手机号码进行注册，每个手机号仅能注册一个账号。</p>
+            <p>2. 用户应妥善保管账号及密码，因用户保管不善导致的损失由用户自行承担。</p>
+            <p>3. 用户不得将账号转让、出借给他人使用。</p>
+            <p>4. 本平台有权对违反法律法规或本协议的账号进行限制、冻结或注销处理。</p>
+            <h4>四、用户行为规范</h4>
+            <p>用户在使用本平台时，不得从事以下行为：</p>
+            <p>1. 发布违反国家法律法规的内容，包括但不限于色情、暴力、赌博、毒品等违法信息。</p>
+            <p>2. 侵犯他人合法权益，包括但不限于侵犯他人隐私、知识产权、名誉权等。</p>
+            <p>3. 利用平台从事欺诈、传销、洗钱等违法犯罪活动。</p>
+            <p>4. 发布垃圾信息、骚扰他人或干扰平台正常运营。</p>
+            <p>5. 未经授权收集其他用户个人信息。</p>
+            <h4>五、商品交易规则</h4>
+            <p>1. 卖家应确保所发布商品信息的真实性、合法性。</p>
+            <p>2. 买卖双方应诚信交易，平台提供交流渠道但不对交易结果承担担保责任。</p>
+            <p>3. 交易产生的纠纷由买卖双方自行协商解决，平台可协助调解但不承担最终仲裁义务。</p>
+            <p>4. 严禁发布和交易法律法规禁止流通的商品或服务。</p>
+            <h4>六、知识产权</h4>
+            <p>本平台的所有内容（包括但不限于文字、图片、音视频、软件、界面设计等）的知识产权归本平台所有或已获得合法授权。未经本平台书面同意，任何人不得擅自使用。</p>
+            <h4>七、免责声明</h4>
+            <p>1. 本平台不对因网络故障、系统维护等不可抗力导致的服务中断承担责任。</p>
+            <p>2. 用户发布的内容由用户自行负责，本平台不对用户间交易或交流的结果承担责任。</p>
+            <p>3. 本平台有权依据法律法规要求配合有关部门的调查和处理。</p>
+            <h4>八、协议修改</h4>
+            <p>本平台有权根据需要不时修订本协议，修订后的条款将在平台公布。如您不同意修改后的条款，您有权停止使用本平台服务。继续使用视为同意修改后的条款。</p>
+            <h4>九、联系方式</h4>
+            <p>如您对本协议有任何疑问，请通过平台内"意见反馈"功能与我们联系。</p>
+          </div>
+        </section>
+
+        <section id="privacyPolicyPage" class="chat-list-view hidden legal-page">
+          <div class="legal-content">
+            <h3>ChatTrade 隐私保护政策</h3>
+            <p class="legal-update">更新日期：2026年3月1日 &nbsp; 生效日期：2026年3月10日</p>
+            <h4>一、我们如何收集信息</h4>
+            <p>为提供服务，我们将收集以下信息：</p>
+            <p><strong>1. 注册信息：</strong>手机号码、昵称、登录账号、密码（加密存储）。</p>
+            <p><strong>2. 个人资料：</strong>头像、个性签名等您主动填写的信息。</p>
+            <p><strong>3. 通讯信息：</strong>聊天消息内容（用于消息传输和存储功能）。</p>
+            <p><strong>4. 交易信息：</strong>商品发布信息、订单记录、收款方式等。</p>
+            <p><strong>5. 设备信息：</strong>设备型号、操作系统版本、浏览器类型等基本信息。</p>
+            <p><strong>6. 日志信息：</strong>访问时间、IP 地址（用于安全防护）。</p>
+            <h4>二、我们如何使用信息</h4>
+            <p>我们将收集的信息用于以下目的：</p>
+            <p>1. 提供即时通讯、商品交易等核心服务。</p>
+            <p>2. 身份验证和账号安全保护。</p>
+            <p>3. 改进和优化平台功能与用户体验。</p>
+            <p>4. 预防和处理欺诈、违规等安全风险。</p>
+            <p>5. 依法配合政府监管机构的要求。</p>
+            <h4>三、信息的存储与保护</h4>
+            <p>1. 您的个人信息存储在中国境内的安全服务器上。</p>
+            <p>2. 我们采用密码加密存储（scrypt 算法）、传输加密（HTTPS）等技术保护您的数据安全。</p>
+            <p>3. 我们会定期审查数据安全措施，持续改进安全防护能力。</p>
+            <p>4. 尽管我们采取了合理的安全措施，但请您理解互联网中不存在绝对的安全。</p>
+            <h4>四、信息的共享与披露</h4>
+            <p>除以下情形外，我们不会与第三方共享您的个人信息：</p>
+            <p>1. 经您明确同意后共享。</p>
+            <p>2. 为履行法律法规要求或配合政府部门调查。</p>
+            <p>3. 为保护本平台、用户或公众的权益和安全所必需。</p>
+            <p>4. 在平台发生合并、收购时，涉及个人信息转让将重新征得您的同意。</p>
+            <h4>五、您的权利</h4>
+            <p>您对您的个人信息享有以下权利：</p>
+            <p>1. <strong>查看与修改：</strong>您可以随时在个人资料页查看和修改您的个人信息。</p>
+            <p>2. <strong>删除：</strong>您可以删除您发布的内容（聊天记录、商品信息等）。</p>
+            <p>3. <strong>账号注销：</strong>您可联系客服申请注销账号，我们将在合理时间内处理。</p>
+            <p>4. <strong>撤回同意：</strong>您可以通过关闭相应功能撤回对部分信息收集的同意。</p>
+            <h4>六、未成年人保护</h4>
+            <p>本平台主要面向成年人提供服务。如果您是未满18周岁的未成年人，请在监护人指导下使用本平台。我们不会主动向未成年人推送商业信息。</p>
+            <h4>七、Cookie 与本地存储</h4>
+            <p>我们使用 localStorage 等浏览器本地存储技术保存您的登录状态和部分设置偏好，以提供更流畅的使用体验。您可以通过浏览器设置清除本地存储数据。</p>
+            <h4>八、政策更新</h4>
+            <p>我们可能根据法律法规变化或业务发展更新本政策。重大变更会通过平台公告或推送通知告知您。</p>
+            <h4>九、联系我们</h4>
+            <p>如您对本隐私政策有任何疑问或投诉建议，请通过平台内"意见反馈"功能与我们联系，我们将在15个工作日内答复。</p>
+          </div>
+        </section>
+
+        <section id="aboutPage" class="chat-list-view hidden legal-page">
+          <div class="about-content">
+            <div class="about-logo-section">
+              <svg width="64" height="64" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#07c160"/><path d="M20 32c0-8.8 7.6-16 17-16 8.2 0 15.1 5.4 16.6 12.7.3 1.3-.7 2.3-1.5 2.3s-1.4-.6-1.6-1.5C49.2 23.6 43.5 19 37 19c-7.7 0-14 5.9-14 13 0 3.5 1.5 6.7 4 9.1.5.5.7 1.2.5 1.9l-1.2 4 4.5-2.3c.5-.3 1.1-.3 1.7-.2 1.4.3 2.9.5 4.5.5.8 0 1.5.7 1.5 1.5S37.8 48 37 48c-1.8 0-3.5-.2-5.1-.6l-7.1 3.6c-.8.4-1.8-.3-1.6-1.2l1.9-6.5C22 40.3 20 36.3 20 32z" fill="#fff"/><path d="M53 40c0-6.1-5.8-11-13-11s-13 4.9-13 11 5.8 11 13 11c1.5 0 2.9-.2 4.3-.6l5.2 2.6c.6.3 1.3-.2 1.2-.9l-1.3-4.5C51.8 45.9 53 43.1 53 40z" fill="#fff" opacity=".85"/></svg>
+              <h3>ChatTrade</h3>
+              <p class="about-version">版本 1.0.0</p>
+            </div>
+            <div class="about-links">
+              <button id="aboutTermsBtn" class="chat-item" style="justify-content:space-between;">用户服务协议 <span>▶</span></button>
+              <button id="aboutPrivacyBtn" class="chat-item" style="justify-content:space-between;">隐私保护政策 <span>▶</span></button>
+            </div>
+            <p class="about-copyright">Copyright &copy; 2026 ChatTrade. All rights reserved.</p>
+          </div>
         </section>
 
         <section id="messageSettingsPage" class="chat-list-view hidden">

@@ -2849,7 +2849,7 @@ const SECONDARY_PAGE_IDS = [
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
   'contactCardPickerPage','productCardPickerPage','orderCardPickerPage',
   'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage',
-  'systemMessagesPage'
+  'systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
 ];
 
 window.openSecondaryPage = (page, backTo = 'home') => {
@@ -3498,6 +3498,26 @@ function bindAllEvents() {
     validate();
   }
 
+  // ---- Auth: terms/privacy viewer ----
+  window._authTermsBackTarget = 'authWelcome';
+  function authOpenLegal(type) {
+    const termsHtml = $("termsPage")?.querySelector('.legal-content')?.innerHTML || '';
+    const privacyHtml = $("privacyPolicyPage")?.querySelector('.legal-content')?.innerHTML || '';
+    const content = $("authTermsContent");
+    if (content) content.innerHTML = type === 'terms' ? termsHtml : privacyHtml;
+    // Find which auth step is currently visible to go back to
+    const allSteps = document.querySelectorAll('#authScreen .auth-step');
+    allSteps.forEach(s => { if (!s.classList.contains('hidden') && s.id !== 'authTermsView') window._authTermsBackTarget = s.id; });
+    authGotoStep('authTermsView');
+  }
+  document.querySelectorAll('.auth-open-terms').forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); authOpenLegal('terms'); });
+  });
+  document.querySelectorAll('.auth-open-privacy').forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); authOpenLegal('privacy'); });
+  });
+  on("authTermsBackBtn", "click", () => authGotoStep(window._authTermsBackTarget));
+
   // ---- Welcome screen buttons ----
   on("authGoLogin", "click", () => authGotoStep('authLoginPhone'));
   on("authGoRegister", "click", () => authGotoStep('authRegPhone'));
@@ -3708,6 +3728,11 @@ function bindAllEvents() {
   });
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'settingsPage'));
   on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
+  on("openTermsPageBtn", "click", () => window.openSecondaryPage('termsPage', 'settingsPage'));
+  on("openPrivacyPageBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'settingsPage'));
+  on("openAboutPageBtn", "click", () => window.openSecondaryPage('aboutPage', 'settingsPage'));
+  on("aboutTermsBtn", "click", () => window.openSecondaryPage('termsPage', 'aboutPage'));
+  on("aboutPrivacyBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'aboutPage'));
   on("sendChangePhoneCodeBtn", "click", async () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     if(!phone) return alert('请输入11位手机号');

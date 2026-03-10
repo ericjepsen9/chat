@@ -2907,3 +2907,18 @@ input, textarea { font-size: var(--font-body); }
 }
 
 .publish-page-hero{ display:none; }
+
+/* Legal & About pages */
+.legal-page { background: #fff !important; }
+.legal-content { padding: 20px 18px; overflow-y: auto; flex: 1; }
+.legal-content h3 { font-size: 20px; font-weight: 700; color: #111; margin: 0 0 4px; text-align: center; }
+.legal-content h4 { font-size: 15px; font-weight: 600; color: #333; margin: 20px 0 8px; }
+.legal-content p { font-size: 14px; color: #555; line-height: 1.8; margin: 0 0 6px; }
+.legal-content .legal-update { font-size: 12px; color: #999; text-align: center; margin-bottom: 20px; }
+.about-content { display: flex; flex-direction: column; align-items: center; flex: 1; padding: 40px 20px 20px; }
+.about-logo-section { text-align: center; margin-bottom: 30px; }
+.about-logo-section h3 { font-size: 22px; font-weight: 700; margin: 16px 0 4px; color: #111; }
+.about-version { font-size: 14px; color: #999; margin: 0; }
+.about-links { width: 100%; border-top: 1px solid #f0f0f0; border-bottom: 1px solid #f0f0f0; margin-bottom: 30px; }
+.about-links .chat-item { border-bottom: 0.5px solid #f0f0f0; }
+.about-copyright { font-size: 12px; color: #c0c0c0; margin-top: auto; }
