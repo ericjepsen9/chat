@@ -314,13 +314,37 @@
           </div>
 
           <div class="publish-form-card">
-            <label class="publish-field-label">分类</label>
-            <div id="productCategoryTags" class="tag-input-wrap">
-              <input id="productCategoryInput" type="text" class="tag-text-input" placeholder="回车添加，如：数码" />
+            <div class="preset-header">
+              <label class="publish-field-label">分类</label>
+              <button id="manageCategoryBtn" type="button" class="preset-manage-link">管理</button>
             </div>
-            <label class="publish-field-label">规格</label>
+            <div id="categoryPresetChips" class="preset-chips-wrap"></div>
+            <div id="productCategoryTags" class="tag-input-wrap">
+              <input id="productCategoryInput" type="text" class="tag-text-input" placeholder="输入新分类，回车添加" />
+            </div>
+            <div class="preset-header" style="margin-top:12px">
+              <label class="publish-field-label">规格</label>
+              <button id="manageSpecBtn" type="button" class="preset-manage-link">管理</button>
+            </div>
+            <div id="specPresetChips" class="preset-chips-wrap"></div>
             <div id="productSpecsTags" class="tag-input-wrap">
-              <input id="productSpecsInput" type="text" class="tag-text-input" placeholder="回车添加，如：黑色" />
+              <input id="productSpecsInput" type="text" class="tag-text-input" placeholder="输入新规格，回车添加" />
+            </div>
+          </div>
+
+          <!-- Preset Management Panel -->
+          <div id="presetManagePanel" class="preset-manage-panel hidden">
+            <div class="preset-manage-mask"></div>
+            <div class="preset-manage-sheet">
+              <div class="preset-manage-head">
+                <span id="presetManageTitle">管理分类</span>
+                <button id="presetManageCloseBtn" type="button" class="preset-manage-close">&times;</button>
+              </div>
+              <div id="presetManageList" class="preset-manage-list"></div>
+              <div class="preset-manage-add-row">
+                <input id="presetManageInput" type="text" class="preset-manage-input" placeholder="输入新项目" maxlength="24" />
+                <button id="presetManageAddBtn" type="button" class="preset-manage-add-btn">添加</button>
+              </div>
             </div>
           </div>
 

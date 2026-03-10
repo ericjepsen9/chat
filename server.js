@@ -473,6 +473,21 @@ function rebuildIndexes() {
     if (!user.status) user.status = 'active';
     user.customGroups = normalizeUserCustomGroups(user.customGroups);
     user.phone = normalizePhone(user.phone || '');
+    // Ensure product presets exist; auto-collect from existing products if empty
+    if (!Array.isArray(user.categoryPresets)) {
+      const cats = new Set();
+      for (const p of user.products) {
+        if (p.category) p.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
+      }
+      user.categoryPresets = [...cats];
+    }
+    if (!Array.isArray(user.specPresets)) {
+      const specs = new Set();
+      for (const p of user.products) {
+        if (Array.isArray(p.specs)) p.specs.filter(Boolean).forEach(s => specs.add(s));
+      }
+      user.specPresets = [...specs];
+    }
     if (!user.appNumberId) user.appNumberId = `CT${Math.floor(Math.random() * 900000 + 100000)}`;
     index.usersById.set(user.id, user);
     index.usersByName.set(user.username, user);
@@ -1608,6 +1623,33 @@ const server = http.createServer(async (req, res) => {
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
+    }
+
+    // ---- Product Presets (categories & specs) ----
+    if (matchRoute(pathname, '/api/product-presets') && req.method === 'GET') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      return sendJson(res, 200, {
+        categoryPresets: authUser.categoryPresets || [],
+        specPresets: authUser.specPresets || [],
+      });
+    }
+
+    if (matchRoute(pathname, '/api/product-presets/update') && req.method === 'POST') {
+      const context = await getAuthedActingBody(req, res, { actingKeys: [] });
+      if (!context) return;
+      const { categoryPresets, specPresets } = context.body;
+      if (Array.isArray(categoryPresets)) {
+        context.authUser.categoryPresets = categoryPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
+      }
+      if (Array.isArray(specPresets)) {
+        context.authUser.specPresets = specPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
+      }
+      schedulePersist('product_presets_update', { userId: context.authUser.id });
+      return sendJson(res, 200, {
+        categoryPresets: context.authUser.categoryPresets,
+        specPresets: context.authUser.specPresets,
+      });
     }
 
     if (matchRoute(pathname, '/api/mall') && req.method === 'GET') {

@@ -3983,7 +3983,8 @@ function bindAllEvents() {
   }
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchInput", "input", loadMall);
-  function initTagInput(wrapperId, inputId) {
+  // ---- Tag input (still used for adding new items inline) ----
+  function initTagInput(wrapperId, inputId, onAdd) {
     const wrap = $(wrapperId); const input = $(inputId);
     if (!wrap || !input) return { getTags: () => [], setTags: () => {} };
     let tags = [];
@@ -3997,7 +3998,7 @@ function bindAllEvents() {
         btn.className = 'tag-item-remove';
         btn.type = 'button';
         btn.textContent = '\u00d7';
-        btn.addEventListener('click', (e) => { e.stopPropagation(); tags.splice(i, 1); render(); });
+        btn.addEventListener('click', (e) => { e.stopPropagation(); tags.splice(i, 1); render(); renderPresetChips(); });
         span.appendChild(btn);
         wrap.insertBefore(span, input);
       });
@@ -4007,24 +4008,179 @@ function bindAllEvents() {
       if (!t || tags.includes(t) || tags.length >= 12) return;
       tags.push(t);
       render();
+      if (onAdd) onAdd(t);
     }
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(input.value); input.value = ''; }
-      if (e.key === 'Backspace' && !input.value && tags.length) { tags.pop(); render(); }
+      if (e.key === 'Backspace' && !input.value && tags.length) { tags.pop(); render(); renderPresetChips(); }
     });
     input.addEventListener('blur', () => { if (input.value.trim()) { addTag(input.value); input.value = ''; } });
     wrap.addEventListener('click', () => input.focus());
     return {
       getTags: () => [...tags],
-      setTags: (arr) => { tags = Array.isArray(arr) ? arr.filter(Boolean).slice(0, 12) : []; render(); }
+      setTags: (arr) => { tags = Array.isArray(arr) ? arr.filter(Boolean).slice(0, 12) : []; render(); },
+      addTag,
+      removeTag: (t) => { const i = tags.indexOf(t); if (i >= 0) { tags.splice(i, 1); render(); } }
     };
   }
-  const categoryTags = initTagInput('productCategoryTags', 'productCategoryInput');
-  const specsTags = initTagInput('productSpecsTags', 'productSpecsInput');
 
-  function openPublishProductPage(backTo = 'home', presetProduct = null) {
+  // ---- Preset chips: selectable category/spec presets ----
+  let _categoryPresets = [];
+  let _specPresets = [];
+
+  async function loadProductPresets() {
+    try {
+      const res = await api('/api/product-presets');
+      _categoryPresets = res.categoryPresets || [];
+      _specPresets = res.specPresets || [];
+    } catch (_) {}
+  }
+
+  async function saveProductPresets() {
+    try {
+      const res = await api('/api/product-presets/update', {
+        method: 'POST',
+        body: JSON.stringify({ categoryPresets: _categoryPresets, specPresets: _specPresets })
+      });
+      _categoryPresets = res.categoryPresets || _categoryPresets;
+      _specPresets = res.specPresets || _specPresets;
+    } catch (_) {}
+  }
+
+  function renderPresetChips() {
+    const catWrap = $('categoryPresetChips');
+    const specWrap = $('specPresetChips');
+    if (catWrap) {
+      catWrap.innerHTML = '';
+      const selectedCats = categoryTags.getTags();
+      _categoryPresets.forEach(cat => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'preset-chip' + (selectedCats.includes(cat) ? ' selected' : '');
+        chip.textContent = cat;
+        chip.addEventListener('click', () => {
+          if (selectedCats.includes(cat)) categoryTags.removeTag(cat);
+          else categoryTags.addTag(cat);
+          renderPresetChips();
+        });
+        catWrap.appendChild(chip);
+      });
+    }
+    if (specWrap) {
+      specWrap.innerHTML = '';
+      const selectedSpecs = specsTags.getTags();
+      _specPresets.forEach(spec => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'preset-chip' + (selectedSpecs.includes(spec) ? ' selected' : '');
+        chip.textContent = spec;
+        chip.addEventListener('click', () => {
+          if (selectedSpecs.includes(spec)) specsTags.removeTag(spec);
+          else specsTags.addTag(spec);
+          renderPresetChips();
+        });
+        specWrap.appendChild(chip);
+      });
+    }
+  }
+
+  // Add new tag via input also adds to presets
+  const categoryTags = initTagInput('productCategoryTags', 'productCategoryInput', (t) => {
+    if (!_categoryPresets.includes(t)) { _categoryPresets.push(t); saveProductPresets(); }
+    renderPresetChips();
+  });
+  const specsTags = initTagInput('productSpecsTags', 'productSpecsInput', (t) => {
+    if (!_specPresets.includes(t)) { _specPresets.push(t); saveProductPresets(); }
+    renderPresetChips();
+  });
+
+  // ---- Preset Management Panel ----
+  let _presetManageType = 'category'; // 'category' or 'spec'
+
+  function openPresetManagePanel(type) {
+    _presetManageType = type;
+    if ($('presetManageTitle')) $('presetManageTitle').textContent = type === 'category' ? '管理分类' : '管理规格';
+    if ($('presetManageInput')) { $('presetManageInput').value = ''; $('presetManageInput').placeholder = type === 'category' ? '输入新分类' : '输入新规格'; }
+    renderPresetManageList();
+    $('presetManagePanel')?.classList.remove('hidden');
+  }
+
+  function renderPresetManageList() {
+    const list = $('presetManageList');
+    if (!list) return;
+    const items = _presetManageType === 'category' ? _categoryPresets : _specPresets;
+    list.innerHTML = '';
+    if (items.length === 0) {
+      list.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:14px;">暂无项目，请在下方添加</div>';
+      return;
+    }
+    items.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'preset-manage-item';
+      row.innerHTML = `<span class="preset-manage-item-text"></span><button type="button" class="preset-manage-item-edit">编辑</button><button type="button" class="preset-manage-item-del">删除</button>`;
+      row.querySelector('.preset-manage-item-text').textContent = item;
+      row.querySelector('.preset-manage-item-edit').addEventListener('click', () => {
+        // Replace text with inline input
+        const textEl = row.querySelector('.preset-manage-item-text');
+        const inp = document.createElement('input');
+        inp.className = 'preset-manage-input';
+        inp.value = item;
+        inp.style.cssText = 'flex:1;height:30px;';
+        textEl.replaceWith(inp);
+        inp.focus();
+        inp.select();
+        const save = () => {
+          const newName = inp.value.trim();
+          if (!newName || newName === item) { renderPresetManageList(); return; }
+          const arr = _presetManageType === 'category' ? _categoryPresets : _specPresets;
+          if (arr.includes(newName)) { showModal('名称已存在'); renderPresetManageList(); return; }
+          arr[i] = newName;
+          saveProductPresets();
+          renderPresetManageList();
+          renderPresetChips();
+        };
+        inp.addEventListener('blur', save);
+        inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } });
+      });
+      row.querySelector('.preset-manage-item-del').addEventListener('click', () => {
+        const arr = _presetManageType === 'category' ? _categoryPresets : _specPresets;
+        arr.splice(i, 1);
+        saveProductPresets();
+        renderPresetManageList();
+        renderPresetChips();
+      });
+      list.appendChild(row);
+    });
+  }
+
+  on('manageCategoryBtn', 'click', () => openPresetManagePanel('category'));
+  on('manageSpecBtn', 'click', () => openPresetManagePanel('spec'));
+  on('presetManageCloseBtn', 'click', () => $('presetManagePanel')?.classList.add('hidden'));
+  if ($('presetManagePanel')) {
+    $('presetManagePanel').querySelector('.preset-manage-mask')?.addEventListener('click', () => $('presetManagePanel').classList.add('hidden'));
+  }
+  on('presetManageAddBtn', 'click', () => {
+    const input = $('presetManageInput');
+    const val = input?.value.trim();
+    if (!val) return;
+    const arr = _presetManageType === 'category' ? _categoryPresets : _specPresets;
+    if (arr.includes(val)) return showModal('该项已存在');
+    arr.push(val);
+    input.value = '';
+    saveProductPresets();
+    renderPresetManageList();
+    renderPresetChips();
+  });
+  if ($('presetManageInput')) {
+    $('presetManageInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); $('presetManageAddBtn')?.click(); }
+    });
+  }
+
+  async function openPublishProductPage(backTo = 'home', presetProduct = null) {
     state.publishEditingProductId = presetProduct?.id || '';
     window.openSecondaryPage('publishProductPage', backTo);
+    await loadProductPresets();
     if($("productTitleInput")) $("productTitleInput").value = presetProduct?.title || "";
     categoryTags.setTags(presetProduct?.category ? presetProduct.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean) : []);
     if($("productDescInput")) {
@@ -4034,6 +4190,7 @@ function bindAllEvents() {
     if($("productPriceInput")) $("productPriceInput").value = presetProduct?.price || "";
     if($("productStockInput")) $("productStockInput").value = presetProduct?.stock || "";
     specsTags.setTags(Array.isArray(presetProduct?.specs) ? presetProduct.specs : []);
+    renderPresetChips();
     if($("productImagePreview")) {
       if (presetProduct?.image || presetProduct?.imageUrl) setImagePreview($("productImagePreview"), presetProduct.image || presetProduct.imageUrl);
       else $("productImagePreview").textContent = "+";

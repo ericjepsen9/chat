@@ -56,6 +56,16 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
     listed: normalizeListed(body.listed, true),
     createdAt: Date.now(),
   });
+  // Auto-add new categories/specs to user presets
+  if (!Array.isArray(authUser.categoryPresets)) authUser.categoryPresets = [];
+  if (!Array.isArray(authUser.specPresets)) authUser.specPresets = [];
+  if (category) {
+    category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => {
+      if (!authUser.categoryPresets.includes(c)) authUser.categoryPresets.push(c);
+    });
+  }
+  specs.forEach(s => { if (s && !authUser.specPresets.includes(s)) authUser.specPresets.push(s); });
+
   rebuildMallIndex();
   schedulePersist('product_create', { userId: authUser.id });
   broadcastAll('mall_updated', {});

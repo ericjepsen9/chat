@@ -1962,6 +1962,35 @@ input, textarea { font-size: var(--font-body); }
   padding-bottom: calc(20px + env(safe-area-inset-bottom));
 }
 
+/* ---- Preset Chips (category/spec selector) ---- */
+.preset-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+.preset-header .publish-field-label{margin-bottom:0;}
+.preset-manage-link{background:none;border:none;color:#07c160;font-size:13px;cursor:pointer;padding:0;}
+.preset-chips-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;min-height:28px;}
+.preset-chip{height:30px;padding:0 12px;border-radius:15px;border:1px solid #e5e7eb;background:#fff;color:#333;font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.preset-chip.selected{background:#07c160;color:#fff;border-color:#07c160;}
+.preset-chip:active{opacity:.7;}
+
+/* ---- Preset Management Panel ---- */
+.preset-manage-panel{position:fixed;inset:0;z-index:100001;display:flex;align-items:flex-end;justify-content:center;}
+.preset-manage-panel.hidden{display:none;}
+.preset-manage-mask{position:absolute;inset:0;background:rgba(0,0,0,.45);}
+.preset-manage-sheet{position:relative;width:100%;max-width:500px;max-height:70vh;background:#fff;border-radius:14px 14px 0 0;display:flex;flex-direction:column;animation:sheetUp .25s ease;}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.preset-manage-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:0.5px solid #e5e7eb;font-size:16px;font-weight:600;}
+.preset-manage-close{background:none;border:none;font-size:22px;color:#999;cursor:pointer;padding:0 4px;}
+.preset-manage-list{flex:1;overflow-y:auto;padding:8px 0;}
+.preset-manage-item{display:flex;align-items:center;padding:10px 16px;gap:10px;}
+.preset-manage-item-text{flex:1;font-size:14px;color:#333;}
+.preset-manage-item-edit,.preset-manage-item-del{background:none;border:none;font-size:13px;cursor:pointer;padding:2px 6px;}
+.preset-manage-item-edit{color:#07c160;}
+.preset-manage-item-del{color:#e74c3c;}
+.preset-manage-add-row{display:flex;gap:8px;padding:12px 16px;border-top:0.5px solid #e5e7eb;padding-bottom:calc(12px + env(safe-area-inset-bottom));}
+.preset-manage-input{flex:1;height:36px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;font-size:14px;outline:none;}
+.preset-manage-input:focus{border-color:#07c160;}
+.preset-manage-add-btn{height:36px;padding:0 16px;border:none;border-radius:8px;background:#07c160;color:#fff;font-size:14px;font-weight:500;cursor:pointer;}
+.preset-manage-add-btn:active{opacity:.8;}
+
 .seller-center-card strong,
 .profile-order-title {
   line-height: 1.35;
