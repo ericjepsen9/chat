@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int PERMISSION_REQUEST_CODE = 1001;
 
     /** Replace with your server URL */
-    private static final String WEB_URL = "http://10.0.2.2:3000";
+    private static final String WEB_URL = "http://157.151.165.106:4173";
 
     private WebView webView;
     private NativeBridge nativeBridge;
