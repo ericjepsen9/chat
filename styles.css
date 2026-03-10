@@ -1895,15 +1895,11 @@ input, textarea { font-size: var(--font-body); }
   border-right: 1px solid #ebedf0;
 }
 
-#profileView > .chat-item:first-child,
-#profileView > button.chat-item:first-child,
 #settingsPage > button.chat-item:first-child {
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
 }
 
-#profileView > .chat-item:last-child,
-#profileView > button.chat-item:last-child,
 #settingsPage > button.chat-item:last-child {
   border-bottom-left-radius: 12px;
   border-bottom-right-radius: 12px;
@@ -2201,13 +2197,16 @@ input, textarea { font-size: var(--font-body); }
 
 /* V64: only fix "我" page list insets (do not re-center whole page shell) */
 #profileView {
-  padding: 10px 12px 14px;
+  padding: 10px 0 14px;
 }
 
 #profileView > .chat-item,
 #profileView > button.chat-item {
   margin: 0;
-  border-radius: 12px;
+  width: 100%;
+  border-radius: 0;
+  border-left: none !important;
+  border-right: none !important;
 }
 
 #myProfileCard {
@@ -2240,6 +2239,21 @@ input, textarea { font-size: var(--font-body); }
   transition:opacity .15s;
 }
 .sp-publish-btn:active{opacity:.8;}
+.sp-publish-fixed-wrap{
+  position:sticky;
+  bottom:0;
+  left:0;
+  right:0;
+  margin: 0 -12px -12px;
+  padding:16px 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  background:#fff;
+  border-top:1px solid #e5e7eb;
+  z-index:10;
+}
+#sellerProductsList{
+  padding-bottom:8px;
+}
 .sp-tabs{
   display:grid;
   grid-template-columns:1fr 1fr;
