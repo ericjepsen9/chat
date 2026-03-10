@@ -4418,7 +4418,7 @@ function bindAllEvents() {
           const activeCallId = state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || null;
           state.rtc.callId = activeCallId;
           enqueueSignal(conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, mode, callId: activeCallId, signal: { type: 'answer', sdp: answer } }); 
-          api(`/api/conversations/${conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, event: 'accept', mode, callId: activeCallId }) }); 
+          api(`/api/conversations/${conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, event: 'accept', mode, callId: activeCallId }) }).catch(() => {}); 
           
           const peerMeta = resolveCallPeerMeta(senderId, senderId);
           let peerName = peerMeta.name;
@@ -4426,7 +4426,7 @@ function bindAllEvents() {
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
           if($("callName")) $("callName").textContent = peerName;
           state.rtc.pendingOffer = null; 
-      } catch (err) { window.stopCall(); } 
+      } catch (err) { window.stopCall(); alert(err && err.message ? err.message : '接听失败'); }
   });
   
   on("rejectCallBtn", "click", () => { finalizeCall({ event: 'reject', reason: 'manual' }); });
@@ -4851,6 +4851,10 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && callTimer && !hasActiveCallSession()) {
     clearInterval(callTimer); callTimer = null;
   }
+  if (!document.hidden && !callTimer && hasActiveCallSession() && state.rtc.phase === 'connected' && callStartTime) {
+    updateCallDuration();
+    callTimer = setInterval(updateCallDuration, 1000);
+  }
 });
 function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); if($("callDuration")) $("callDuration").textContent = `${m}:${s}`; }
 function scheduleConnectTimeout(){
@@ -4895,7 +4899,12 @@ function autoBusyIncomingCall(ev){
   try{
     showToast('正在通话中，已自动拒绝新来电');
     // send busy to remote
-    notifyRemoteCallEvent({ ...ev, event: 'busy', reason: 'busy' });
+    const cid = ev.conversationId || state.rtc.conversationId;
+    const pid = ev.senderId;
+    const mode = ev.mode || 'voice';
+    if (cid && pid) {
+      api(`/api/conversations/${cid}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: pid, event: 'reject', mode, reason: 'busy', callId: ev.callId || null }) }).catch(() => {});
+    }
     insertCallRecordMessage(ev, { reason: 'busy' });
   }catch(_){}
 }
@@ -4906,7 +4915,7 @@ function shouldPresentIncomingUI(payload) {
   state.rtc.incomingShownKey = key;
   return true;
 }
-async function enqueueSignal(conversationId, payload) { api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) }); }
+async function enqueueSignal(conversationId, payload) { await api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) }).catch(() => {}); }
 
 function resolveCallPeerMeta(peerId, fallbackName = '') {
   let name = fallbackName || peerId || '';
@@ -5018,8 +5027,8 @@ function syncCallConversationState(conversationId, peerId, fallbackName = '') {
 function refreshAfterCallStateChange(conversationId) {
   try {
     sortConversationsInPlace();
-    renderConversationListFromState();
-    loadConversations();
+    scheduleRenderConversationList();
+    loadConversations().catch(() => {});
     if (conversationId && state.activeConversation && state.activeConversation.id === conversationId) {
       Promise.resolve().then(async () => {
         try { await fetchMessages(); refreshMessageReadReceipts(); } catch(_) {}
@@ -5072,12 +5081,20 @@ function finalizeCall(options = {}) {
     if (alertText) alert(alertText);
     return;
   }
-  const shouldNotify = event && !state.rtc.endingLocally && (state.rtc.peerId || state.rtc.incomingMeta?.senderId || state.rtc.pendingOffer?.senderId);
+  const callConversationId = state.rtc.conversationId || state.activeConversation?.id || null;
+  const callMode = state.rtc.mode || state.rtc.pendingOffer?.mode || state.rtc.incomingMeta?.mode || 'voice';
+  const callPeerId = state.rtc.peerId || state.rtc.incomingMeta?.senderId || state.rtc.pendingOffer?.senderId || null;
+  const durationSec = getCallDurationSeconds();
+  const shouldNotify = event && !state.rtc.endingLocally && callPeerId;
   if (shouldNotify) {
     state.rtc.endingLocally = true;
     notifyRemoteCallEvent(event, reason).finally(() => { state.rtc.endingLocally = false; });
   }
   window.stopCall();
+  // Insert call record after stopCall so conversation state is available
+  if (event && callConversationId) {
+    insertCallRecordMessage({ conversationId: callConversationId, mode: callMode, senderId: callPeerId }, { reason: reason || event, durationSec });
+  }
   if (alertText) alert(alertText);
 }
 window.stopCall = () => { 
@@ -5122,24 +5139,23 @@ async function createPeerConnection(mode) {
     updateCallUIInfo(state.rtc.peerId, state.rtc.mode, '通话中');
     setCallActionLayout('connected');
   };
+  let _iceDisconnectTimer = null;
   pc.onconnectionstatechange = () => {
     const st = pc.connectionState;
-    if (st === 'connected') {
-      markConnected();
-      return;
-    }
-    if (st === 'failed' || st === 'disconnected') {
-      finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' });
+    if (st === 'connected') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; markConnected(); return; }
+    if (st === 'failed') { clearTimeout(_iceDisconnectTimer); finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }
+    else if (st === 'disconnected') {
+      clearTimeout(_iceDisconnectTimer);
+      _iceDisconnectTimer = setTimeout(() => { if (pc.connectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 5000);
     }
   };
   pc.oniceconnectionstatechange = () => {
     const st = pc.iceConnectionState;
-    if (st === 'connected' || st === 'completed') {
-      markConnected();
-      return;
-    }
-    if (st === 'failed' || st === 'disconnected') {
-      finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' });
+    if (st === 'connected' || st === 'completed') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; markConnected(); return; }
+    if (st === 'failed') { clearTimeout(_iceDisconnectTimer); finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }
+    else if (st === 'disconnected') {
+      clearTimeout(_iceDisconnectTimer);
+      _iceDisconnectTimer = setTimeout(() => { if (pc.iceConnectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 5000);
     }
   };
   let stream;
@@ -5167,7 +5183,7 @@ window.startCall = async (mode) => {
     updateCallUIInfo(peerId, mode, "等待对方接听...");
     if($("callName")) $("callName").textContent = peerMeta.name; if($("callPanel")) $("callPanel").classList.remove('hidden'); setCallActionLayout('outgoing'); 
     if($("chatSubtitle")) $("chatSubtitle").textContent = mode === 'video' ? '视频通话邀请中…' : '语音通话邀请中…';
-    api(`/api/conversations/${state.rtc.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode, callId, senderName: state.currentUser.displayName }) }); 
+    api(`/api/conversations/${state.rtc.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode, callId, senderName: state.currentUser.displayName }) }).catch(() => {});
     enqueueSignal(state.rtc.conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: peerId, mode, callId, signal: { type: 'offer', sdp: offer } }); 
     outgoingTimeoutTimer = setTimeout(() => { finalizeCall({ alertText: "对方无应答", event: 'cancel', reason: 'timeout' }); }, 30000);
   } catch (e) { window.stopCall(); alert(e && e.message ? e.message : describeMediaAccessError(e, mode)); } 
@@ -5258,7 +5274,7 @@ async function connectRealtime() {
     const signal = payload.signal; if (!signal) return;
     if (signal.type === 'offer') {
       if (isIgnoredCallPayload(payload)) return;
-      if (hasActiveCallSession() && !isSameIncomingCall(payload)) { api(`/api/conversations/${payload.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null }) }); return; }
+      if (hasActiveCallSession() && !isSameIncomingCall(payload)) { api(`/api/conversations/${payload.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null }) }).catch(() => {}); return; }
       state.rtc.earlyCandidates = state.rtc.earlyCandidates || []; state.rtc.callId = payload.callId || state.rtc.callId || null; state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; state.rtc.pendingOffer = payload; setRtcPhase('incoming');
       
       let peerName = payload.senderName || payload.senderId;
@@ -5308,7 +5324,7 @@ async function connectRealtime() {
     if (!payload) return;
     if (payload.event === 'start') {
       if (isIgnoredCallPayload(payload)) return;
-      if (hasActiveCallSession() && !isSameIncomingCall(payload)) return;
+      if (hasActiveCallSession() && !isSameIncomingCall(payload)) { autoBusyIncomingCall(payload); return; }
       state.rtc.callId = payload.callId || state.rtc.callId || null;
       state.rtc.peerId = payload.senderId || state.rtc.peerId || null;
       state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; setRtcPhase('incoming');
