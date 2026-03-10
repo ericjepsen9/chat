@@ -3708,7 +3708,7 @@ function bindAllEvents() {
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
-      alert("登录失败：" + (err.message || "手机号或密码错误"));
+      alert("登录失败：" + (err.message || "请检查手机号和密码"));
     } finally {
       btn.disabled = false;
       btn.textContent = "登录";

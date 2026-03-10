@@ -1033,6 +1033,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (!user || !(await verifyPasswordAsync(body.password, user.password))) {
         recordLoginAttempt(attemptKey, false);
+        // Distinguish between "no password set" and "wrong password"
+        if (user && !user.password) {
+          return sendJson(res, 401, { error: '该账号未设置密码，请使用手机验证码登录' });
+        }
         return sendJson(res, 401, { error: '账号或密码错误' });
       }
       if (!ensureUserActiveForAuth(user)) {
