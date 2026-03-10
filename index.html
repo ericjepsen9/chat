@@ -547,11 +547,21 @@
         </section>
 
         <section id="addFriendPage" class="chat-list-view hidden">
-          <div class="toolbar" style="background:#fff; border-bottom: 1px solid var(--line); display:flex; padding:12px 16px;">
-            <input id="addFriendSearchInput" placeholder="输入对方 ChatTrade ID" style="background:#f2f2f6; flex:1;" />
-            <button id="doSearchFriendBtn" class="primary-btn" style="margin-left:10px;">搜索</button>
+          <div class="add-friend-search-bar">
+            <div class="add-friend-search-wrap">
+              <svg class="add-friend-search-icon" width="16" height="16" viewBox="0 0 24 24"><path fill="#999" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              <input id="addFriendSearchInput" placeholder="手机号 / ID号 / 用户名" />
+            </div>
+            <button id="doSearchFriendBtn" type="button">搜索</button>
           </div>
-          <div style="text-align:center; padding:20px; color:var(--text-muted); font-size:14px;">我的专属ID: <strong id="myProfileIdDisplay" style="color:#000; font-family:monospace; font-size:16px;"></strong></div>
+          <div class="add-friend-myid">我的ID: <strong id="myProfileIdDisplay"></strong></div>
+          <div id="addFriendResult" class="add-friend-result hidden"></div>
+          <div id="addFriendEmpty" class="add-friend-empty hidden">
+            <div class="add-friend-empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24"><path fill="#ccc" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            </div>
+            <p id="addFriendEmptyText">未找到该用户</p>
+          </div>
         </section>
 
         <section id="scanPage" class="chat-list-view hidden scan-container">

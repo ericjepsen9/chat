@@ -4869,13 +4869,72 @@ function bindAllEvents() {
   on("menuAddFriend", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('addFriendPage'); if($("myProfileIdDisplay")) $("myProfileIdDisplay").textContent = state.currentUser.appNumberId || state.currentUser.username; });
   on("menuScan", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('scanPage'); });
 
+  // Search for user first, then show preview card
   on("doSearchFriendBtn", "click", async () => {
-      const keyword = $("addFriendSearchInput").value.trim(); if (!keyword) return showModal("请输入对方账号或ID");
-      const greeting = prompt('打个招呼吧：', `你好，我是${state.currentUser.displayName}`); if(greeting === null) return;
-      const btn = $("doSearchFriendBtn");
-      if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
-      try { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting }) }); showModal('好友请求已发送');
-        refreshFriendRequestState(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '搜索并添加'; } }
+    const keyword = $("addFriendSearchInput")?.value.trim();
+    if (!keyword) return showModal("请输入手机号、ID号或用户名");
+    const btn = $("doSearchFriendBtn");
+    const resultEl = $("addFriendResult");
+    const emptyEl = $("addFriendEmpty");
+    if (btn) { btn.disabled = true; btn.textContent = '搜索中...'; }
+    if (resultEl) resultEl.classList.add('hidden');
+    if (emptyEl) emptyEl.classList.add('hidden');
+    try {
+      const res = await api(`/api/users/search?keyword=${encodeURIComponent(keyword)}`);
+      const user = res.user;
+      if (!user || !resultEl) return;
+      // Check if already friends
+      const isFriend = (state.friends || []).some(f => f.friendId === user.id || f.userId === user.id);
+      const avatarContent = user.avatarUrl
+        ? `<img src="${user.avatarUrl}" alt="" />`
+        : firstChar(user.displayName);
+      resultEl.innerHTML = `
+        <div class="add-friend-card">
+          <div class="add-friend-card-top">
+            <div class="add-friend-avatar" ${user.avatarUrl ? '' : 'style="background:#07c160"'}>${avatarContent}</div>
+            <div class="add-friend-info">
+              <div class="add-friend-name">${escapeHTML(user.displayName)}</div>
+              <div class="add-friend-meta">ID: ${escapeHTML(user.appNumberId || '')}${user.role === 'seller' ? ' · 商家' : ''}</div>
+            </div>
+          </div>
+          ${user.signature ? `<div class="add-friend-sig">${escapeHTML(user.signature)}</div>` : ''}
+          <div class="add-friend-actions">
+            <button type="button" class="add-friend-add-btn ${isFriend ? 'already' : ''}" id="addFriendSendBtn" data-uid="${user.id}" data-uname="${escapeHTML(user.username)}" ${isFriend ? 'disabled' : ''}>${isFriend ? '已是好友' : '添加好友'}</button>
+          </div>
+        </div>
+      `;
+      resultEl.classList.remove('hidden');
+    } catch(e) {
+      if (emptyEl) {
+        const emptyText = $("addFriendEmptyText");
+        if (emptyText) emptyText.textContent = e.message || '未找到该用户';
+        emptyEl.classList.remove('hidden');
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '搜索'; }
+    }
+  });
+  on("addFriendSearchInput", "keydown", (e) => { if (e.key === 'Enter') $("doSearchFriendBtn")?.click(); });
+  // Send friend request from preview card
+  document.addEventListener('click', async (e) => {
+    const addBtn = e.target.closest('#addFriendSendBtn');
+    if (!addBtn || addBtn.disabled) return;
+    const uname = addBtn.dataset.uname;
+    const greeting = prompt('打个招呼吧：', `你好，我是${state.currentUser.displayName}`);
+    if (greeting === null) return;
+    addBtn.disabled = true;
+    addBtn.textContent = '发送中...';
+    try {
+      await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: uname, greeting }) });
+      showModal('好友请求已发送');
+      addBtn.textContent = '已发送';
+      addBtn.classList.add('already');
+      refreshFriendRequestState();
+    } catch(e) {
+      addBtn.disabled = false;
+      addBtn.textContent = '添加好友';
+      showModal(e.message || '发送失败');
+    }
   });
   const submitScanRequest = async () => {
       const keyword = ($("scanIdInput")?.value || '').trim(); if (!keyword) return showModal('请输入对方 ChatTrade ID');

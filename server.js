@@ -1702,6 +1702,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.payload);
     }
 
+    // Search user by username, appNumberId, or phone (for add-friend preview)
+    if (matchRoute(pathname, '/api/users/search') && req.method === 'GET') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      const keyword = String(searchParams.get('keyword') || '').trim();
+      if (!keyword) return sendJson(res, 400, { error: '请输入搜索内容' });
+      const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || findUserByPhone(keyword);
+      if (!target || target.id === authUser.id) return sendJson(res, 404, { error: '未找到该用户' });
+      return sendJson(res, 200, { user: sanitizePublicUser(target) });
+    }
+
     const handleFriendRequestCreate = (context) => {
       const result = createFriendRequest({
         reqBody: context.body,
@@ -1713,6 +1724,7 @@ const server = http.createServer(async (req, res) => {
         rebuildIndexes,
         schedulePersist,
         broadcastToUser,
+        findUserByPhone,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);

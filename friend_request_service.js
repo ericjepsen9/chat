@@ -8,9 +8,10 @@ function createFriendRequest({
   rebuildIndexes,
   schedulePersist,
   broadcastToUser,
+  findUserByPhone,
 }) {
   const keyword = String(reqBody.friendUsername || '').trim();
-  const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword);
+  const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || (findUserByPhone ? findUserByPhone(keyword) : null);
   if (!target || target.id === authUser.id) {
     return { ok: false, status: 404, error: '未找到该用户' };
   }
