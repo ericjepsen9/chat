@@ -1124,7 +1124,7 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         user = {
           id: uid('u'),
-          username: `u_${Date.now()}`,
+          username: phone,
           password: '',
           displayName: `用户${phone.slice(-4)}`,
           signature: '暂未填写签名',
@@ -1214,18 +1214,16 @@ const server = http.createServer(async (req, res) => {
 
     if (matchRoute(pathname, '/api/register') && req.method === 'POST') {
       const body = await parseBody(req);
-      if (!body.displayName || !body.username || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
+      if (!body.displayName || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
       const displayName = String(body.displayName).trim();
-      const username = String(body.username).trim();
       if (!displayName) return sendJson(res, 400, { error: '昵称不能为空' });
-      if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
-        return sendJson(res, 400, { error: '登录账号需为3-32位英文、数字或下划线' });
-      }
       if (String(body.password || '').length < 8) {
         return sendJson(res, 400, { error: '密码至少8位' });
       }
       const phone = normalizePhone(body.phone || '');
       if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
+      // Use phone number as login username
+      const username = phone;
       // Verify phone code on server side (try 'register' scene first, fall back to 'login')
       const regCode = String(body.code || '').trim();
       if (!regCode) return sendJson(res, 400, { error: '请输入验证码' });
@@ -1237,8 +1235,8 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: fallbackResult.error || '验证码错误或已过期' });
         }
       }
-      if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该登录账号已被注册，请更换账号' });
-      if (phone && findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
+      if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
+      if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const user = {
         id: uid('u'),
         username,

@@ -3820,17 +3820,15 @@ function bindAllEvents() {
   // ---- Register: Complete registration ----
   on("doRegisterBtn", "click", async () => {
     const n = $("registerDisplayName")?.value.trim();
-    const u = $("registerUsername")?.value.trim();
     const p = $("registerPassword")?.value;
     const phone = window._authState.regPhone;
-    if (!n || !u || !p) return showModal("请填写完整信息");
-    if (!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return showModal('登录账号需为3-32位英文、数字或下划线');
+    if (!n || !p) return showModal("请填写完整信息");
     if (p.length < 8) return showModal('密码至少8位');
     const btn = $("doRegisterBtn");
     btn.disabled = true;
     btn.textContent = "注册中...";
     try {
-      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, username: u, password: p, phone, code: window._authState.regCode }) });
+      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, password: p, phone, code: window._authState.regCode }) });
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
@@ -3840,8 +3838,7 @@ function bindAllEvents() {
       btn.textContent = "完成注册";
     }
   });
-  on("registerDisplayName", "keydown", (e) => { if (e.key === 'Enter') $("registerUsername")?.focus(); });
-  on("registerUsername", "keydown", (e) => { if (e.key === 'Enter') $("registerPassword")?.focus(); });
+  on("registerDisplayName", "keydown", (e) => { if (e.key === 'Enter') $("registerPassword")?.focus(); });
   on("registerPassword", "keydown", (e) => { if (e.key === 'Enter') $("doRegisterBtn").click(); });
 
   // ---- Forgot password ----
