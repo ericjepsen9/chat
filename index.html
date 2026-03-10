@@ -738,16 +738,21 @@
               <button id="sellerProductsListedTab" type="button" class="sp-tab active">已上架</button>
               <button id="sellerProductsUnlistedTab" type="button" class="sp-tab">未上架</button>
             </div>
-            <div class="sp-search-wrap">
-              <span class="sp-search-icon">🔎</span>
-              <input id="sellerProductsSearchInput" class="sp-search-input" placeholder="搜索商品名/分类/描述" />
+            <div class="sp-filter-row">
+              <div class="sp-search-wrap">
+                <span class="sp-search-icon">🔎</span>
+                <input id="sellerProductsSearchInput" class="sp-search-input" placeholder="搜索商品名/分类/描述" />
+              </div>
+              <select id="sellerProductsCategoryFilter" class="sp-sort-select">
+                <option value="">全部分类</option>
+              </select>
+              <select id="sellerProductsSortSelect" class="sp-sort-select">
+                <option value="newest">按最新发布</option>
+                <option value="price_asc">价格从低到高</option>
+                <option value="price_desc">价格从高到低</option>
+                <option value="stock_desc">库存从高到低</option>
+              </select>
             </div>
-            <select id="sellerProductsSortSelect" class="sp-sort-select">
-              <option value="newest">按最新发布</option>
-              <option value="price_asc">价格从低到高</option>
-              <option value="price_desc">价格从高到低</option>
-              <option value="stock_desc">库存从高到低</option>
-            </select>
           </div>
           <div id="sellerProductsList" class="profile-store-list"></div>
           <div class="sp-publish-fixed-wrap">

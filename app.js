@@ -362,6 +362,12 @@ async function loadSellerProductsManage(){
   } catch (_) {
     syncSellerProducts();
   }
+  // Load category presets for filter
+  try {
+    const presets = await api('/api/product-presets');
+    state._sellerCategoryPresets = presets.categoryPresets || [];
+  } catch (_) {}
+  populateSellerCategoryFilter();
   renderSellerProductsManage();
 }
 
@@ -751,18 +757,47 @@ function updateSellerProductsFilterUI(){
   if (unlistedTab) unlistedTab.classList.toggle('active', state.sellerProductViewTab === 'unlisted');
   if ($("sellerProductsSearchInput")) $("sellerProductsSearchInput").value = state.sellerProductSearch || '';
   if ($("sellerProductsSortSelect")) $("sellerProductsSortSelect").value = state.sellerProductSort || 'newest';
+  if ($("sellerProductsCategoryFilter")) $("sellerProductsCategoryFilter").value = state.sellerProductCategoryFilter || '';
+}
+
+function populateSellerCategoryFilter(){
+  const sel = $("sellerProductsCategoryFilter");
+  if (!sel) return;
+  // Collect categories from seller's own products + presets
+  const cats = new Set();
+  (state.sellerProducts || []).forEach(p => {
+    if (p.category) p.category.split(/[\/,、]/).forEach(c => { const t = c.trim(); if (t) cats.add(t); });
+  });
+  // Also merge from presets if loaded
+  (state._sellerCategoryPresets || []).forEach(c => cats.add(c));
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">全部分类</option>';
+  [...cats].sort().forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+  sel.value = prev || '';
 }
 
 function getFilteredSellerProducts(){
   const all = Array.isArray(state.sellerProducts) ? [...state.sellerProducts] : [];
   const showUnlisted = state.sellerProductViewTab === 'unlisted';
   const keyword = String(state.sellerProductSearch || '').trim().toLowerCase();
+  const catFilter = String(state.sellerProductCategoryFilter || '').trim();
   const visible = all.filter((item) => {
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
-    if (!keyword) return true;
-    const hay = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase();
-    return hay.includes(keyword);
+    if (catFilter) {
+      const itemCats = (item.category || '').split(/[\/,、]/).map(s => s.trim());
+      if (!itemCats.includes(catFilter)) return false;
+    }
+    if (keyword) {
+      const hay = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase();
+      if (!hay.includes(keyword)) return false;
+    }
+    return true;
   });
   const sortBy = state.sellerProductSort || 'newest';
   visible.sort((a, b) => {
@@ -777,6 +812,7 @@ function getFilteredSellerProducts(){
 function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
+  populateSellerCategoryFilter();
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
   if(!products.length){
@@ -4637,6 +4673,10 @@ function bindAllEvents() {
   on("sellerProductsUnlistedTab", "click", () => { state.sellerProductViewTab = 'unlisted'; renderSellerProductsManage(); });
   on("sellerProductsSearchInput", "input", () => {
     state.sellerProductSearch = $("sellerProductsSearchInput")?.value?.trim() || '';
+    renderSellerProductsManage();
+  });
+  on("sellerProductsCategoryFilter", "change", () => {
+    state.sellerProductCategoryFilter = $("sellerProductsCategoryFilter")?.value || '';
     renderSellerProductsManage();
   });
   on("sellerProductsSortSelect", "change", () => {

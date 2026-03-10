@@ -2304,8 +2304,16 @@ input, textarea { font-size: var(--font-body); }
   background:#ecfdf5;
   font-weight:600;
 }
+.sp-filter-row{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
 .sp-search-wrap{
   position:relative;
+  flex:1;
+  min-width:120px;
 }
 .sp-search-icon{
   position:absolute;
