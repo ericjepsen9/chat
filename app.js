@@ -4397,7 +4397,9 @@ function bindAllEvents() {
   on("toggleMuteBtn", "click", () => { if (!state.rtc.localStream) return; isMuted = !isMuted; state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted); if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; } if($("muteText")) $("muteText").textContent = isMuted ? "已静音" : "静音"; });
   on("toggleCameraBtn", "click", () => { if (!state.rtc.localStream) return; isCameraOff = !isCameraOff; state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff); if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; } if($("cameraText")) $("cameraText").textContent = isCameraOff ? "已关镜头" : "镜头"; });
   
-  on("acceptCallBtn", "click", async () => { 
+  on("acceptCallBtn", "click", async () => {
+      if (state.rtc._accepting) return;
+      state.rtc._accepting = true;
       try {
           clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); const conversationId = state.rtc.pendingOffer?.conversationId || state.rtc.incomingMeta?.conversationId || state.activeConversation?.id; 
           if (!conversationId) return; state.rtc.conversationId = conversationId; 
@@ -4426,7 +4428,7 @@ function bindAllEvents() {
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
           if($("callName")) $("callName").textContent = peerName;
           state.rtc.pendingOffer = null; 
-      } catch (err) { window.stopCall(); alert(err && err.message ? err.message : '接听失败'); }
+      } catch (err) { window.stopCall(); alert(err && err.message ? err.message : '接听失败'); } finally { state.rtc._accepting = false; }
   });
   
   on("rejectCallBtn", "click", () => { finalizeCall({ event: 'reject', reason: 'manual' }); });
@@ -5104,7 +5106,7 @@ window.stopCall = () => {
     state.rtc.pc.close();
   }
   if (state.rtc.localStream) state.rtc.localStream.getTracks().forEach(t => t.stop()); if (state.rtc.remoteStream) state.rtc.remoteStream.getTracks().forEach(t => t.stop()); 
-  state.rtc = { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: endedCallId, incomingShownKey: null }; 
+  state.rtc = { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: endedCallId, incomingShownKey: null, localStream: null, remoteStream: null, remoteCandidateQueue: [], _accepting: false }; 
   if($("localVideo")) $("localVideo").srcObject = null; if($("remoteVideo")) $("remoteVideo").srcObject = null; if($("callPanel")) $("callPanel").classList.add('hidden'); 
   isMuted = false; isCameraOff = false; isSpeaker = true; 
   if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.add('active'); $("toggleMuteBtn").style.color = '#fff'; } if($("muteText")) $("muteText").textContent = "静音"; 
@@ -5115,9 +5117,18 @@ window.stopCall = () => {
 };
 
 async function createPeerConnection(mode) {
+  // Acquire media FIRST - if this fails, we don't create a PC with orphaned listeners
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' });
+  } catch (err) {
+    throw new Error(describeMediaAccessError(err, mode));
+  }
   const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  state.rtc.pc = pc; state.rtc.mode = mode; state.rtc.remoteStream = new MediaStream(); state.rtc.remoteCandidateQueue = [];
+  state.rtc.pc = pc; state.rtc.mode = mode; state.rtc.remoteStream = new MediaStream(); state.rtc.remoteCandidateQueue = []; state.rtc.localStream = stream;
   if($("remoteVideo")) $("remoteVideo").srcObject = state.rtc.remoteStream;
+  if($("localVideo")) $("localVideo").srcObject = stream;
+  stream.getTracks().forEach((track) => pc.addTrack(track, stream));
   pc.onicecandidate = async (e) => {
     if (e.candidate && state.rtc.peerId && state.rtc.conversationId) {
       enqueueSignal(state.rtc.conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: state.rtc.peerId, mode, callId: state.rtc.callId, signal: { type: 'candidate', candidate: e.candidate } });
@@ -5158,15 +5169,6 @@ async function createPeerConnection(mode) {
       _iceDisconnectTimer = setTimeout(() => { if (pc.iceConnectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 5000);
     }
   };
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' });
-  } catch (err) {
-    throw new Error(describeMediaAccessError(err, mode));
-  }
-  state.rtc.localStream = stream;
-  if($("localVideo")) $("localVideo").srcObject = stream;
-  stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 }
 
 window.startCall = async (mode) => { 
@@ -5272,6 +5274,7 @@ async function connectRealtime() {
     const payload = safeParseEventData(e);
     if (!payload) return;
     const signal = payload.signal; if (!signal) return;
+    if (!payload.mode) payload.mode = 'voice';
     if (signal.type === 'offer') {
       if (isIgnoredCallPayload(payload)) return;
       if (hasActiveCallSession() && !isSameIncomingCall(payload)) { api(`/api/conversations/${payload.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null }) }).catch(() => {}); return; }
