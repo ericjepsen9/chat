@@ -3718,7 +3718,10 @@ function bindAllEvents() {
     try {
       await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) });
     } catch (e) {
-      // Ignore send failure - code might already exist or use 1234
+      btn.disabled = false;
+      btn.textContent = '下一步';
+      showModal(e.message || '发送验证码失败，请稍后再试');
+      return;
     }
     btn.disabled = false;
     btn.textContent = '下一步';
@@ -3779,7 +3782,12 @@ function bindAllEvents() {
     btn.textContent = '发送中...';
     try {
       await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) });
-    } catch (_) {}
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '下一步';
+      showModal(e.message || '发送验证码失败，请稍后再试');
+      return;
+    }
     btn.disabled = false;
     btn.textContent = '下一步';
     if ($("regCodePhoneDisplay")) $("regCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');

@@ -149,7 +149,13 @@ function issuePhoneCode(phone, scene = 'login') {
   const now = Date.now();
   const cooldownUntil = phoneCodeCooldownStore.get(key) || 0;
   if (cooldownUntil > now) {
-    return { ok: false, error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((cooldownUntil - now) / 1000) };
+    // If a valid code already exists, return success (user can re-use it)
+    const existing = phoneCodeStore.get(key);
+    if (existing && existing.expiresAt > now) {
+      return { ok: true, code: existing.code, expiresInSec: Math.ceil((existing.expiresAt - now) / 1000) };
+    }
+    // No valid code exists but still in cooldown — issue a new code anyway
+    // (previous code was consumed or expired, user needs a fresh one)
   }
   const code = '1234'; // Mock code for testing (SMS service not configured)
   phoneCodeStore.set(key, { code, expiresAt: now + 5 * 60 * 1000 });
