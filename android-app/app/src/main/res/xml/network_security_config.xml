@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Production server (HTTP until HTTPS is configured) -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">157.151.165.106</domain>
+    <!-- Production: HTTPS domain, no cleartext needed -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">chat.yimeiai.sbs</domain>
     </domain-config>
     <!-- Development fallback -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="false">157.151.165.106</domain>
     </domain-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
