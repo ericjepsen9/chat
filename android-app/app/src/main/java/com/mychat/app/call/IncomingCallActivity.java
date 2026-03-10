@@ -13,6 +13,7 @@ import android.view.WindowManager;
 import android.widget.ImageButton;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
 
@@ -86,6 +87,14 @@ public class IncomingCallActivity extends AppCompatActivity {
         ImageButton rejectBtn = findViewById(R.id.rejectCallBtn);
         rejectBtn.setOnClickListener(v -> rejectCall());
 
+        // Prevent dismissing with back button — must accept or reject
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                // Intentionally empty — block back gesture on incoming call screen
+            }
+        });
+
         // Start vibration
         startVibration();
     }
@@ -152,8 +161,4 @@ public class IncomingCallActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
-        // Prevent dismissing with back button — must accept or reject
-    }
 }

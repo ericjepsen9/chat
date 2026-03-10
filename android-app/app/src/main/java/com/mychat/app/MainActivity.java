@@ -56,9 +56,19 @@ public class MainActivity extends AppCompatActivity {
                 if (fileUploadCallback == null) return;
                 Uri[] uris = null;
                 if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                    String dataString = result.getData().getDataString();
-                    if (dataString != null) {
-                        uris = new Uri[]{Uri.parse(dataString)};
+                    // Handle multi-file selection
+                    if (result.getData().getClipData() != null) {
+                        int count = result.getData().getClipData().getItemCount();
+                        uris = new Uri[count];
+                        for (int i = 0; i < count; i++) {
+                            uris[i] = result.getData().getClipData().getItemAt(i).getUri();
+                        }
+                    } else {
+                        // Single file selection
+                        String dataString = result.getData().getDataString();
+                        if (dataString != null) {
+                            uris = new Uri[]{Uri.parse(dataString)};
+                        }
                     }
                 }
                 fileUploadCallback.onReceiveValue(uris);
@@ -88,6 +98,9 @@ public class MainActivity extends AppCompatActivity {
         setupBackNavigation();
 
         webView.loadUrl(WEB_URL);
+
+        // Handle call action if launched from IncomingCallActivity
+        handleCallActionIntent(getIntent());
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -316,6 +329,35 @@ public class MainActivity extends AppCompatActivity {
 
     public WebView getWebView() {
         return webView;
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleCallActionIntent(intent);
+    }
+
+    /**
+     * Process accept_call / reject_call intents from IncomingCallActivity.
+     * Since this activity is singleTask, these arrive via onNewIntent when
+     * the activity already exists.
+     */
+    private void handleCallActionIntent(Intent intent) {
+        if (intent == null || webView == null) return;
+        String action = intent.getStringExtra("action");
+        if (action == null) return;
+
+        String callerId = intent.getStringExtra("callerId");
+        String conversationId = intent.getStringExtra("conversationId");
+        String callId = intent.getStringExtra("callId");
+
+        // Clear the action so it doesn't re-fire on config change
+        intent.removeExtra("action");
+
+        if (nativeBridge != null) {
+            nativeBridge.notifyCallAction(action, callerId, conversationId, callId);
+        }
     }
 
     @Override
