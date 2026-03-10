@@ -13,29 +13,90 @@ function readSession() {
 }
 function writeSession(user, token) {
   const nextToken = token ?? state.sessionToken ?? null;
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken }));
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, savedAt: Date.now() }));
   state.sessionToken = nextToken;
 }
+// Session expiry: auto-logout after 7 days or on 401
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+function checkSessionExpiry() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.savedAt && (Date.now() - parsed.savedAt > SESSION_MAX_AGE_MS)) {
+      localStorage.removeItem(SESSION_KEY);
+      showToast('登录已过期，请重新登录');
+      setTimeout(() => location.reload(), 1500);
+    }
+  } catch (_) {}
+}
+setInterval(checkSessionExpiry, 60 * 1000);
 
 const on = (id, ev, fn) => { 
     const el = $(id); 
     if(el) { el.addEventListener(ev, fn); } 
 };
 
-async function api(p, o={}) { 
+async function api(p, o={}) {
     const session = readSession();
     const headers = { ...(o.headers || {}) };
     if (!(o.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
     const token = state.sessionToken || session.token;
     if (token) headers.Authorization = `Bearer ${token}`;
-    const r = await fetch(p, { ...o, headers }); 
+    let r;
+    try {
+      r = await fetch(p, { ...o, headers });
+    } catch (netErr) {
+      const err = new Error('网络连接失败，请检查网络后重试');
+      err.isNetworkError = true;
+      throw err;
+    }
+    if (r.status === 401 && token) {
+      localStorage.removeItem(SESSION_KEY);
+      showToast('登录已过期，请重新登录');
+      setTimeout(() => location.reload(), 1500);
+      throw new Error('session_expired');
+    }
     const contentType = r.headers.get("content-type") || "";
     const d = contentType.includes("application/json") ? await r.json() : {};
-    if(!r.ok) throw new Error(d.error || `http_${r.status}`); 
-    return d; 
+    if(!r.ok) throw new Error(d.error || `http_${r.status}`);
+    return d;
 }
 function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
+// Loading overlay for async operations
+function showLoading(msg = '加载中...') {
+  let overlay = $('globalLoadingOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'globalLoadingOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3);';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;padding:20px 30px;border-radius:12px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.15);';
+    box.innerHTML = '<div style="width:28px;height:28px;border:3px solid #e0e0e0;border-top-color:#07c160;border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 10px;"></div>';
+    const txt = document.createElement('div');
+    txt.id = 'globalLoadingText';
+    txt.style.cssText = 'font-size:14px;color:#333;';
+    txt.textContent = msg;
+    box.appendChild(txt);
+    overlay.appendChild(box);
+    if (!document.getElementById('spinKeyframes')) {
+      const style = document.createElement('style');
+      style.id = 'spinKeyframes';
+      style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(style);
+    }
+    document.body.appendChild(overlay);
+  } else {
+    const txt = $('globalLoadingText');
+    if (txt) txt.textContent = msg;
+    overlay.style.display = 'flex';
+  }
+}
+function hideLoading() {
+  const overlay = $('globalLoadingOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
 function showToast(msg, duration = 2000){
   let el = document.getElementById('_toast');
   if(!el){
@@ -124,6 +185,16 @@ function getGroupedCartCount(){
     return sum + (Array.isArray(arr) ? arr.reduce((s, item) => s + (Number(item.quantity)||0), 0) : 0);
   }, 0);
 }
+const CART_STORAGE_KEY = 'chattrade_cart';
+function saveCartToStorage() {
+  try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.profileCartBySeller || {})); } catch(_) {}
+}
+function loadCartFromStorage() {
+  try {
+    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    if (raw) state.profileCartBySeller = JSON.parse(raw) || {};
+  } catch(_) { state.profileCartBySeller = {}; }
+}
 
 function formatMoney(v){
   const n = Number(String(v).replace(/[^\d.]/g, '')) || 0;
@@ -156,7 +227,7 @@ async function loadBuyerOrders(){
 async function loadSellerOrders(){
   if(!state.currentUser) return;
   try{
-    const data = await api(`/api/orders?sellerId=${state.currentUser.id}`);
+    const data = await api(`/api/orders?sellerId=${encodeURIComponent(state.currentUser.id)}`);
     state.sellerOrders = data.orders || [];
   }catch(_){
     state.sellerOrders = [];
@@ -883,6 +954,7 @@ function getProfileCartTotal(){
 }
 
 function updateProfileCartBar(){
+  saveCartToStorage();
   const bar = $("profileCartBar");
   const countEl = $("profileCartCount");
   const totalEl = $("profileCartTotal");
@@ -997,6 +1069,7 @@ async function submitProfileOrder(){
   const sellerId = state.currentCartSellerId || state.currentProfileUser?.id || '';
   const currentCart = getCurrentSellerCart(sellerId);
   if(!sellerId || !currentCart.length) return alert('请先选择商品');
+  showLoading('提交订单中...');
   try{
     const payload = {
       sellerId,
@@ -1017,10 +1090,12 @@ async function submitProfileOrder(){
       state.currentProfileUser?.id ? loadProfileOrders() : Promise.resolve(),
     ]);
     if(state.activeConversation?.id) await reloadActiveConversationMessages();
-    alert('订单已提交');
+    hideLoading();
+    showToast('订单已提交');
     const backTo = state.secondaryReturn || (state.activeConversation ? 'chat' : 'home');
     window.openSecondaryPage('profileOrdersPage', backTo);
   }catch(e){
+    hideLoading();
     alert(e.message || '提交订单失败');
   }
 }
@@ -3345,7 +3420,7 @@ window.openPrivateChat = async (targetUserId) => {
 window.openUserProfile = async (userId, fallbackName) => {
   if (!userId || userId === 'null') return;
   try {
-    const data = await api(`/api/users/${userId}/profile?viewerId=${state.currentUser.id}`);
+    const data = await api(`/api/users/${userId}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
     if (data.profile) {
       state.currentProfileUser = data.profile;
       state.currentCartSellerId = data.profile.id || '';
@@ -3631,7 +3706,7 @@ function bindAllEvents() {
     const phone = window._authState.regPhone;
     if (!n || !u || !p) return alert("请填写完整信息");
     if (!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return alert('登录账号需为3-32位英文、数字或下划线');
-    if (p.length < 4) return alert('密码至少4位');
+    if (p.length < 8) return alert('密码至少8位');
     const btn = $("doRegisterBtn");
     btn.disabled = true;
     btn.textContent = "注册中...";
@@ -3677,7 +3752,7 @@ function bindAllEvents() {
     const newPassword = $("authForgotNewPwd")?.value || '';
     if (!phone || !code || !newPassword) return alert('请填写完整信息');
     if (!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
-    if (newPassword.length < 4) return alert('新密码至少4位');
+    if (newPassword.length < 8) return alert('新密码至少8位');
     const submitBtn = $("authForgotSubmitBtn");
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
@@ -3715,7 +3790,7 @@ function bindAllEvents() {
     const newPassword = $("forgotNewPasswordInput")?.value || '';
     if (!phone || !code || !newPassword) return alert('请填写完整信息');
     if (!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
-    if (newPassword.length < 4) return alert('新密码至少4位');
+    if (newPassword.length < 8) return alert('新密码至少8位');
     const submitBtn = $("submitForgotPasswordBtn");
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
@@ -3763,7 +3838,7 @@ function bindAllEvents() {
     const newPassword = $("newPasswordInput")?.value || '';
     if(!oldPassword.trim() || !newPassword.trim()) return alert('请填写旧密码和新密码');
     if(oldPassword === newPassword) return alert('新密码不能与旧密码相同');
-    if((newPassword || '').length < 4) return alert('新密码至少4位');
+    if((newPassword || '').length < 8) return alert('新密码至少8位');
     const submitBtn = $("submitChangePasswordBtn");
     submitBtn.disabled = true;
     const prevText = submitBtn.textContent;
@@ -4152,7 +4227,7 @@ function bindAllEvents() {
   on("privacySettingsBtn", "click", async () => {
       window.openSecondaryPage('privacyPage', 'settingsPage');
       try {
-          const data = await api(`/api/blacklist?userId=${state.currentUser.id}`);
+          const data = await api(`/api/blacklist?userId=${encodeURIComponent(state.currentUser.id)}`);
           const list = $("blacklistContainer"); if(!list) return;
           const blacklist = data.users || data.blacklist || [];
           if(blacklist.length === 0) list.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:14px;">黑名单为空</div>`;
@@ -4677,7 +4752,7 @@ function renderGroupManageList() {
 
 async function loadMyProducts() {
   try {
-    const data = await api(`/api/users/${state.currentUser.id}/profile?viewerId=${state.currentUser.id}`);
+    const data = await api(`/api/users/${state.currentUser.id}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
     const list = $("myProductsList"); if(!list) return;
     const products = data.profile.products || [];
     if(products.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;'; emptyDiv.textContent = '你还没有发布任何闲置商品'; list.replaceChildren(emptyDiv); return; }
@@ -4800,7 +4875,7 @@ async function loadMall() {
 
 async function loadFriendRequests() {
   try {
-    const data = await api(`/api/friends/requests?userId=${state.currentUser.id}`);
+    const data = await api(`/api/friends/requests?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.friendRequests = data.requests || [];
     const pendingCount = state.friendRequests.filter(r => r.status === 'pending').length;
     if($("friendsTabBadge")) {
@@ -4994,7 +5069,7 @@ async function fetchMessages(before = 0) {
   if (state.isLoadingMessages || !state.activeConversation) return;
   state.isLoadingMessages = true;
   try {
-    const data = await api(`/api/conversations/${state.activeConversation.id}/messages?userId=${state.currentUser.id}&limit=20&before=${before}`);
+    const data = await api(`/api/conversations/${encodeURIComponent(state.activeConversation.id)}/messages?userId=${encodeURIComponent(state.currentUser.id)}&limit=20&before=${encodeURIComponent(before)}`);
     state.hasMoreMessages = data.hasMore;
     if (before === 0) {
       state.messages = data.messages;
@@ -5427,7 +5502,7 @@ async function connectRealtime() {
     }
   });
   _on('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
-  _on('friends_updated', loadFriends);
+  _on('friends_updated', async () => { await loadFriends(); if (state.activeConversation) applyChatRelationshipState(); });
   _on('friend_request_updated', loadFriendRequests);
   _on('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
   _on('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); scheduleRenderConversationList(); });
@@ -5530,7 +5605,19 @@ async function connectRealtime() {
       }
     }
   });
-  state.eventSource.onerror = () => { if(state.eventSource){state.eventSource.close(); state.eventSource=null;} setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, 1500); };
+  state._sseRetryCount = (state._sseRetryCount || 0);
+  state.eventSource.onopen = () => { state._sseRetryCount = 0; };
+  state.eventSource.onerror = () => {
+    if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+    state._sseRetryCount = (state._sseRetryCount || 0) + 1;
+    if (state._sseRetryCount > 10) {
+      console.warn('[sse] max retries reached, stopping reconnect');
+      showToast('实时连接断开，请刷新页面');
+      return;
+    }
+    const delay = Math.min(1500 * Math.pow(2, state._sseRetryCount - 1), 30000);
+    setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, delay);
+  };
 }
 
 window.addEventListener('pagehide', () => {
@@ -5694,7 +5781,7 @@ function renderSystemMessagesList(){
 
 async function loadConversations() {
   try {
-    const data = await api(`/api/conversations?userId=${state.currentUser.id}`);
+    const data = await api(`/api/conversations?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.conversations = (data.conversations || []).map(normalizeConversation);
     if (state.activeConversation) {
       const next = state.conversations.find((c) => c.id === state.activeConversation.id);
@@ -5744,7 +5831,8 @@ async function bootstrap() {
     }
 
     state.currentUser = user;
-    if($("authScreen")) $("authScreen").classList.add("hidden"); 
+    loadCartFromStorage();
+    if($("authScreen")) $("authScreen").classList.add("hidden");
     if($("appScreen")) $("appScreen").classList.remove("hidden");
     
     if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName; 

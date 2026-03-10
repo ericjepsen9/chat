@@ -1014,7 +1014,7 @@ const server = http.createServer(async (req, res) => {
       if (!issueResult.ok) {
         return sendJson(res, 429, { error: issueResult.error || '发送验证码失败', retryAfterSec: issueResult.retryAfterSec || 0 });
       }
-      return sendJson(res, 200, EXPOSE_MOCK_PHONE_CODE ? { ok: true, mockCode: issueResult.code, expiresInSec: issueResult.expiresInSec } : { ok: true, expiresInSec: issueResult.expiresInSec });
+      return sendJson(res, 200, { ok: true, expiresInSec: issueResult.expiresInSec });
     }
 
     if (matchRoute(pathname, '/api/login/phone-code') && req.method === 'POST') {
@@ -1052,7 +1052,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
       }
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
-      if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
+      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
       if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
@@ -1083,7 +1083,7 @@ const server = http.createServer(async (req, res) => {
       if (String(body.oldPassword || '') === nextPassword) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
-      if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
+      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
       authUser.password = await hashPasswordAsync(nextPassword);
       revokeSessionsForUser(authUser.id);
       const token = issueSession(authUser.id);
@@ -1109,8 +1109,8 @@ const server = http.createServer(async (req, res) => {
       if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
         return sendJson(res, 400, { error: '登录账号需为3-32位英文、数字或下划线' });
       }
-      if (String(body.password || '').length < 4) {
-        return sendJson(res, 400, { error: '密码至少4位' });
+      if (String(body.password || '').length < 8) {
+        return sendJson(res, 400, { error: '密码至少8位' });
       }
       const phone = normalizePhone(body.phone || '');
       if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
@@ -1151,6 +1151,33 @@ const server = http.createServer(async (req, res) => {
       }
       const raw = await parseRawBody(req, UPLOAD_LIMIT);
       if (!raw.length) return sendJson(res, 400, { error: 'empty_upload' });
+      // Validate file magic bytes
+      const magicValid = (function checkMagic(buf) {
+        if (buf.length < 4) return false;
+        // JPEG: FF D8 FF
+        if (buf[0]===0xFF && buf[1]===0xD8 && buf[2]===0xFF) return true;
+        // PNG: 89 50 4E 47
+        if (buf[0]===0x89 && buf[1]===0x50 && buf[2]===0x4E && buf[3]===0x47) return true;
+        // GIF: 47 49 46 38
+        if (buf[0]===0x47 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x38) return true;
+        // WebP: 52 49 46 46 ... 57 45 42 50
+        if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true;
+        // BMP: 42 4D
+        if (buf[0]===0x42 && buf[1]===0x4D) return true;
+        // OGG audio: 4F 67 67 53
+        if (buf[0]===0x4F && buf[1]===0x67 && buf[2]===0x67 && buf[3]===0x53) return true;
+        // MP3: FF FB / FF F3 / FF F2 / ID3
+        if (buf[0]===0xFF && (buf[1]===0xFB || buf[1]===0xF3 || buf[1]===0xF2)) return true;
+        if (buf[0]===0x49 && buf[1]===0x44 && buf[2]===0x33) return true;
+        // WAV: 52 49 46 46 ... 57 41 56 45
+        if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x41 && buf[10]===0x56 && buf[11]===0x45) return true;
+        // AAC: FF F1 / FF F9
+        if (buf[0]===0xFF && (buf[1]===0xF1 || buf[1]===0xF9)) return true;
+        // M4A/MP4: ftyp at offset 4
+        if (buf.length >= 8 && buf[4]===0x66 && buf[5]===0x74 && buf[6]===0x79 && buf[7]===0x70) return true;
+        return false;
+      })(raw);
+      if (!magicValid) return sendJson(res, 400, { error: 'file_type_mismatch' });
       ensureUploadRoot();
       const originalName = safeUploadFileName(req.headers['x-file-name'] || 'upload.bin');
       const ext = fileExtFromType(contentType, originalName);
@@ -1260,6 +1287,10 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const targetId = profileMatch[1];
+      if (targetId !== authUser.id) {
+        const targetUser = index.usersById.get(targetId);
+        if (!targetUser) return sendJson(res, 404, { error: '用户不存在' });
+      }
       const result = buildUserProfileView({
         authUser,
         targetId,
@@ -1275,9 +1306,12 @@ const server = http.createServer(async (req, res) => {
     if (storeMatch && req.method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
+      const sellerId = storeMatch[1];
+      const sellerUser = index.usersById.get(sellerId);
+      if (!sellerUser) return sendJson(res, 404, { error: '用户不存在' });
       const result = buildUserStoreItems({
         usersById: index.usersById,
-        sellerId: storeMatch[1],
+        sellerId,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
