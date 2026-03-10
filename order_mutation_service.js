@@ -254,7 +254,7 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (!order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'no_pending_price_request' };
   if (order.pendingPriceRequestedBy === authUser.id) return { ok: false, status: 409, error: 'cannot_confirm_own_request' };
-  const confirmedTotal = Math.max(0, Number(body.total || order.pendingPrice || order.total || 0));
+  const confirmedTotal = Math.max(0, Number(order.pendingPrice || order.total || 0));
   order.total = confirmedTotal;
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;

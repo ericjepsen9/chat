@@ -49,8 +49,12 @@ function acceptFriendRequest({
   const request = db.friendRequests.find((r) => r.id === requestId && r.targetId === authUser.id && r.status === 'pending');
   if (!request) return { ok: false, status: 404, error: 'not_found' };
   request.status = 'accepted';
-  db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: request.userId, group: '我的好友', remark: '' });
-  db.friendships.push({ id: uid('f'), userId: request.userId, friendId: authUser.id, group: '我的好友', remark: '' });
+  if (!db.friendships.some(f => f.userId === authUser.id && f.friendId === request.userId)) {
+    db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: request.userId, group: '我的好友', remark: '' });
+  }
+  if (!db.friendships.some(f => f.userId === request.userId && f.friendId === authUser.id)) {
+    db.friendships.push({ id: uid('f'), userId: request.userId, friendId: authUser.id, group: '我的好友', remark: '' });
+  }
   const existed = getDirectConversation(authUser.id, request.userId);
   if (!existed) {
     db.conversations.push({ id: uid('c'), type: 'direct', name: '', ownerId: authUser.id, members: [authUser.id, request.userId], announcement: '', mutedBy: [], pinnedBy: [], lastRead: {}, clearedAt: {}, createdAt: Date.now(), lastMessageAt: Date.now() });
