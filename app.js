@@ -101,6 +101,17 @@ function hideLoading() {
   const overlay = $('globalLoadingOverlay');
   if (overlay) overlay.style.display = 'none';
 }
+// Double-click prevention: wraps an async handler so the button is disabled during execution
+function withButtonLock(btn, asyncFn, loadingText) {
+  if (!btn || btn.disabled) return;
+  const origText = btn.textContent;
+  btn.disabled = true;
+  if (loadingText) btn.textContent = loadingText;
+  Promise.resolve(asyncFn()).catch(() => {}).finally(() => {
+    btn.disabled = false;
+    if (loadingText) btn.textContent = origText;
+  });
+}
 function showToast(msg, duration = 2000){
   let el = document.getElementById('_toast');
   if(!el){
@@ -161,9 +172,14 @@ function updateProfileDetailActions(){
   if($("profilePrimaryActions")) $("profilePrimaryActions").classList.toggle('hidden', isFriend || isSelf || !!pendingReq);
   if($("profileFriendRequestActions")) {
     $("profileFriendRequestActions").classList.toggle('hidden', !pendingReq);
+    // Always rebind to avoid stale closure; clear when no pending request
     if (pendingReq) {
-      if($("profileAcceptRequestBtn")) $("profileAcceptRequestBtn").onclick = () => window.acceptRequest(pendingReq.id);
-      if($("profileRejectRequestBtn")) $("profileRejectRequestBtn").onclick = () => window.rejectRequest(pendingReq.id);
+      const reqId = pendingReq.id;
+      if($("profileAcceptRequestBtn")) $("profileAcceptRequestBtn").onclick = () => window.acceptRequest(reqId);
+      if($("profileRejectRequestBtn")) $("profileRejectRequestBtn").onclick = () => window.rejectRequest(reqId);
+    } else {
+      if($("profileAcceptRequestBtn")) $("profileAcceptRequestBtn").onclick = null;
+      if($("profileRejectRequestBtn")) $("profileRejectRequestBtn").onclick = null;
     }
   }
 }
@@ -415,8 +431,10 @@ function buildOrderCard(order, role){
     delBtn.textContent = '删除';
     delBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if(delBtn.disabled) return;
       if(!confirm('确认删除该订单？')) return;
-      await deleteOrderRecord(order.id);
+      delBtn.disabled = true; delBtn.textContent = '删除中...';
+      try { await deleteOrderRecord(order.id); } finally { delBtn.disabled = false; delBtn.textContent = '删除'; }
     });
     actions.appendChild(delBtn);
     card.appendChild(actions);
@@ -516,6 +534,7 @@ function renderSellerProductsManage(){
       img.className = 'sp-card-img';
       img.src = imgUrl;
       img.alt = item.title || '商品';
+      img.onerror = function() { this.style.display = 'none'; };
       card.appendChild(img);
     }
 
@@ -568,7 +587,10 @@ function renderSellerProductsManage(){
     listedBtn.textContent = item.listed === false ? '上架' : '下架';
     listedBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if (listedBtn.disabled) return;
+      listedBtn.disabled = true;
       await window.toggleSellerProductListed(item.id, item.listed === false);
+      listedBtn.disabled = false;
     });
 
     const delBtn = document.createElement('button');
@@ -589,7 +611,7 @@ function renderSellerProductsManage(){
 function openProductDetail(item, fromSeller = false){
   if(!item) return;
   state.selectedProductDetail = { ...item, fromSeller: !!fromSeller };
-  if($("productDetailImage")) $("productDetailImage").src = normalizeMediaUrl(item.image || item.imageUrl) || '';
+  if($("productDetailImage")) { $("productDetailImage").src = normalizeMediaUrl(item.image || item.imageUrl) || ''; $("productDetailImage").onerror = function() { this.style.display = 'none'; }; }
   if($("productDetailTitle")) $("productDetailTitle").textContent = item.title || '商品';
   if($("productDetailDesc")) $("productDetailDesc").textContent = item.desc || '商品详情页为图片、文字、价格与规格';
   if($("productDetailPrice")) $("productDetailPrice").textContent = formatMoney(item.price);
@@ -1782,6 +1804,7 @@ function createAvatarNode(userObj, fallbackName) {
     const img = document.createElement('img');
     img.src = safeAvatar;
     img.alt = 'avatar';
+    img.onerror = function() { this.remove(); wrap.textContent = firstChar(userObj?.displayName || userObj?.username || fallbackName); };
     wrap.appendChild(img);
     return wrap;
   }
@@ -2137,13 +2160,14 @@ function buildOrderCardMessage(msg){
     reqBtn.textContent = '申请改价';
     reqBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if(!order.id) return;
+      if(!order.id || reqBtn.disabled) return;
       const raw = prompt('申请改价金额', String(order.total || ''));
       if(raw === null) return;
+      reqBtn.disabled = true; reqBtn.textContent = '提交中...';
       try{
         await api(`/api/orders/${order.id}/price-request`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
         await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
-      }catch(err){ alert(err.message || '申请失败'); }
+      }catch(err){ alert(err.message || '申请失败'); } finally { reqBtn.disabled = false; reqBtn.textContent = '申请改价'; }
     });
     actions.appendChild(reqBtn);
   }
@@ -2156,11 +2180,12 @@ function buildOrderCardMessage(msg){
     confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`;
     confirmBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if(!order.id) return;
+      if(!order.id || confirmBtn.disabled) return;
+      confirmBtn.disabled = true; confirmBtn.textContent = '确认中...';
       try{
         await api(`/api/orders/${order.id}/price-confirm`, { method:'POST', body: JSON.stringify({ total: Number(order.pendingPrice || order.total || 0) }) });
         await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
-      }catch(err){ alert(err.message || '确认失败'); }
+      }catch(err){ alert(err.message || '确认失败'); } finally { confirmBtn.disabled = false; confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`; }
     });
     actions.appendChild(confirmBtn);
   }else if(isParticipant && hasPendingPrice && pendingRequester === currentUserId){
@@ -3169,26 +3194,31 @@ window.openProductChat = async (sellerId, title, price, image) => {
 };
 
 window.acceptRequest = async (requestId) => {
-  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); alert('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '操作失败'); }
+  const btn = $("profileAcceptRequestBtn");
+  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
+  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); alert('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '操作失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '接受'; } }
 };
 
 window.rejectRequest = async (requestId) => {
   if (!confirm('确定拒绝该好友请求吗？')) return;
+  const btn = $("profileRejectRequestBtn");
+  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
   try {
     await api('/api/friends/reject', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) });
     await loadFriendRequests();
     updateProfileDetailActions();
   } catch (e) {
     alert(e.message || '操作失败');
-  }
+  } finally { if (btn) { btn.disabled = false; btn.textContent = '拒绝'; } }
 };
 
 window.deleteMyProduct = async (productId) => {
   if(!confirm("确定要下架并删除该商品吗？")) return;
+  showLoading('删除中...');
   try {
     await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) });
     await refreshProductViews();
-  } catch(e) { alert("删除失败：" + e.message); }
+  } catch(e) { alert("删除失败：" + e.message); } finally { hideLoading(); }
 };
 
 window.updateSellerProductStock = async (productId, currentStock = 0) => {
@@ -3206,13 +3236,14 @@ window.updateSellerProductStock = async (productId, currentStock = 0) => {
 };
 
 window.toggleSellerProductListed = async (productId, nextListed) => {
+  showLoading(nextListed ? '上架中...' : '下架中...');
   try {
     await api('/api/products/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, productId, listed: !!nextListed }) });
     await refreshProductViews();
     showToast(nextListed ? '商品已上架' : '商品已下架');
   } catch (e) {
     alert(e.message || '商品状态更新失败');
-  }
+  } finally { hideLoading(); }
 };
 
 window.deleteGroup = async (groupName) => {
@@ -3547,17 +3578,21 @@ function bindAllEvents() {
     const first = container.querySelector('.auth-code-box');
     if (first) first.focus();
   }
+  const _resendTimers = {};
   function startResendCountdown(btnId, seconds, sendFn) {
     const btn = $(btnId);
     if (!btn) return;
+    // Clear any existing timer to prevent leak
+    if (_resendTimers[btnId]) { clearInterval(_resendTimers[btnId]); delete _resendTimers[btnId]; }
     let remaining = seconds;
     btn.disabled = true;
     btn.textContent = `重新发送 (${remaining}s)`;
     const timer = setInterval(() => {
       remaining--;
-      if (remaining <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '重新发送'; return; }
+      if (remaining <= 0) { clearInterval(timer); delete _resendTimers[btnId]; btn.disabled = false; btn.textContent = '重新发送'; return; }
       btn.textContent = `重新发送 (${remaining}s)`;
     }, 1000);
+    _resendTimers[btnId] = timer;
     btn.onclick = () => { if (!btn.disabled) sendFn(); };
   }
 
@@ -3815,17 +3850,21 @@ function bindAllEvents() {
   on("sendChangePhoneCodeBtn", "click", async () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     if(!phone) return alert('请输入11位手机号');
+    const btn = $("sendChangePhoneCodeBtn");
+    if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
     try {
       const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
       alert(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
     } catch (e) {
       alert(e.message || '发送失败');
-    }
+    } finally { if (btn) { btn.disabled = false; btn.textContent = '获取验证码'; } }
   });
   on("submitChangePhoneBtn", "click", async () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     const code = $("changePhoneCodeInput")?.value.trim();
     if(!phone || !code) return alert('请填写手机号和验证码');
+    const btn = $("submitChangePhoneBtn");
+    if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
     try {
       const data = await api('/api/users/change-phone', { method:'POST', body: JSON.stringify({ phone, code }) });
       state.currentUser = data.user || state.currentUser;
@@ -3835,7 +3874,7 @@ function bindAllEvents() {
       if($("backBtn")) $("backBtn").click();
     } catch (e) {
       alert(e.message || '修改失败');
-    }
+    } finally { if (btn) { btn.disabled = false; btn.textContent = '确认修改'; } }
   });
   on("submitChangePasswordBtn", "click", async () => {
     const oldPassword = $("oldPasswordInput")?.value || '';
@@ -4067,6 +4106,8 @@ function bindAllEvents() {
   on("saveProfileBtn", "click", async () => {
       const name = $("editNameInput").value.trim(); const sign = $("editSignatureInput").value.trim();
       if(!name) return alert("名字不能为空");
+      const btn = $("saveProfileBtn");
+      if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
       try {
           const data = await api('/api/users/update', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, displayName: name, signature: sign, avatarUrl: state.tempAvatarUrl }) });
           state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); alert("资料修改成功！");
@@ -4076,7 +4117,7 @@ function bindAllEvents() {
               else $("myProfileAvatar").textContent = firstChar(state.currentUser.displayName);
           }
           if($("backBtn")) $("backBtn").click();
-      } catch(e) { alert("保存失败: " + e.message); }
+      } catch(e) { alert("保存失败: " + e.message); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
   });
 
   on("messagesTab", "click", () => setMainTab('messages'));
@@ -4174,6 +4215,9 @@ function bindAllEvents() {
 
   async function uploadSellerPaymentCode(kind, file){
     if (!file) return;
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
+    if (!allowedTypes.includes(file.type)) return alert('请上传图片文件（JPG/PNG/GIF/WebP）');
+    if (file.size > 5 * 1024 * 1024) return alert('图片大小不能超过5MB');
     try {
       const blob = await resizeImageFile(file, 1000, 0.8);
       const url = await uploadBinary(blob, file.name || `${kind}_qrcode.jpg`, 'image/jpeg');
@@ -4219,13 +4263,16 @@ function bindAllEvents() {
       alipay: state.paymentCodeDraft?.alipay || '',
       cloudpay: state.paymentCodeDraft?.cloudpay || '',
     };
+    if (!paymentCodes.wechat && !paymentCodes.alipay && !paymentCodes.cloudpay) return alert('请至少上传一个收款码');
+    const btn = $("saveSellerPaymentBtn");
+    if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
     try{
       const data = await api('/api/users/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, paymentCodes }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
       alert('收款码已保存');
       window.openSecondaryPage('sellerCenterPage', state.secondaryReturn || 'profile');
-    }catch(e){ alert(e.message || '保存失败'); }
+    }catch(e){ alert(e.message || '保存失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
   });
 
   on("privacySettingsBtn", "click", async () => {
@@ -4360,19 +4407,20 @@ function bindAllEvents() {
   on("blacklistBtn", "click", async () => {
       const peerId = conversationPeerId(state.activeConversation);
       if(!peerId) return alert('未找到会话对象');
-      if(confirm("确定把他加入黑名单吗？加入后将拒收他的消息。")) { try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); alert("已加入黑名单"); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); alert(e?.message || '加入黑名单失败'); } }
+      if(confirm("确定把他加入黑名单吗？加入后将拒收他的消息。")) { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); alert("已加入黑名单"); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); alert(e?.message || '加入黑名单失败'); } finally { hideLoading(); } }
   });
   on("deleteFriendBtn", "click", async () => {
       if(!confirm("确定删除好友并清空聊天记录?")) return;
       const peerId = conversationPeerId(state.activeConversation);
       if(!peerId) return alert('未找到会话对象');
+      showLoading('删除中...');
       try {
         await api('/api/friends/delete', { method:'POST', body: JSON.stringify({userId: state.currentUser.id, friendId: peerId}) });
         state.friends = (state.friends || []).filter((item) => item.friend?.id !== peerId);
         alert('好友已删除');
         await Promise.all([loadFriends(), loadConversations()]);
         $("backBtn")?.click();
-      } catch(e) { alert(e.message || '删除失败'); }
+      } catch(e) { alert(e.message || '删除失败'); } finally { hideLoading(); }
   });
 
   on("homeMoreBtn", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.remove("hidden"); });
@@ -4383,8 +4431,10 @@ function bindAllEvents() {
   on("doSearchFriendBtn", "click", async () => {
       const keyword = $("addFriendSearchInput").value.trim(); if (!keyword) return alert("请输入对方账号或ID");
       const greeting = prompt('打个招呼吧：', `你好，我是${state.currentUser.displayName}`); if(greeting === null) return;
+      const btn = $("doSearchFriendBtn");
+      if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
       try { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting }) }); alert('好友请求已发送');
-        refreshFriendRequestState(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '发送失败'); }
+        refreshFriendRequestState(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '搜索并添加'; } }
   });
   const submitScanRequest = async () => {
       const keyword = ($("scanIdInput")?.value || '').trim(); if (!keyword) return alert('请输入对方 ChatTrade ID');
@@ -4466,11 +4516,13 @@ function bindAllEvents() {
     if(!draft) return alert('请先选择一条广播');
     const title = draft.title || '广播通知';
     const summary = draft.summary || '';
+    const btn = $("sendBroadcastNowBtn");
+    if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
     try {
       await window.sendMessage({ type: 'broadcast_card', broadcast: { title, summary, cover: '' } });
       showToast('广播已发送');
       if($("backBtn")) $("backBtn").click();
-    } catch(e) { alert(e.message || '发送失败'); }
+    } catch(e) { alert(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '发送'; } }
   });
 
   on("profileMoreBtn", "click", () => showProfileActionSheet());
@@ -4488,7 +4540,8 @@ function bindAllEvents() {
   on("profileActionBlacklistBtn", "click", async () => {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
-      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); alert('已加入黑名单'); loadFriends(); } catch(e) { alert(e.message || '操作失败'); }
+      showLoading('处理中...');
+      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); alert('已加入黑名单'); loadFriends(); } catch(e) { alert(e.message || '操作失败'); } finally { hideLoading(); }
   });
   on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); alert('已收到举报，我们会尽快处理'); });
   on("btnSettingsMoveGroup", "click", () => { const peerId = conversationPeerId(state.activeConversation); if(peerId) window.openGroupSelect(peerId); });
@@ -5610,9 +5663,23 @@ async function connectRealtime() {
     }
   });
   state._sseRetryCount = (state._sseRetryCount || 0);
-  state.eventSource.onopen = () => { state._sseRetryCount = 0; };
+  state.eventSource.onopen = () => {
+    state._sseRetryCount = 0;
+    // Backfill messages after reconnect to avoid missing data during disconnect
+    if (state.currentUser) {
+      loadConversations().catch(() => {});
+      if (state.activeConversation) fetchMessages().catch(() => {});
+      loadFriendRequests().catch(() => {});
+    }
+  };
   state.eventSource.onerror = () => {
-    if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+    if (state.eventSource) {
+      // Clean up all listeners before closing to prevent memory leak
+      if (state._sseHandlers) { for (const [evt, fn] of state._sseHandlers) state.eventSource.removeEventListener(evt, fn); }
+      state._sseHandlers = [];
+      state.eventSource.close();
+      state.eventSource = null;
+    }
     state._sseRetryCount = (state._sseRetryCount || 0) + 1;
     if (state._sseRetryCount > 10) {
       console.warn('[sse] max retries reached, stopping reconnect');
