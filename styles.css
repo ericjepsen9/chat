@@ -2684,6 +2684,142 @@ input, textarea { font-size: var(--font-body); }
   .order-filter-grid{grid-template-columns:1fr;}
 }
 
+/* ── Order date picker trigger button ── */
+.order-date-btn{
+  width:100%;
+  min-height:36px;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  background:#f9fafb;
+  color:#1f2937;
+  font-size:13px;
+  text-align:left;
+  padding:0 10px;
+  cursor:pointer;
+  transition:all .15s;
+}
+.order-date-btn:active{
+  background:#f3f4f6;
+}
+.order-date-btn.placeholder{
+  color:#b0b7c3;
+}
+
+/* ── WeChat-style Date Picker ── */
+.date-picker-overlay{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  background:rgba(0,0,0,.45);
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  transition:opacity .25s;
+}
+.date-picker-overlay.hidden{
+  display:none;
+}
+.date-picker-sheet{
+  width:100%;
+  max-width:500px;
+  background:#fff;
+  border-radius:16px 16px 0 0;
+  position:relative;
+  overflow:hidden;
+  animation:dpSlideUp .25s ease;
+}
+@keyframes dpSlideUp{
+  from{transform:translateY(100%);}
+  to{transform:translateY(0);}
+}
+.date-picker-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 16px;
+  border-bottom:1px solid #f0f0f0;
+}
+.date-picker-cancel,
+.date-picker-confirm{
+  border:none;
+  background:none;
+  font-size:15px;
+  cursor:pointer;
+  padding:4px 8px;
+}
+.date-picker-cancel{color:#999;}
+.date-picker-confirm{color:#07c160;font-weight:600;}
+.date-picker-title{
+  font-size:15px;
+  font-weight:600;
+  color:#333;
+}
+
+/* Columns container */
+.date-picker-columns{
+  display:flex;
+  height:220px;
+  position:relative;
+  z-index:2;
+}
+.date-picker-col{
+  flex:1;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  scroll-snap-type:y mandatory;
+  scrollbar-width:none;
+  position:relative;
+}
+.date-picker-col::-webkit-scrollbar{display:none;}
+.date-picker-col .dp-item{
+  height:44px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:16px;
+  color:#999;
+  scroll-snap-align:center;
+  transition:color .15s, font-weight .15s;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.date-picker-col .dp-item.selected{
+  color:#1a1a1a;
+  font-weight:600;
+}
+
+/* Selection indicator line */
+.date-picker-indicator{
+  position:absolute;
+  left:16px;
+  right:16px;
+  top:calc(50% + 26px);
+  height:44px;
+  transform:translateY(-50%);
+  border-top:1px solid #e8e8e8;
+  border-bottom:1px solid #e8e8e8;
+  pointer-events:none;
+  z-index:1;
+}
+
+/* Gradient masks for fade effect */
+.date-picker-mask-top,
+.date-picker-mask-bottom{
+  position:absolute;
+  left:0;right:0;
+  height:88px;
+  pointer-events:none;
+  z-index:3;
+}
+.date-picker-mask-top{
+  top:48px;
+  background:linear-gradient(to bottom,rgba(255,255,255,.9),rgba(255,255,255,0));
+}
+.date-picker-mask-bottom{
+  bottom:0;
+  background:linear-gradient(to top,rgba(255,255,255,.9),rgba(255,255,255,0));
+}
+
 /* ── Redesigned order cards ── */
 .order-card-header{
   display:flex;

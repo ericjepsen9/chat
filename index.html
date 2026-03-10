@@ -609,14 +609,16 @@
           </div>
           <div class="order-filter-drawer" id="buyerFilterDrawer">
             <div class="order-filter-grid">
-              <label class="order-filter-field">
+              <div class="order-filter-field">
                 <span>开始时间</span>
-                <input id="buyerOrdersFromInput" type="datetime-local" class="ui-input" />
-              </label>
-              <label class="order-filter-field">
+                <button type="button" class="order-date-btn" id="buyerOrdersFromBtn" data-role="buyer" data-which="from">请选择</button>
+                <input id="buyerOrdersFromInput" type="hidden" />
+              </div>
+              <div class="order-filter-field">
                 <span>结束时间</span>
-                <input id="buyerOrdersToInput" type="datetime-local" class="ui-input" />
-              </label>
+                <button type="button" class="order-date-btn" id="buyerOrdersToBtn" data-role="buyer" data-which="to">请选择</button>
+                <input id="buyerOrdersToInput" type="hidden" />
+              </div>
             </div>
             <div class="order-filter-presets" id="buyerOrdersRangePresets">
               <button type="button" class="order-filter-chip" data-range="1">今天</button>
@@ -699,14 +701,16 @@
           </div>
           <div class="order-filter-drawer" id="sellerFilterDrawer">
             <div class="order-filter-grid">
-              <label class="order-filter-field">
+              <div class="order-filter-field">
                 <span>开始时间</span>
-                <input id="sellerOrdersFromInput" type="datetime-local" class="ui-input" />
-              </label>
-              <label class="order-filter-field">
+                <button type="button" class="order-date-btn" id="sellerOrdersFromBtn" data-role="seller" data-which="from">请选择</button>
+                <input id="sellerOrdersFromInput" type="hidden" />
+              </div>
+              <div class="order-filter-field">
                 <span>结束时间</span>
-                <input id="sellerOrdersToInput" type="datetime-local" class="ui-input" />
-              </label>
+                <button type="button" class="order-date-btn" id="sellerOrdersToBtn" data-role="seller" data-which="to">请选择</button>
+                <input id="sellerOrdersToInput" type="hidden" />
+              </div>
             </div>
             <div class="order-filter-presets" id="sellerOrdersRangePresets">
               <button type="button" class="order-filter-chip" data-range="1">今天</button>
@@ -1046,5 +1050,27 @@
 
       <section id="systemMessagesPage" class="chat-list-view hidden order-flow-page">
         <div id="systemMessagesList" class="profile-orders-list"></div>
-      </section></body>
+      </section>
+
+    <!-- WeChat-style Date Picker Popup -->
+    <div id="datePickerOverlay" class="date-picker-overlay hidden">
+      <div class="date-picker-sheet">
+        <div class="date-picker-header">
+          <button type="button" class="date-picker-cancel" id="datePickerCancelBtn">取消</button>
+          <span class="date-picker-title">选择时间</span>
+          <button type="button" class="date-picker-confirm" id="datePickerConfirmBtn">确定</button>
+        </div>
+        <div class="date-picker-columns">
+          <div class="date-picker-col" id="dpColYear"></div>
+          <div class="date-picker-col" id="dpColMonth"></div>
+          <div class="date-picker-col" id="dpColDay"></div>
+          <div class="date-picker-col" id="dpColHour"></div>
+          <div class="date-picker-col" id="dpColMinute"></div>
+        </div>
+        <div class="date-picker-mask-top"></div>
+        <div class="date-picker-mask-bottom"></div>
+        <div class="date-picker-indicator"></div>
+      </div>
+    </div>
+</body>
 </html>
