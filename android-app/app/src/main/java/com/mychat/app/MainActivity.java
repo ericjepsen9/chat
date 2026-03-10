@@ -3,7 +3,10 @@ package com.mychat.app;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -30,8 +33,10 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.mychat.app.bridge.NativeBridge;
+import com.mychat.app.call.CallService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +55,20 @@ public class MainActivity extends AppCompatActivity {
     private ValueCallback<Uri[]> fileUploadCallback;
     private PermissionRequest pendingWebRtcRequest;
     private String[] pendingWebRtcResources;
+    private boolean webViewReady = false;
+    private Intent pendingActionIntent = null;
+
+    /** Receives hangup broadcast from CallService notification action */
+    private final BroadcastReceiver hangupReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (webView != null) {
+                webView.evaluateJavascript(
+                        "if(document.getElementById('hangupBtn')) document.getElementById('hangupBtn').click();",
+                        null);
+            }
+        }
+    };
 
     private final ActivityResultLauncher<Intent> fileChooserLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -94,13 +113,17 @@ public class MainActivity extends AppCompatActivity {
 
         setupWebView();
         requestPermissions();
-        requestOverlayPermission();
         setupBackNavigation();
 
         webView.loadUrl(WEB_URL);
 
         // Handle call action if launched from IncomingCallActivity
         handleCallActionIntent(getIntent());
+
+        // Listen for hangup from notification bar
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+                hangupReceiver,
+                new IntentFilter(CallService.ACTION_HANGUP_FROM_NOTIFICATION));
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -154,6 +177,12 @@ public class MainActivity extends AppCompatActivity {
                         "window.__NATIVE_ANDROID__ = true; " +
                         "if (window.__onNativeBridgeReady) window.__onNativeBridgeReady();",
                         null);
+                // Process any pending action intent that arrived before page was ready
+                webViewReady = true;
+                if (pendingActionIntent != null) {
+                    handleCallActionIntent(pendingActionIntent);
+                    pendingActionIntent = null;
+                }
             }
         });
 
@@ -251,9 +280,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Request SYSTEM_ALERT_WINDOW for incoming call overlay
+     * Request SYSTEM_ALERT_WINDOW for incoming call overlay.
+     * Called on demand when a call starts, not at app launch.
      */
-    private void requestOverlayPermission() {
+    public void requestOverlayPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + getPackageName()));
@@ -339,7 +369,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Process accept_call / reject_call intents from IncomingCallActivity.
+     * Process action intents from IncomingCallActivity, notifications, etc.
      * Since this activity is singleTask, these arrive via onNewIntent when
      * the activity already exists.
      */
@@ -348,12 +378,30 @@ public class MainActivity extends AppCompatActivity {
         String action = intent.getStringExtra("action");
         if (action == null) return;
 
-        String callerId = intent.getStringExtra("callerId");
-        String conversationId = intent.getStringExtra("conversationId");
-        String callId = intent.getStringExtra("callId");
+        // Defer until WebView page is loaded to avoid lost JS calls
+        if (!webViewReady) {
+            pendingActionIntent = intent;
+            return;
+        }
 
         // Clear the action so it doesn't re-fire on config change
         intent.removeExtra("action");
+
+        if ("open_conversation".equals(action)) {
+            String conversationId = intent.getStringExtra("conversationId");
+            if (conversationId != null && !conversationId.isEmpty()) {
+                webView.evaluateJavascript(
+                        "if(window.openConversation) window.openConversation('" +
+                        conversationId.replace("'", "\\'") + "');",
+                        null);
+            }
+            return;
+        }
+
+        // Call actions: accept_call, reject_call
+        String callerId = intent.getStringExtra("callerId");
+        String conversationId = intent.getStringExtra("conversationId");
+        String callId = intent.getStringExtra("callId");
 
         if (nativeBridge != null) {
             nativeBridge.notifyCallAction(action, callerId, conversationId, callId);
@@ -374,6 +422,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(hangupReceiver);
         if (webView != null) {
             webView.destroy();
         }

@@ -9,6 +9,7 @@ import android.os.IBinder;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.mychat.app.ChatApplication;
 import com.mychat.app.MainActivity;
@@ -23,6 +24,7 @@ public class CallService extends Service {
     private static final int NOTIFICATION_ID = 2001;
     private static final String ACTION_START = "com.mychat.app.call.START";
     private static final String ACTION_STOP = "com.mychat.app.call.STOP";
+    public static final String ACTION_HANGUP_FROM_NOTIFICATION = "com.mychat.app.call.HANGUP_FROM_NOTIFICATION";
 
     public static void start(Context context, String peerName, String mode) {
         Intent intent = new Intent(context, CallService.class);
@@ -43,6 +45,9 @@ public class CallService extends Service {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
+            // Notify WebView to actually end the call
+            LocalBroadcastManager.getInstance(this)
+                    .sendBroadcast(new Intent(ACTION_HANGUP_FROM_NOTIFICATION));
             return START_NOT_STICKY;
         }
 

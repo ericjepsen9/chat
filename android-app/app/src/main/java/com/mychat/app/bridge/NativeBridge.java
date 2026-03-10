@@ -82,6 +82,10 @@ public class NativeBridge {
     @JavascriptInterface
     public void startCallService(String peerName, String mode) {
         Log.i(TAG, "startCallService: " + peerName + ", mode=" + mode);
+        // Ensure overlay permission for incoming call screen (request on demand, not at startup)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(activity)) {
+            activity.requestOverlayPermission();
+        }
         CallService.start(activity, peerName, mode);
     }
 
