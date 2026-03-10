@@ -187,6 +187,15 @@
     </div>
 
     <div id="appScreen" class="mobile-shell hidden">
+      <!-- Left sidebar avatar bar -->
+      <aside id="sidebarPanel" class="sidebar-panel sidebar-expanded">
+        <button id="sidebarToggleBtn" type="button" class="sidebar-toggle-btn" title="切换侧栏模式">
+          <svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M2 3h12v1.5H2zm0 4.25h12v1.5H2zm0 4.25h12v1.5H2z"/></svg>
+        </button>
+        <div id="sidebarList" class="sidebar-list"></div>
+      </aside>
+
+      <div class="app-main-col">
       <header class="topbar">
         <div class="top-left"><button id="backBtn" class="icon-btn hidden"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg></button></div>
         <div class="topbar-title"><h2 id="chatTitle">微信</h2><p id="chatSubtitle"></p></div>
@@ -965,6 +974,7 @@
         <button id="mallTab" class="tab-item"><svg viewBox="0 0 24 24"><path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4v14c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2V6zm-10-2h4v2h-4V4zm0 12H8v-2h2v2zm6 0h-2v-2h2v2z"/></svg><span>发现(商城)</span></button>
         <button id="profileTab" class="tab-item"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>我</span></button>
       </nav>
+      </div><!-- end .app-main-col -->
     </div>
 
 

@@ -104,7 +104,9 @@ input, textarea { font-size: var(--font-body); }
 .primary-btn { background: var(--brand); color: #fff; border: none; padding: 14px 16px; border-radius: var(--radius-card); font-size: var(--font-body); font-weight: 600; cursor: pointer; text-align: center; min-height: 44px; }
 
 /* 结构骨架 */
-.mobile-shell { width: 100%; max-width: 414px; height: min(896px, 96vh); background: var(--bg); border-radius: 32px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.15); position: relative; }
+.mobile-shell { width: 100%; max-width: 540px; height: min(896px, 96vh); background: var(--bg); border-radius: 32px; display: flex; flex-direction: row; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.15); position: relative; }
+.mobile-shell.sidebar-hidden { max-width: 414px; }
+.app-main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { flex-shrink: 0; background: rgba(255, 255, 255, 0.95); border-bottom: 0.5px solid var(--line); padding: max(16px, env(safe-area-inset-top)) 16px 12px; display: flex; justify-content: space-between; align-items: center; z-index: 10; position: relative; }
 .top-left, .top-right { width: 40px; height: 40px; display:flex; align-items:center; justify-content:center; }
 .topbar-title { position: absolute; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; width: 60%; }
@@ -3307,4 +3309,136 @@ input, textarea { font-size: var(--font-body); }
   font-size:14px;
   color:#999;
   margin:0;
+}
+
+/* ===== Left Sidebar Avatar Bar ===== */
+.sidebar-panel{
+  width:126px;
+  flex-shrink:0;
+  background:#ebebeb;
+  display:flex;
+  flex-direction:column;
+  border-right:0.5px solid var(--line);
+  overflow:hidden;
+  transition:width .2s ease;
+}
+.sidebar-panel.sidebar-collapsed{
+  width:62px;
+}
+.sidebar-panel.sidebar-hidden-mode{
+  width:0;
+  border-right:none;
+}
+.sidebar-toggle-btn{
+  flex-shrink:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:42px;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  color:#666;
+  border-bottom:0.5px solid var(--line);
+}
+.sidebar-toggle-btn:active{ background:rgba(0,0,0,.06); }
+.sidebar-list{
+  flex:1;
+  overflow-y:auto;
+  overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+.sidebar-item{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:10px 6px 8px;
+  cursor:pointer;
+  border-bottom:0.5px solid rgba(0,0,0,.06);
+  position:relative;
+  transition:background .15s;
+}
+.sidebar-item:active{ background:rgba(0,0,0,.06); }
+.sidebar-item.is-active{ background:rgba(0,0,0,.08); }
+.sidebar-item-avatar{
+  width:42px;
+  height:42px;
+  border-radius:8px;
+  background:linear-gradient(135deg,#a1c4fd,#c2e9fb);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:17px;
+  font-weight:600;
+  flex-shrink:0;
+  overflow:hidden;
+  position:relative;
+}
+.sidebar-item-avatar img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  border-radius:inherit;
+}
+.sidebar-badge{
+  position:absolute;
+  top:2px;
+  right:2px;
+  min-width:16px;
+  height:16px;
+  background:#f44336;
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  border-radius:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 4px;
+  line-height:1;
+  box-sizing:border-box;
+  z-index:2;
+}
+.sidebar-badge-dot{
+  position:absolute;
+  top:2px;
+  right:2px;
+  width:8px;
+  height:8px;
+  background:#f44336;
+  border-radius:50%;
+  z-index:2;
+}
+.sidebar-item-name{
+  margin-top:4px;
+  font-size:11px;
+  color:#333;
+  font-weight:500;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  text-align:center;
+  line-height:1.3;
+}
+.sidebar-item-preview{
+  font-size:10px;
+  color:#999;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  text-align:center;
+  line-height:1.3;
+  margin-top:1px;
+}
+/* collapsed mode: hide text */
+.sidebar-collapsed .sidebar-item-name,
+.sidebar-collapsed .sidebar-item-preview{
+  display:none;
+}
+.sidebar-collapsed .sidebar-item{
+  padding:8px 6px;
 }

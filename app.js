@@ -209,7 +209,8 @@ const state = {
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {},
-  mallTab: 'nearby', userLocation: null, userLocationName: '正在定位...'
+  mallTab: 'nearby', userLocation: null, userLocationName: '正在定位...',
+  sidebarMode: 'expanded'
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 
@@ -4686,6 +4687,13 @@ function bindAllEvents() {
   on("mallTab", "click", () => setMainTab('mall'));
   on("profileTab", "click", () => setMainTab('profile'));
 
+  on("sidebarToggleBtn", "click", cycleSidebarMode);
+  try {
+    const saved = localStorage.getItem('chatSidebarMode');
+    if (saved === 'expanded' || saved === 'collapsed' || saved === 'hidden') state.sidebarMode = saved;
+  } catch(_) {}
+  applySidebarMode();
+
   on("backBtn", "click", () => {
     try { stopScanCamera(); } catch(_) {}
       const backTo = state.secondaryReturn;
@@ -6374,6 +6382,104 @@ function sortConversationsInPlace() {
     return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
   });
 }
+/* ===== Sidebar Avatar Bar ===== */
+let _sidebarSignature = '';
+function renderSidebar() {
+  const panel = $('sidebarPanel');
+  const list = $('sidebarList');
+  if (!panel || !list) return;
+  if (state.sidebarMode === 'hidden') return;
+
+  const convs = (state.conversations || []).filter(c => !c.synthetic && !c.syntheticType);
+  const visible = convs.filter(c => {
+    const clearedAt = getConversationClearedAt(c);
+    return !(clearedAt && (c.lastMessageAt || 0) <= clearedAt && !(c.unread > 0));
+  });
+
+  const sig = JSON.stringify(visible.map(c => c.id + ':' + (c.unread||0) + ':' + (c.preview||'') + ':' + (c.peerAvatarUrl||'') + ':' + (c.title||''))) + ':' + (state.activeConversation?.id || '') + ':' + state.sidebarMode;
+  if (sig === _sidebarSignature) return;
+  _sidebarSignature = sig;
+
+  const frag = document.createDocumentFragment();
+  visible.forEach(conv => {
+    const item = document.createElement('div');
+    item.className = 'sidebar-item';
+    if (state.activeConversation && state.activeConversation.id === conv.id) item.classList.add('is-active');
+    item.dataset.convId = conv.id;
+    item.addEventListener('click', () => { window.openConversation(conv.id); });
+
+    const avatarWrap = document.createElement('div');
+    avatarWrap.className = 'sidebar-item-avatar';
+    const safeAvatar = normalizeMediaUrl(conv.peerAvatarUrl);
+    if (safeAvatar) {
+      const img = document.createElement('img');
+      img.src = safeAvatar;
+      img.alt = '';
+      img.onerror = function() { this.remove(); avatarWrap.textContent = firstChar(conv.title); };
+      avatarWrap.appendChild(img);
+    } else {
+      avatarWrap.textContent = firstChar(conv.title);
+    }
+
+    if (conv.unread && conv.unread > 0) {
+      const badge = document.createElement('span');
+      const isMuted = isConversationMuted(conv);
+      if (isMuted) {
+        badge.className = 'sidebar-badge-dot';
+      } else {
+        badge.className = 'sidebar-badge';
+        badge.textContent = conv.unread > 99 ? '99+' : String(conv.unread);
+      }
+      avatarWrap.appendChild(badge);
+    }
+    item.appendChild(avatarWrap);
+
+    if (state.sidebarMode === 'expanded') {
+      const name = document.createElement('div');
+      name.className = 'sidebar-item-name';
+      name.textContent = conv.title || '';
+      item.appendChild(name);
+      const preview = document.createElement('div');
+      preview.className = 'sidebar-item-preview';
+      preview.textContent = conv.preview || '';
+      item.appendChild(preview);
+    }
+
+    frag.appendChild(item);
+  });
+  list.replaceChildren(frag);
+}
+
+function applySidebarMode() {
+  const panel = $('sidebarPanel');
+  const shell = $('appScreen');
+  const btn = $('sidebarToggleBtn');
+  if (!panel || !shell) return;
+  panel.classList.remove('sidebar-expanded', 'sidebar-collapsed', 'sidebar-hidden-mode');
+  shell.classList.remove('sidebar-hidden');
+  if (state.sidebarMode === 'expanded') {
+    panel.classList.add('sidebar-expanded');
+    if (btn) btn.title = '切换为仅头像';
+  } else if (state.sidebarMode === 'collapsed') {
+    panel.classList.add('sidebar-collapsed');
+    if (btn) btn.title = '关闭侧栏';
+  } else {
+    panel.classList.add('sidebar-hidden-mode');
+    shell.classList.add('sidebar-hidden');
+    if (btn) btn.title = '展开侧栏';
+  }
+  _sidebarSignature = '';
+  renderSidebar();
+}
+
+function cycleSidebarMode() {
+  if (state.sidebarMode === 'expanded') state.sidebarMode = 'collapsed';
+  else if (state.sidebarMode === 'collapsed') state.sidebarMode = 'hidden';
+  else state.sidebarMode = 'expanded';
+  try { localStorage.setItem('chatSidebarMode', state.sidebarMode); } catch(_) {}
+  applySidebarMode();
+}
+
 let _renderConvListTimer = null;
 function scheduleRenderConversationList() {
   if (_renderConvListTimer) return;
@@ -6461,6 +6567,7 @@ function renderConversationListFromState() {
     }
   }
   updateMessagesTabBadge(totalUnread);
+  renderSidebar();
 }
 
 async function loadSystemMessages(){
