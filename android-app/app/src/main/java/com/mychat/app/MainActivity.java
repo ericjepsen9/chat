@@ -41,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
     private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static final int WEBRTC_PERMISSION_REQUEST_CODE = 1002;
 
     /** Replace with your server URL */
     private static final String WEB_URL = "https://chat.yimeiai.sbs";
@@ -48,6 +49,8 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private NativeBridge nativeBridge;
     private ValueCallback<Uri[]> fileUploadCallback;
+    private PermissionRequest pendingWebRtcRequest;
+    private String[] pendingWebRtcResources;
 
     private final ActivityResultLauncher<Intent> fileChooserLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -161,17 +164,33 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     String[] resources = request.getResources();
                     List<String> granted = new ArrayList<>();
+                    List<String> nativePermsNeeded = new ArrayList<>();
+
                     for (String res : resources) {
-                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res) &&
-                                hasPermission(Manifest.permission.RECORD_AUDIO)) {
-                            granted.add(res);
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) {
+                            if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                                granted.add(res);
+                            } else {
+                                nativePermsNeeded.add(Manifest.permission.RECORD_AUDIO);
+                            }
                         }
-                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res) &&
-                                hasPermission(Manifest.permission.CAMERA)) {
-                            granted.add(res);
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res)) {
+                            if (hasPermission(Manifest.permission.CAMERA)) {
+                                granted.add(res);
+                            } else {
+                                nativePermsNeeded.add(Manifest.permission.CAMERA);
+                            }
                         }
                     }
-                    if (!granted.isEmpty()) {
+
+                    if (!nativePermsNeeded.isEmpty()) {
+                        // Store pending request, request native permissions, then grant/deny in callback
+                        pendingWebRtcRequest = request;
+                        pendingWebRtcResources = resources;
+                        ActivityCompat.requestPermissions(MainActivity.this,
+                                nativePermsNeeded.toArray(new String[0]),
+                                WEBRTC_PERMISSION_REQUEST_CODE);
+                    } else if (!granted.isEmpty()) {
                         request.grant(granted.toArray(new String[0]));
                     } else {
                         request.deny();
@@ -231,6 +250,36 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean hasPermission(String permission) {
         return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == WEBRTC_PERMISSION_REQUEST_CODE && pendingWebRtcRequest != null) {
+            // Re-evaluate which WebRTC resources can now be granted
+            List<String> granted = new ArrayList<>();
+            if (pendingWebRtcResources != null) {
+                for (String res : pendingWebRtcResources) {
+                    if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res) &&
+                            hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                        granted.add(res);
+                    }
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res) &&
+                            hasPermission(Manifest.permission.CAMERA)) {
+                        granted.add(res);
+                    }
+                }
+            }
+            if (!granted.isEmpty()) {
+                pendingWebRtcRequest.grant(granted.toArray(new String[0]));
+            } else {
+                pendingWebRtcRequest.deny();
+            }
+            pendingWebRtcRequest = null;
+            pendingWebRtcResources = null;
+        }
     }
 
     @Override

@@ -3350,6 +3350,17 @@ async function startScanCamera(){
     }
   };
   try{
+    // On Android native app, ensure camera permission is granted before getUserMedia
+    if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasCameraPermission()) {
+      window.NativeBridge.requestCameraPermission();
+      // Wait briefly for user to respond to permission dialog
+      await new Promise(r => setTimeout(r, 1500));
+      if (!window.NativeBridge.hasCameraPermission()) {
+        if ($('scanHintText')) $('scanHintText').textContent = '需要相机权限才能扫码，请在设置中开启';
+        $('scanFallbackBox')?.classList.remove('hidden');
+        return;
+      }
+    }
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('no_camera_api');
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
     state.scanStream = stream;
@@ -4604,6 +4615,12 @@ function bindAllEvents() {
   on("pttBtn", "touchstart", async (e) => {
       e.preventDefault(); if($("pttBtn")) { $("pttBtn").textContent = "松开 结束"; $("pttBtn").style.background = "#c5c5c6"; }
       try {
+          // On Android native app, ensure mic permission before recording
+          if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasMicrophonePermission()) {
+            window.NativeBridge.requestMicrophonePermission();
+            await new Promise(r => setTimeout(r, 1500));
+            if (!window.NativeBridge.hasMicrophonePermission()) throw new Error('需要麦克风权限才能录音，请在设置中开启');
+          }
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           let mimeType = ''; if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm'; else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
           state.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {}); state.audioChunks = []; recordStartTime = Date.now();
@@ -5171,11 +5188,13 @@ function clearAllCallTimers(){
 }
 function describeMediaAccessError(err, mode) {
   const name = err && err.name ? err.name : '';
-  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') return mode === 'video' ? '摄像头或麦克风权限被拒绝，请在浏览器设置中允许访问。' : '麦克风权限被拒绝，请在浏览器设置中允许访问。';
+  const isAndroid = !!(window.__NATIVE_ANDROID__ && window.NativeBridge);
+  const settingsHint = isAndroid ? '请前往系统设置 → 应用 → ChatTrade → 权限 中开启。' : '请在浏览器设置中允许访问。';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') return (mode === 'video' ? '摄像头或麦克风权限被拒绝，' : '麦克风权限被拒绝，') + settingsHint;
   if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return mode === 'video' ? '未检测到可用的摄像头或麦克风设备。' : '未检测到可用的麦克风设备。';
   if (name === 'NotReadableError' || name === 'TrackStartError') return mode === 'video' ? '摄像头或麦克风当前被其他程序占用。' : '麦克风当前被其他程序占用。';
   if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') return '当前设备不支持所需的通话能力。';
-  return mode === 'video' ? '无法开启摄像头/麦克风权限' : '无法开启麦克风权限';
+  return (mode === 'video' ? '无法开启摄像头/麦克风权限，' : '无法开启麦克风权限，') + settingsHint;
 }
 function isIgnoredCallPayload(payload) {
   if (!payload) return true;
@@ -5484,8 +5503,21 @@ window.startCall = async (mode) => {
   if (now - lastCallAttemptAt < 1200) return alert('操作过快，请稍后再试');
   lastCallAttemptAt = now;
   const peerId = conversationPeerId(state.activeConversation); if (!peerId) return alert('仅支持单聊进行通话');
+  // On Android native app, ensure mic (and camera for video) permissions before starting call
+  if (window.__NATIVE_ANDROID__ && window.NativeBridge) {
+    const needMic = !window.NativeBridge.hasMicrophonePermission();
+    const needCam = mode === 'video' && !window.NativeBridge.hasCameraPermission();
+    if (needMic || needCam) {
+      if (needMic && needCam) window.NativeBridge.requestCameraAndMicrophonePermission();
+      else if (needMic) window.NativeBridge.requestMicrophonePermission();
+      else window.NativeBridge.requestCameraPermission();
+      await new Promise(r => setTimeout(r, 1500));
+      if (!window.NativeBridge.hasMicrophonePermission()) return alert('需要麦克风权限才能通话，请在设置中开启');
+      if (mode === 'video' && !window.NativeBridge.hasCameraPermission()) return alert('需要摄像头权限才能视频通话，请在设置中开启');
+    }
+  }
   state.rtc._starting = true;
-  try { 
+  try {
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     state.rtc.conversationId = state.activeConversation.id; state.rtc.peerId = peerId; state.rtc.callId = callId; setRtcPhase('outgoing'); await createPeerConnection(mode); const offer = await state.rtc.pc.createOffer(); await state.rtc.pc.setLocalDescription(offer); 
     const peerMeta = resolveCallPeerMeta(peerId, state.activeConversation?.title || peerId);

@@ -1,9 +1,11 @@
 package com.mychat.app.bridge;
 
+import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.VibrationEffect;
@@ -13,6 +15,9 @@ import android.provider.Settings;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.mychat.app.ChatApplication;
 import com.mychat.app.MainActivity;
@@ -152,6 +157,41 @@ public class NativeBridge {
                     Uri.parse("package:" + activity.getPackageName()));
             activity.startActivity(intent);
         }
+    }
+
+    // ========== Permissions ==========
+
+    @JavascriptInterface
+    public boolean hasCameraPermission() {
+        return ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @JavascriptInterface
+    public boolean hasMicrophonePermission() {
+        return ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @JavascriptInterface
+    public void requestCameraPermission() {
+        activity.runOnUiThread(() ->
+            ActivityCompat.requestPermissions(activity,
+                    new String[]{Manifest.permission.CAMERA}, 2001));
+    }
+
+    @JavascriptInterface
+    public void requestMicrophonePermission() {
+        activity.runOnUiThread(() ->
+            ActivityCompat.requestPermissions(activity,
+                    new String[]{Manifest.permission.RECORD_AUDIO}, 2002));
+    }
+
+    @JavascriptInterface
+    public void requestCameraAndMicrophonePermission() {
+        activity.runOnUiThread(() ->
+            ActivityCompat.requestPermissions(activity,
+                    new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}, 2003));
     }
 
     // ========== Callback to JS ==========
