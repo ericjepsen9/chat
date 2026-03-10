@@ -147,4 +147,9 @@ public class PushReceiver extends MessageReceiver {
     protected void onNotificationClickedWithNoAction(Context context, String title, String summary, String extraMap) {
         Log.i(TAG, "Notification clicked (no action): " + title);
     }
+
+    @Override
+    protected void onNotificationReceivedInApp(Context context, String title, String summary, Map<String, String> extraMap, int openType, String openActivity, String openUrl) {
+        Log.i(TAG, "Notification received in app: " + title);
+    }
 }
