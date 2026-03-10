@@ -4412,7 +4412,7 @@ function bindAllEvents() {
           const { senderId, mode, signal } = state.rtc.pendingOffer; state.rtc.pendingAccept = false; state.rtc.peerId = senderId; setRtcPhase('connecting'); 
           await createPeerConnection(mode); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)); 
           scheduleConnectTimeout(); 
-          for (const cand of (state.rtc.earlyCandidates || [])) { try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(cand)); } catch(e){} } 
+          for (const cand of (state.rtc.earlyCandidates || [])) { try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(cand)); } catch(e) { console.warn('[webrtc] addIceCandidate failed:', e); } } 
           state.rtc.earlyCandidates = []; 
           await flushQueuedRemoteCandidates();
           const answer = await state.rtc.pc.createAnswer(); await state.rtc.pc.setLocalDescription(answer);
@@ -4952,7 +4952,7 @@ async function flushQueuedRemoteCandidates() {
   if (!state.rtc.pc || !state.rtc.pc.remoteDescription) return;
   const queued = Array.isArray(state.rtc.remoteCandidateQueue) ? state.rtc.remoteCandidateQueue.splice(0) : [];
   for (const cand of queued) {
-    try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(cand)); } catch (_) {}
+    try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(cand)); } catch (e) { console.warn('[webrtc] addIceCandidate failed:', e); }
   }
 }
 function updateCallUIInfo(peerId, mode, statusText) { 
@@ -5106,7 +5106,7 @@ window.stopCall = () => {
     state.rtc.pc.close();
   }
   if (state.rtc.localStream) state.rtc.localStream.getTracks().forEach(t => t.stop()); if (state.rtc.remoteStream) state.rtc.remoteStream.getTracks().forEach(t => t.stop()); 
-  state.rtc = { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: endedCallId, incomingShownKey: null, localStream: null, remoteStream: null, remoteCandidateQueue: [], _accepting: false }; 
+  state.rtc = { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: endedCallId, incomingShownKey: null, localStream: null, remoteStream: null, remoteCandidateQueue: [], _accepting: false, _starting: false }; 
   if($("localVideo")) $("localVideo").srcObject = null; if($("remoteVideo")) $("remoteVideo").srcObject = null; if($("callPanel")) $("callPanel").classList.add('hidden'); 
   isMuted = false; isCameraOff = false; isSpeaker = true; 
   if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.add('active'); $("toggleMuteBtn").style.color = '#fff'; } if($("muteText")) $("muteText").textContent = "静音"; 
@@ -5171,12 +5171,14 @@ async function createPeerConnection(mode) {
   };
 }
 
-window.startCall = async (mode) => { 
+window.startCall = async (mode) => {
+  if (state.rtc._starting) return;
   if (hasActiveCallSession()) return alert('当前已有通话进行中');
   const now = Date.now();
   if (now - lastCallAttemptAt < 1200) return alert('操作过快，请稍后再试');
   lastCallAttemptAt = now;
-  const peerId = conversationPeerId(state.activeConversation); if (!peerId) return alert('仅支持单聊进行通话'); 
+  const peerId = conversationPeerId(state.activeConversation); if (!peerId) return alert('仅支持单聊进行通话');
+  state.rtc._starting = true;
   try { 
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     state.rtc.conversationId = state.activeConversation.id; state.rtc.peerId = peerId; state.rtc.callId = callId; setRtcPhase('outgoing'); await createPeerConnection(mode); const offer = await state.rtc.pc.createOffer(); await state.rtc.pc.setLocalDescription(offer); 
@@ -5188,7 +5190,7 @@ window.startCall = async (mode) => {
     api(`/api/conversations/${state.rtc.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode, callId, senderName: state.currentUser.displayName }) }).catch(() => {});
     enqueueSignal(state.rtc.conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: peerId, mode, callId, signal: { type: 'offer', sdp: offer } }); 
     outgoingTimeoutTimer = setTimeout(() => { finalizeCall({ alertText: "对方无应答", event: 'cancel', reason: 'timeout' }); }, 30000);
-  } catch (e) { window.stopCall(); alert(e && e.message ? e.message : describeMediaAccessError(e, mode)); } 
+  } catch (e) { window.stopCall(); alert(e && e.message ? e.message : describeMediaAccessError(e, mode)); } finally { state.rtc._starting = false; }
 }
 
 function safeParseEventData(event) {
@@ -5201,7 +5203,10 @@ function safeParseEventData(event) {
 }
 
 async function connectRealtime() {
-  if (state.eventSource) state.eventSource.close();
+  if (state.eventSource) {
+    if (state._sseHandlers) { for (const [evt, fn] of state._sseHandlers) state.eventSource.removeEventListener(evt, fn); }
+    state.eventSource.close();
+  }
   let sseToken = '';
   try {
     const tokenRes = await api('/api/events/token', { method: 'POST' });
@@ -5215,7 +5220,9 @@ async function connectRealtime() {
     return;
   }
   state.eventSource = new EventSource(`/api/events?sse=${encodeURIComponent(sseToken)}`);
-  state.eventSource.addEventListener('message_created', async (e) => { 
+  state._sseHandlers = [];
+  const _on = (evt, fn) => { state._sseHandlers.push([evt, fn]); state.eventSource.addEventListener(evt, fn); };
+  _on('message_created', async (e) => { 
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId && data.message) {
@@ -5240,7 +5247,7 @@ async function connectRealtime() {
       loadConversations();
     }
   });
-  state.eventSource.addEventListener('message_recalled', (e) => { 
+  _on('message_recalled', (e) => { 
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
@@ -5254,13 +5261,13 @@ async function connectRealtime() {
       loadConversations();
     }
   });
-  state.eventSource.addEventListener('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
-  state.eventSource.addEventListener('friends_updated', loadFriends);
-  state.eventSource.addEventListener('friend_request_updated', loadFriendRequests);
-  state.eventSource.addEventListener('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
-  state.eventSource.addEventListener('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); scheduleRenderConversationList(); });
-  state.eventSource.addEventListener('order_updated', () => { scheduleTradeReminderRefresh(120); });
-  state.eventSource.addEventListener('typing_indicator', (e) => {
+  _on('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
+  _on('friends_updated', loadFriends);
+  _on('friend_request_updated', loadFriendRequests);
+  _on('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
+  _on('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); scheduleRenderConversationList(); });
+  _on('order_updated', () => { scheduleTradeReminderRefresh(120); });
+  _on('typing_indicator', (e) => {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
@@ -5270,7 +5277,7 @@ async function connectRealtime() {
     }
   });
 
-  state.eventSource.addEventListener('webrtc_signal', async (e) => {
+  _on('webrtc_signal', async (e) => {
     const payload = safeParseEventData(e);
     if (!payload) return;
     const signal = payload.signal; if (!signal) return;
@@ -5310,7 +5317,7 @@ async function connectRealtime() {
     } else if (signal.type === 'candidate') {
       if (!isCurrentCallPayload(payload)) return;
       if (state.rtc.pc && state.rtc.pc.remoteDescription) { 
-        try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (err) {} 
+        try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (err) { console.warn('[webrtc] addIceCandidate failed:', err); } 
       } else {
         state.rtc.remoteCandidateQueue = state.rtc.remoteCandidateQueue || [];
         state.rtc.remoteCandidateQueue.push(signal.candidate);
@@ -5322,7 +5329,7 @@ async function connectRealtime() {
     }
   });
 
-  state.eventSource.addEventListener('call_event', (e) => {
+  _on('call_event', (e) => {
     const payload = safeParseEventData(e);
     if (!payload) return;
     if (payload.event === 'start') {
