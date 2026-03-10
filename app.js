@@ -126,6 +126,57 @@ function showToast(msg, duration = 2000){
   el._timer = setTimeout(() => { el.style.opacity = '0'; }, duration);
 }
 
+// ---- Custom Modal Dialog (replaces native alert) ----
+function showModal(msg, onOk) {
+  let overlay = document.getElementById('_appModal');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = '_appModal';
+    overlay.innerHTML =
+      '<div class="app-modal-mask"></div>' +
+      '<div class="app-modal-box">' +
+        '<div class="app-modal-body"></div>' +
+        '<div class="app-modal-footer">' +
+          '<button class="app-modal-cancel" style="display:none">取消</button>' +
+          '<button class="app-modal-ok">确定</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    // Style
+    const s = document.createElement('style');
+    s.textContent =
+      '#_appModal{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;}' +
+      '#_appModal.hidden{display:none;}' +
+      '.app-modal-mask{position:absolute;inset:0;background:rgba(0,0,0,.45);}' +
+      '.app-modal-box{position:relative;width:280px;max-width:85vw;background:#fff;border-radius:14px;overflow:hidden;text-align:center;animation:modalIn .2s ease;}' +
+      '@keyframes modalIn{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}' +
+      '.app-modal-body{padding:24px 20px 16px;font-size:15px;line-height:1.5;color:#333;word-break:break-word;white-space:pre-wrap;max-height:60vh;overflow-y:auto;}' +
+      '.app-modal-footer{display:flex;border-top:0.5px solid #e5e7eb;}' +
+      '.app-modal-footer button{flex:1;height:44px;border:none;background:transparent;font-size:16px;cursor:pointer;transition:background .15s;}' +
+      '.app-modal-footer button:active{background:#f2f2f6;}' +
+      '.app-modal-cancel{color:#999;border-right:0.5px solid #e5e7eb !important;}' +
+      '.app-modal-ok{color:#07c160;font-weight:600;}';
+    document.head.appendChild(s);
+  }
+  overlay.classList.remove('hidden');
+  overlay.querySelector('.app-modal-body').textContent = msg;
+  const cancelBtn = overlay.querySelector('.app-modal-cancel');
+  const okBtn = overlay.querySelector('.app-modal-ok');
+  cancelBtn.style.display = 'none';
+  const close = () => { overlay.classList.add('hidden'); };
+  okBtn.onclick = () => { close(); if (onOk) onOk(); };
+  overlay.querySelector('.app-modal-mask').onclick = close;
+}
+function showConfirm(msg, onOk, onCancel) {
+  showModal(msg);
+  const overlay = document.getElementById('_appModal');
+  const cancelBtn = overlay.querySelector('.app-modal-cancel');
+  const okBtn = overlay.querySelector('.app-modal-ok');
+  cancelBtn.style.display = '';
+  cancelBtn.onclick = () => { overlay.classList.add('hidden'); if (onCancel) onCancel(); };
+  okBtn.onclick = () => { overlay.classList.add('hidden'); if (onOk) onOk(); };
+}
+
 function normalizePhoneInput(phone){
   const digits = String(phone || '').replace(/\D+/g, '');
   let normalized = digits;
@@ -379,7 +430,7 @@ async function deleteOrderRecord(orderId){
     if (state.currentProfileUser?.id) await loadProfileOrders();
     showToast('订单已删除');
   }catch(e){
-    alert(e.message || '删除失败（仅已完成订单可删除）');
+    showModal(e.message || '删除失败（仅已完成订单可删除）');
   }
 }
 
@@ -677,7 +728,7 @@ async function updateSelectedOrderPrice(){
     state.selectedOrderDetail = data.order || order;
     await Promise.all([loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
     renderOrderDetailPage();
-  }catch(e){ alert(e.message || '修改失败'); }
+  }catch(e){ showModal(e.message || '修改失败'); }
 }
 
 async function completeSelectedOrder(){
@@ -688,7 +739,7 @@ async function completeSelectedOrder(){
     state.selectedOrderDetail = data.order || order;
     await Promise.all([loadSellerOrders(), loadProfileOrders(), loadBuyerOrders()]);
     renderOrderDetailPage();
-  }catch(e){ alert(e.message || '更新失败'); }
+  }catch(e){ showModal(e.message || '更新失败'); }
 }
 
 function renderBroadcastDrafts(){
@@ -726,13 +777,13 @@ function saveBroadcastDraft(){
   const title = ($("broadcastTitleInput")?.value || '').trim();
   const summary = ($("broadcastSummaryInput")?.value || '').trim();
   const target = ($("broadcastTargetInput")?.value || '').trim();
-  if(!title) return alert('请输入广播标题');
+  if(!title) return showModal('请输入广播标题');
   state.broadcastDrafts.unshift({ id: `b_${Date.now()}`, title, summary, target });
   if($("broadcastTitleInput")) $("broadcastTitleInput").value = '';
   if($("broadcastSummaryInput")) $("broadcastSummaryInput").value = '';
   if($("broadcastTargetInput")) $("broadcastTargetInput").value = '';
   renderBroadcastDrafts();
-  alert('广播草稿已保存');
+  showModal('广播草稿已保存');
   window.openSecondaryPage('broadcastManagePage', state.secondaryReturn || 'profile');
 }
 
@@ -1094,7 +1145,7 @@ function renderCartHubPage(){
 async function submitProfileOrder(){
   const sellerId = state.currentCartSellerId || state.currentProfileUser?.id || '';
   const currentCart = getCurrentSellerCart(sellerId);
-  if(!sellerId || !currentCart.length) return alert('请先选择商品');
+  if(!sellerId || !currentCart.length) return showModal('请先选择商品');
   showLoading('提交订单中...');
   try{
     const payload = {
@@ -1122,7 +1173,7 @@ async function submitProfileOrder(){
     window.openSecondaryPage('profileOrdersPage', backTo);
   }catch(e){
     hideLoading();
-    alert(e.message || '提交订单失败');
+    showModal(e.message || '提交订单失败');
   }
 }
 
@@ -1360,7 +1411,7 @@ function renderProfileOrders(){
         try{
           await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
           await loadProfileOrders();
-        }catch(e){ alert(e.message || '修改失败'); }
+        }catch(e){ showModal(e.message || '修改失败'); }
       });
       actions.appendChild(editBtn);
 
@@ -1375,7 +1426,7 @@ function renderProfileOrders(){
             await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
             await loadProfileOrders();
             if(state.activeConversation?.id) await reloadActiveConversationMessages();
-          }catch(e){ alert(e.message || '更新失败'); }
+          }catch(e){ showModal(e.message || '更新失败'); }
         });
         actions.appendChild(doneBtn);
       }
@@ -1395,14 +1446,14 @@ function hideProfileActionSheet(){ if($("profileActionSheet")) $("profileActionS
 async function sendFriendRequestToCurrentProfile(){
   const p = state.currentProfileUser;
   if(!p || !state.currentUser) return;
-  if(p.isFriend || isFriendUser(p.id)) return alert('对方已经是你的好友');
+  if(p.isFriend || isFriendUser(p.id)) return showModal('对方已经是你的好友');
   const keyword = String(p.username || p.appNumberId || '').trim();
-  if(!keyword) return alert('暂时无法添加该用户');
+  if(!keyword) return showModal('暂时无法添加该用户');
   try{
     await api('/api/friends/request', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting: `你好，我是${state.currentUser.displayName}` }) });
-    alert('好友请求已发送');
+    showModal('好友请求已发送');
   }catch(e){
-    alert(e.message || '发送失败');
+    showModal(e.message || '发送失败');
   }
 }
 
@@ -1418,12 +1469,12 @@ function applyChatRelationshipState(){
 
 function ensureDirectConversationForTrade() {
   if (!state.activeConversation || state.activeConversation.type !== 'direct') {
-    alert('该功能仅支持单聊场景');
+    showModal('该功能仅支持单聊场景');
     return null;
   }
   const peerId = conversationPeerId(state.activeConversation);
   if (!peerId) {
-    alert('未找到会话对象');
+    showModal('未找到会话对象');
     return null;
   }
   return peerId;
@@ -2167,7 +2218,7 @@ function buildOrderCardMessage(msg){
       try{
         await api(`/api/orders/${order.id}/price-request`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
         await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
-      }catch(err){ alert(err.message || '申请失败'); } finally { reqBtn.disabled = false; reqBtn.textContent = '申请改价'; }
+      }catch(err){ showModal(err.message || '申请失败'); } finally { reqBtn.disabled = false; reqBtn.textContent = '申请改价'; }
     });
     actions.appendChild(reqBtn);
   }
@@ -2185,7 +2236,7 @@ function buildOrderCardMessage(msg){
       try{
         await api(`/api/orders/${order.id}/price-confirm`, { method:'POST', body: JSON.stringify({ total: Number(order.pendingPrice || order.total || 0) }) });
         await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
-      }catch(err){ alert(err.message || '确认失败'); } finally { confirmBtn.disabled = false; confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`; }
+      }catch(err){ showModal(err.message || '确认失败'); } finally { confirmBtn.disabled = false; confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`; }
     });
     actions.appendChild(confirmBtn);
   }else if(isParticipant && hasPendingPrice && pendingRequester === currentUserId){
@@ -2747,7 +2798,7 @@ function buildConversationRow(conv) {
       renderConversationListFromState();
       loadConversations();
     } catch (err) {
-      alert(err?.message || '删除失败');
+      showModal(err?.message || '删除失败');
     }
   });
 
@@ -3008,14 +3059,14 @@ window.openSecondaryPage = (page, backTo = 'home') => {
 
 };
 
-window.removeFromBlacklist = async (targetId) => { try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'remove' }) }); $("privacySettingsBtn").click(); } catch(e){ alert(e.message || '操作失败'); } }
+window.removeFromBlacklist = async (targetId) => { try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'remove' }) }); $("privacySettingsBtn").click(); } catch(e){ showModal(e.message || '操作失败'); } }
 window.toggleQQGroup = (el) => { el.classList.toggle('expanded'); const content = el.nextElementSibling; if(content) content.classList.toggle('expanded'); };
-window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return alert('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; if($("imageViewer")) $("imageViewer").classList.remove('hidden'); };
+window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return showModal('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; if($("imageViewer")) $("imageViewer").classList.remove('hidden'); };
 window.closeImageViewer = () => { if($("imageViewer")) $("imageViewer").classList.add('hidden'); if($("viewerImage")) $("viewerImage").removeAttribute('src'); };
 
 window.playAudio = (url, el) => {
   const safe = normalizeMediaUrl(url);
-  if(!safe) { if(el) el.classList.remove('playing'); return alert('无效语音地址'); }
+  if(!safe) { if(el) el.classList.remove('playing'); return showModal('无效语音地址'); }
   const isSameBubble = window.currentAudioEl === el && window.currentAudio;
   if (isSameBubble && !window.currentAudio.paused) {
       window.currentAudio.pause();
@@ -3031,15 +3082,15 @@ window.playAudio = (url, el) => {
       window.currentAudioEl = el;
       el.classList.add('playing');
       window.currentAudio.onended = () => { if (el) el.classList.remove('playing'); };
-      window.currentAudio.onerror = () => { alert('设备不支持此录音格式'); if (el) el.classList.remove('playing'); };
-      window.currentAudio.play().catch(() => { alert('播放被拦截，请重试'); if (el) el.classList.remove('playing'); });
+      window.currentAudio.onerror = () => { showModal('设备不支持此录音格式'); if (el) el.classList.remove('playing'); };
+      window.currentAudio.play().catch(() => { showModal('播放被拦截，请重试'); if (el) el.classList.remove('playing'); });
   } catch(e) {
       if (el) el.classList.remove('playing');
-      alert('播放器初始化失败。');
+      showModal('播放器初始化失败。');
   }
 };
 
-window.copyText = (enc) => { navigator.clipboard ? navigator.clipboard.writeText(decodeURIComponent(enc)) : alert('已复制'); };
+window.copyText = (enc) => { navigator.clipboard ? navigator.clipboard.writeText(decodeURIComponent(enc)) : showModal('已复制'); };
 window.deleteLocalMsg = async (id) => {
   if (!state.activeConversation?.id) return;
   const conversationId = state.activeConversation.id;
@@ -3056,7 +3107,7 @@ window.deleteLocalMsg = async (id) => {
     state.messages = prevMessages;
     renderMessages();
   applyLastOutgoingReadState();
-    alert(e.message || '删除失败');
+    showModal(e.message || '删除失败');
   }
 };
 window.recallMsg = async (id) => {
@@ -3067,7 +3118,7 @@ window.recallMsg = async (id) => {
     syncActiveConversationListMeta();
     renderConversationListFromState();
     loadConversations();
-  } catch(e) { alert(e.message || '撤回失败'); }
+  } catch(e) { showModal(e.message || '撤回失败'); }
 };
 
 let msgToForward = null;
@@ -3156,7 +3207,7 @@ window.forwardMsg = (msgId) => {
 };
 window.confirmForward = async (convId) => {
   if($("forwardModal")) $("forwardModal").classList.add('hidden'); if(!msgToForward) return;
-  try { await api(`/api/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, type: msgToForward.type, text: msgToForward.text, imageUrl: msgToForward.imageUrl, audioUrl: msgToForward.audioUrl, card: msgToForward.card }) }); alert('已转发'); } catch(e) { alert('转发失败: ' + e.message); }
+  try { await api(`/api/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, type: msgToForward.type, text: msgToForward.text, imageUrl: msgToForward.imageUrl, audioUrl: msgToForward.audioUrl, card: msgToForward.card }) }); showModal('已转发'); } catch(e) { showModal('转发失败: ' + e.message); }
 };
 
 window.showContextMenu = function(event, msg) {
@@ -3184,19 +3235,19 @@ window.showContextMenu = function(event, msg) {
 };
 
 window.openProductChat = async (sellerId, title, price, image) => {
-  if(sellerId === state.currentUser.id) return alert("这是你自己发布的商品哦！");
+  if(sellerId === state.currentUser.id) return showModal("这是你自己发布的商品哦！");
   try {
     const data = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ creatorId: state.currentUser.id, memberIds: [sellerId] }) });
     await window.openConversation(data.conversation.id);
     $("messageInput").value = `你好，我想买你的【${title}】`; $("messageInput").dispatchEvent(new Event("input"));
     window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: '来自ChatTrade商城', imageUrl: image } }).catch(() => {});
-  } catch(e) { alert("发起交易沟通失败"); }
+  } catch(e) { showModal("发起交易沟通失败"); }
 };
 
 window.acceptRequest = async (requestId) => {
   const btn = $("profileAcceptRequestBtn");
   if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
-  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); alert('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '操作失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '接受'; } }
+  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); showModal('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message || '操作失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '接受'; } }
 };
 
 window.rejectRequest = async (requestId) => {
@@ -3208,7 +3259,7 @@ window.rejectRequest = async (requestId) => {
     await loadFriendRequests();
     updateProfileDetailActions();
   } catch (e) {
-    alert(e.message || '操作失败');
+    showModal(e.message || '操作失败');
   } finally { if (btn) { btn.disabled = false; btn.textContent = '拒绝'; } }
 };
 
@@ -3218,20 +3269,20 @@ window.deleteMyProduct = async (productId) => {
   try {
     await api('/api/products/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, productId }) });
     await refreshProductViews();
-  } catch(e) { alert("删除失败：" + e.message); } finally { hideLoading(); }
+  } catch(e) { showModal("删除失败：" + e.message); } finally { hideLoading(); }
 };
 
 window.updateSellerProductStock = async (productId, currentStock = 0) => {
   const raw = prompt('请输入新的库存数量', String(Math.max(0, Math.floor(Number(currentStock || 0)))));
   if (raw === null) return;
   const stock = Math.max(0, Math.floor(Number(raw)));
-  if (!Number.isFinite(stock)) return alert('请输入有效库存');
+  if (!Number.isFinite(stock)) return showModal('请输入有效库存');
   try {
     await api('/api/products/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, productId, stock }) });
     await refreshProductViews();
     showToast('库存已更新');
   } catch (e) {
-    alert(e.message || '库存更新失败');
+    showModal(e.message || '库存更新失败');
   }
 };
 
@@ -3242,12 +3293,12 @@ window.toggleSellerProductListed = async (productId, nextListed) => {
     await refreshProductViews();
     showToast(nextListed ? '商品已上架' : '商品已下架');
   } catch (e) {
-    alert(e.message || '商品状态更新失败');
+    showModal(e.message || '商品状态更新失败');
   } finally { hideLoading(); }
 };
 
 window.deleteGroup = async (groupName) => {
-  if(groupName === '我的好友') return alert('“我的好友”是全部好友列表，不能删除。');
+  if(groupName === '我的好友') return showModal('“我的好友”是全部好友列表，不能删除。');
   if(!confirm(`确定删除分组 [${groupName}] 吗？
 该分组下的好友将被移入“我的好友”。`)) return;
   try {
@@ -3255,24 +3306,24 @@ window.deleteGroup = async (groupName) => {
     syncSessionGroups(data.groups || getCustomGroups().filter(g => g !== groupName));
     await loadFriends();
     renderGroupManageList();
-    alert('分组已删除');
-  } catch(e) { alert(e.message || '删除失败'); }
+    showModal('分组已删除');
+  } catch(e) { showModal(e.message || '删除失败'); }
 };
 
 window.renameGroup = async (groupName) => {
-  if (groupName === '我的好友') return alert('“我的好友”是全部好友列表，不能重命名。');
+  if (groupName === '我的好友') return showModal('“我的好友”是全部好友列表，不能重命名。');
   const nextNameRaw = prompt('请输入新的分组名称：', groupName);
   if (nextNameRaw === null) return;
   const nextName = normalizeGroupNameInput(nextNameRaw);
-  if (!nextName) return alert('分组名称不能为空');
+  if (!nextName) return showModal('分组名称不能为空');
   const groups = getCustomGroups();
-  if (groups.includes(nextName) && nextName !== groupName) return alert('分组名称已存在');
+  if (groups.includes(nextName) && nextName !== groupName) return showModal('分组名称已存在');
   try {
     const data = await api('/api/groups/rename', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, groupName, newName: nextName }) });
     syncSessionGroups(data.groups || groups.map((g) => g === groupName ? nextName : g));
     await loadFriends();
     renderGroupManageList();
-  } catch (e) { alert(e.message || '重命名失败'); }
+  } catch (e) { showModal(e.message || '重命名失败'); }
 };
 
 window.moveGroupOrder = async (groupName, offset) => {
@@ -3282,7 +3333,7 @@ window.moveGroupOrder = async (groupName, offset) => {
     syncSessionGroups(data.groups || getCustomGroups());
     renderGroupManageList();
     await loadFriends();
-  } catch (e) { alert(e.message || '排序失败'); }
+  } catch (e) { showModal(e.message || '排序失败'); }
 };
 
 window.openGroupSelect = (targetUserId) => {
@@ -3307,10 +3358,10 @@ window.confirmMoveGroup = async (groupName) => {
     $("groupSelectSheet").classList.add('hidden');
     try {
         await api('/api/friends/group', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: state.targetForGroupMove, group: groupName }) });
-        alert("已成功移至分组：" + groupName);
+        showModal("已成功移至分组：" + groupName);
         loadFriends();
         if($("backBtn") && !$("profileDetailPage").classList.contains("hidden")) $("backBtn").click();
-    } catch(e) { alert(e.message); }
+    } catch(e) { showModal(e.message); }
 };
 
 
@@ -3460,7 +3511,7 @@ window.openPrivateChat = async (targetUserId) => {
   try {
     const data = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ creatorId: state.currentUser.id, memberIds: [targetUserId] }) });
     await window.openConversation(data.conversation.id);
-  } catch(e) { alert("发起沟通失败"); }
+  } catch(e) { showModal("发起沟通失败"); }
 };
 
 window.openUserProfile = async (userId, fallbackName) => {
@@ -3486,7 +3537,7 @@ window.openUserProfile = async (userId, fallbackName) => {
     }
   } catch (e) {
     console.warn('openUserProfile failed', e);
-    alert('打开个人主页失败，请稍后重试');
+    showModal('打开个人主页失败，请稍后重试');
   }
 };
 
@@ -3524,9 +3575,9 @@ window.sendMessage = async (payload) => {
     syncActiveConversationListMeta();
     renderConversationListFromState();
     if (err.message && err.message.includes('拒收')) {
-      alert(err.message);
+      showModal(err.message);
     } else {
-      alert("发送失败: " + err.message);
+      showModal("发送失败: " + err.message);
     }
   }
 };
@@ -3690,7 +3741,7 @@ function bindAllEvents() {
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (e) {
-      alert(e.message || '验证码错误');
+      showModal(e.message || '验证码错误');
       clearCodeBoxes('loginCodeBoxes');
     }
   });
@@ -3699,7 +3750,7 @@ function bindAllEvents() {
   on("doLoginBtn", "click", async () => {
     const phone = normalizePhoneInput($("loginPwdPhone")?.value.trim());
     const p = $("loginPassword")?.value;
-    if (!phone || !p) return alert("请输入手机号和密码");
+    if (!phone || !p) return showModal("请输入手机号和密码");
     const btn = $("doLoginBtn");
     btn.disabled = true;
     btn.textContent = "登录中...";
@@ -3708,7 +3759,7 @@ function bindAllEvents() {
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
-      alert("登录失败：" + (err.message || "请检查手机号和密码"));
+      showModal("登录失败：" + (err.message || "请检查手机号和密码"));
     } finally {
       btn.disabled = false;
       btn.textContent = "登录";
@@ -3754,9 +3805,9 @@ function bindAllEvents() {
     const u = $("registerUsername")?.value.trim();
     const p = $("registerPassword")?.value;
     const phone = window._authState.regPhone;
-    if (!n || !u || !p) return alert("请填写完整信息");
-    if (!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return alert('登录账号需为3-32位英文、数字或下划线');
-    if (p.length < 8) return alert('密码至少8位');
+    if (!n || !u || !p) return showModal("请填写完整信息");
+    if (!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return showModal('登录账号需为3-32位英文、数字或下划线');
+    if (p.length < 8) return showModal('密码至少8位');
     const btn = $("doRegisterBtn");
     btn.disabled = true;
     btn.textContent = "注册中...";
@@ -3765,7 +3816,7 @@ function bindAllEvents() {
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
-      alert("注册失败：" + (err.message || "账号可能已存在"));
+      showModal("注册失败：" + (err.message || "账号可能已存在"));
     } finally {
       btn.disabled = false;
       btn.textContent = "完成注册";
@@ -3780,17 +3831,17 @@ function bindAllEvents() {
   on("forgotPasswordBtn2", "click", () => authGotoStep('authForgotPwd'));
   on("authForgotSendBtn", "click", async () => {
     const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
-    if (!phone) return alert('请输入11位手机号');
+    if (!phone) return showModal('请输入11位手机号');
     const sendBtn = $("authForgotSendBtn");
     sendBtn.disabled = true;
     sendBtn.textContent = '发送中...';
     try {
       await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'reset' }) });
-      alert('验证码已发送（测试环境请输入 1234）');
+      showModal('验证码已发送（测试环境请输入 1234）');
     } catch (e) {
       const waitSec = Number(e?.data?.retryAfterSec || 0);
-      if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
-      else alert(e.message || '发送验证码失败');
+      if (waitSec > 0) showModal(`操作频繁，请${waitSec}秒后重试`);
+      else showModal(e.message || '发送验证码失败');
     } finally {
       sendBtn.disabled = false;
       sendBtn.textContent = '获取验证码';
@@ -3800,18 +3851,18 @@ function bindAllEvents() {
     const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
     const code = $("authForgotCode")?.value.trim();
     const newPassword = $("authForgotNewPwd")?.value || '';
-    if (!phone || !code || !newPassword) return alert('请填写完整信息');
-    if (!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
-    if (newPassword.length < 8) return alert('新密码至少8位');
+    if (!phone || !code || !newPassword) return showModal('请填写完整信息');
+    if (!/^\d{4}$/.test(code)) return showModal('请输入4位验证码');
+    if (newPassword.length < 8) return showModal('新密码至少8位');
     const submitBtn = $("authForgotSubmitBtn");
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
     try {
       await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
-      alert('密码重置成功，请重新登录');
+      showModal('密码重置成功，请重新登录');
       authGotoStep('authLoginPassword');
     } catch (e) {
-      alert(e.message || '重置密码失败');
+      showModal(e.message || '重置密码失败');
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = '重置密码';
@@ -3821,34 +3872,34 @@ function bindAllEvents() {
   // ---- Settings: forgot password page (in appScreen for logged-in users) ----
   on("sendForgotCodeBtn", "click", async () => {
     const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
-    if (!phone) return alert('请输入11位手机号');
+    if (!phone) return showModal('请输入11位手机号');
     const sendBtn = $("sendForgotCodeBtn");
     sendBtn.disabled = true;
     sendBtn.textContent = '发送中...';
     try {
       await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'reset' }) });
-      alert('验证码已发送（测试环境请输入 1234）');
+      showModal('验证码已发送（测试环境请输入 1234）');
     } catch (e) {
       const waitSec = Number(e?.data?.retryAfterSec || 0);
-      if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
-      else alert(e.message || '发送验证码失败');
+      if (waitSec > 0) showModal(`操作频繁，请${waitSec}秒后重试`);
+      else showModal(e.message || '发送验证码失败');
     } finally { sendBtn.disabled = false; sendBtn.textContent = '获取验证码'; }
   });
   on("submitForgotPasswordBtn", "click", async () => {
     const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
     const code = $("forgotCodeInput")?.value.trim();
     const newPassword = $("forgotNewPasswordInput")?.value || '';
-    if (!phone || !code || !newPassword) return alert('请填写完整信息');
-    if (!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
-    if (newPassword.length < 8) return alert('新密码至少8位');
+    if (!phone || !code || !newPassword) return showModal('请填写完整信息');
+    if (!/^\d{4}$/.test(code)) return showModal('请输入4位验证码');
+    if (newPassword.length < 8) return showModal('新密码至少8位');
     const submitBtn = $("submitForgotPasswordBtn");
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
     try {
       await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
-      alert('密码重置成功，请重新登录');
+      showModal('密码重置成功，请重新登录');
       localStorage.removeItem(SESSION_KEY); location.reload();
-    } catch (e) { alert(e.message || '重置密码失败');
+    } catch (e) { showModal(e.message || '重置密码失败');
     } finally { submitBtn.disabled = false; submitBtn.textContent = '重置密码'; }
   });
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'settingsPage'));
@@ -3860,20 +3911,20 @@ function bindAllEvents() {
   on("aboutPrivacyBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'aboutPage'));
   on("sendChangePhoneCodeBtn", "click", async () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
-    if(!phone) return alert('请输入11位手机号');
+    if(!phone) return showModal('请输入11位手机号');
     const btn = $("sendChangePhoneCodeBtn");
     if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
     try {
       const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
-      alert(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
+      showModal(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
     } catch (e) {
-      alert(e.message || '发送失败');
+      showModal(e.message || '发送失败');
     } finally { if (btn) { btn.disabled = false; btn.textContent = '获取验证码'; } }
   });
   on("submitChangePhoneBtn", "click", async () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     const code = $("changePhoneCodeInput")?.value.trim();
-    if(!phone || !code) return alert('请填写手机号和验证码');
+    if(!phone || !code) return showModal('请填写手机号和验证码');
     const btn = $("submitChangePhoneBtn");
     if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
     try {
@@ -3881,29 +3932,29 @@ function bindAllEvents() {
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
       if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
-      alert('手机号修改成功');
+      showModal('手机号修改成功');
       if($("backBtn")) $("backBtn").click();
     } catch (e) {
-      alert(e.message || '修改失败');
+      showModal(e.message || '修改失败');
     } finally { if (btn) { btn.disabled = false; btn.textContent = '确认修改'; } }
   });
   on("submitChangePasswordBtn", "click", async () => {
     const oldPassword = $("oldPasswordInput")?.value || '';
     const newPassword = $("newPasswordInput")?.value || '';
-    if(!oldPassword.trim() || !newPassword.trim()) return alert('请填写旧密码和新密码');
-    if(oldPassword === newPassword) return alert('新密码不能与旧密码相同');
-    if((newPassword || '').length < 8) return alert('新密码至少8位');
+    if(!oldPassword.trim() || !newPassword.trim()) return showModal('请填写旧密码和新密码');
+    if(oldPassword === newPassword) return showModal('新密码不能与旧密码相同');
+    if((newPassword || '').length < 8) return showModal('新密码至少8位');
     const submitBtn = $("submitChangePasswordBtn");
     submitBtn.disabled = true;
     const prevText = submitBtn.textContent;
     submitBtn.textContent = '提交中...';
     try {
       await api('/api/password/change', { method:'POST', body: JSON.stringify({ oldPassword, newPassword }) });
-      alert('密码修改成功，请重新登录');
+      showModal('密码修改成功，请重新登录');
       localStorage.removeItem(SESSION_KEY);
       location.reload();
     } catch (e) {
-      alert(e.message || '修改密码失败');
+      showModal(e.message || '修改密码失败');
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = prevText || '保存新密码';
@@ -4030,7 +4081,7 @@ function bindAllEvents() {
           state.tempProductImage = null;
           $("productImagePreview").textContent = "+";
           setPublishProductHint('图片上传失败，请重试', 'error');
-          alert('商品图片上传失败: ' + err.message);
+          showModal('商品图片上传失败: ' + err.message);
       } finally {
           if($("submitProductBtn")) $("submitProductBtn").disabled = false;
       }
@@ -4058,11 +4109,11 @@ function bindAllEvents() {
           if (state.publishEditingProductId) {
             await api('/api/products/update', { method: 'POST', body: JSON.stringify({ ...payload, productId: state.publishEditingProductId }) });
             setPublishProductHint('商品已更新，展示页已同步', 'success');
-            alert("商品已更新！");
+            showModal("商品已更新！");
           } else {
             await api('/api/products', { method: 'POST', body: JSON.stringify(payload) });
             setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
-            alert("发布成功！");
+            showModal("发布成功！");
           }
           await refreshProductViews();
           state.publishEditingProductId = '';
@@ -4073,7 +4124,7 @@ function bindAllEvents() {
           }
       } catch(e) {
           setPublishProductHint(e.message || '操作失败，请稍后再试', 'error');
-          alert(e.message);
+          showModal(e.message);
       } finally {
           if($("submitProductBtn")){
             $("submitProductBtn").disabled = false;
@@ -4100,7 +4151,7 @@ function bindAllEvents() {
       } catch (err) {
           state.tempAvatarUrl = state.currentUser?.avatarUrl || null;
           setImagePreview($("editAvatarPreview"), state.tempAvatarUrl, firstChar(state.currentUser?.displayName));
-          alert('头像上传失败: ' + err.message);
+          showModal('头像上传失败: ' + err.message);
       }
   });
   
@@ -4116,19 +4167,19 @@ function bindAllEvents() {
 
   on("saveProfileBtn", "click", async () => {
       const name = $("editNameInput").value.trim(); const sign = $("editSignatureInput").value.trim();
-      if(!name) return alert("名字不能为空");
+      if(!name) return showModal("名字不能为空");
       const btn = $("saveProfileBtn");
       if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
       try {
           const data = await api('/api/users/update', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, displayName: name, signature: sign, avatarUrl: state.tempAvatarUrl }) });
-          state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); alert("资料修改成功！");
+          state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); showModal("资料修改成功！");
           if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName;
           if($("myProfileAvatar")) {
               if(state.currentUser.avatarUrl) setImagePreview($("myProfileAvatar"), state.currentUser.avatarUrl, firstChar(state.currentUser.displayName));
               else $("myProfileAvatar").textContent = firstChar(state.currentUser.displayName);
           }
           if($("backBtn")) $("backBtn").click();
-      } catch(e) { alert("保存失败: " + e.message); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+      } catch(e) { showModal("保存失败: " + e.message); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
   });
 
   on("messagesTab", "click", () => setMainTab('messages'));
@@ -4166,7 +4217,7 @@ function bindAllEvents() {
   on("logoutBtn", "click", async () => { if(confirm("确定要退出登录吗？")) { nativeOnLogout(state.currentUser?.id); try { await api('/api/logout', { method: 'POST' }); } catch (e) { console.warn('logout api failed, fallback to local logout', e); } localStorage.removeItem(SESSION_KEY); location.reload(); } });
   on("clearCacheBtn", "click", () => { if(confirm("确定清理本地缓存吗？")) { localStorage.clear(); location.reload(); } });
   on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
-  on("globalNotifyBtn", "click", () => { alert("新消息通知目前跟随系统默认设置开启"); });
+  on("globalNotifyBtn", "click", () => { showModal("新消息通知目前跟随系统默认设置开启"); });
   on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage'); loadMyProducts(); });
   on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
@@ -4227,8 +4278,8 @@ function bindAllEvents() {
   async function uploadSellerPaymentCode(kind, file){
     if (!file) return;
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'];
-    if (!allowedTypes.includes(file.type)) return alert('请上传图片文件（JPG/PNG/GIF/WebP）');
-    if (file.size > 5 * 1024 * 1024) return alert('图片大小不能超过5MB');
+    if (!allowedTypes.includes(file.type)) return showModal('请上传图片文件（JPG/PNG/GIF/WebP）');
+    if (file.size > 5 * 1024 * 1024) return showModal('图片大小不能超过5MB');
     try {
       const blob = await resizeImageFile(file, 1000, 0.8);
       const url = await uploadBinary(blob, file.name || `${kind}_qrcode.jpg`, 'image/jpeg');
@@ -4236,7 +4287,7 @@ function bindAllEvents() {
       renderSellerPaymentDraft();
       showToast('收款码上传成功');
     } catch (e) {
-      alert(e.message || '收款码上传失败');
+      showModal(e.message || '收款码上传失败');
     }
   }
 
@@ -4274,16 +4325,16 @@ function bindAllEvents() {
       alipay: state.paymentCodeDraft?.alipay || '',
       cloudpay: state.paymentCodeDraft?.cloudpay || '',
     };
-    if (!paymentCodes.wechat && !paymentCodes.alipay && !paymentCodes.cloudpay) return alert('请至少上传一个收款码');
+    if (!paymentCodes.wechat && !paymentCodes.alipay && !paymentCodes.cloudpay) return showModal('请至少上传一个收款码');
     const btn = $("saveSellerPaymentBtn");
     if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
     try{
       const data = await api('/api/users/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, paymentCodes }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
-      alert('收款码已保存');
+      showModal('收款码已保存');
       window.openSecondaryPage('sellerCenterPage', state.secondaryReturn || 'profile');
-    }catch(e){ alert(e.message || '保存失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+    }catch(e){ showModal(e.message || '保存失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
   });
 
   on("privacySettingsBtn", "click", async () => {
@@ -4316,13 +4367,13 @@ function bindAllEvents() {
           }
       } catch(e){
         console.warn('load blacklist failed', e);
-        alert(e?.message || '加载黑名单失败');
+        showModal(e?.message || '加载黑名单失败');
       }
   });
   
   on("chatSettingsBtn", "click", () => {
       if(!$("profileDetailPage")?.classList.contains("hidden")) { showProfileActionSheet(); return; }
-      if(!state.activeConversation) { alert('当前没有打开会话'); return; }
+      if(!state.activeConversation) { showModal('当前没有打开会话'); return; }
       window.openSecondaryPage("messageSettingsPage", "chat");
       const profileCard = $("chatSettingsPeerProfile");
       const peerId = conversationPeerId(state.activeConversation);
@@ -4381,14 +4432,14 @@ function bindAllEvents() {
       }
       return res || { ok: true };
     } catch(e) {
-      alert(e.message || '操作失败');
+      showModal(e.message || '操作失败');
       return null;
     }
   };
   on("muteSettingBtn", "click", async () => {
     const res = await toggleAction('mute');
     if (!res) return;
-    alert(res.muted ? '已开启免打扰' : '已关闭免打扰');
+    showModal(res.muted ? '已开启免打扰' : '已关闭免打扰');
     sortConversationsInPlace();
     renderConversationListFromState();
     loadConversations();
@@ -4396,7 +4447,7 @@ function bindAllEvents() {
   on("pinConversationBtn", "click", async () => {
     const res = await toggleAction('pin');
     if (!res) return;
-    alert(res.pinned ? '已置顶会话' : '已取消置顶');
+    showModal(res.pinned ? '已置顶会话' : '已取消置顶');
     sortConversationsInPlace();
     renderConversationListFromState();
     loadConversations();
@@ -4405,7 +4456,7 @@ function bindAllEvents() {
     if(!confirm("确认清空?")) return;
     const res = await toggleAction('clear');
     if (!res) return;
-    alert('聊天记录已清空');
+    showModal('聊天记录已清空');
     state.messages = [];
     state.messageBefore = null;
     renderMessages();
@@ -4417,21 +4468,21 @@ function bindAllEvents() {
 
   on("blacklistBtn", "click", async () => {
       const peerId = conversationPeerId(state.activeConversation);
-      if(!peerId) return alert('未找到会话对象');
-      if(confirm("确定把他加入黑名单吗？加入后将拒收他的消息。")) { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); alert("已加入黑名单"); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); alert(e?.message || '加入黑名单失败'); } finally { hideLoading(); } }
+      if(!peerId) return showModal('未找到会话对象');
+      if(confirm("确定把他加入黑名单吗？加入后将拒收他的消息。")) { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); showModal("已加入黑名单"); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); showModal(e?.message || '加入黑名单失败'); } finally { hideLoading(); } }
   });
   on("deleteFriendBtn", "click", async () => {
       if(!confirm("确定删除好友并清空聊天记录?")) return;
       const peerId = conversationPeerId(state.activeConversation);
-      if(!peerId) return alert('未找到会话对象');
+      if(!peerId) return showModal('未找到会话对象');
       showLoading('删除中...');
       try {
         await api('/api/friends/delete', { method:'POST', body: JSON.stringify({userId: state.currentUser.id, friendId: peerId}) });
         state.friends = (state.friends || []).filter((item) => item.friend?.id !== peerId);
-        alert('好友已删除');
+        showModal('好友已删除');
         await Promise.all([loadFriends(), loadConversations()]);
         $("backBtn")?.click();
-      } catch(e) { alert(e.message || '删除失败'); } finally { hideLoading(); }
+      } catch(e) { showModal(e.message || '删除失败'); } finally { hideLoading(); }
   });
 
   on("homeMoreBtn", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.remove("hidden"); });
@@ -4440,23 +4491,23 @@ function bindAllEvents() {
   on("menuScan", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('scanPage'); });
 
   on("doSearchFriendBtn", "click", async () => {
-      const keyword = $("addFriendSearchInput").value.trim(); if (!keyword) return alert("请输入对方账号或ID");
+      const keyword = $("addFriendSearchInput").value.trim(); if (!keyword) return showModal("请输入对方账号或ID");
       const greeting = prompt('打个招呼吧：', `你好，我是${state.currentUser.displayName}`); if(greeting === null) return;
       const btn = $("doSearchFriendBtn");
       if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
-      try { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting }) }); alert('好友请求已发送');
-        refreshFriendRequestState(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '搜索并添加'; } }
+      try { await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting }) }); showModal('好友请求已发送');
+        refreshFriendRequestState(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '搜索并添加'; } }
   });
   const submitScanRequest = async () => {
-      const keyword = ($("scanIdInput")?.value || '').trim(); if (!keyword) return alert('请输入对方 ChatTrade ID');
+      const keyword = ($("scanIdInput")?.value || '').trim(); if (!keyword) return showModal('请输入对方 ChatTrade ID');
       const greeting = `你好，我是${state.currentUser.displayName}`;
       try {
         await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting }) });
-        alert('好友请求已发送');
+        showModal('好友请求已发送');
         refreshFriendRequestState();
         if($("scanIdInput")) $("scanIdInput").value = '';
         if($("backBtn")) $("backBtn").click();
-      } catch(e) { alert(e.message || '未找到该用户'); }
+      } catch(e) { showModal(e.message || '未找到该用户'); }
   };
   on("toggleManualScanBtn", "click", () => {
     if($("scanManualPanel")) $("scanManualPanel").classList.toggle('hidden');
@@ -4479,7 +4530,7 @@ function bindAllEvents() {
     if (!ok) {
       $("scanManualPanel")?.classList.remove('hidden');
       if($("scanIdInput")) $("scanIdInput").focus();
-      alert('未能识别二维码，请手动输入 ChatTrade ID');
+      showModal('未能识别二维码，请手动输入 ChatTrade ID');
     }
   });
   on("scanSubmitBtn", "click", submitScanRequest);
@@ -4492,7 +4543,7 @@ function bindAllEvents() {
     try {
       await window.openPrivateChat(p.id);
     } catch(e) {
-      alert(e.message || '打开会话失败');
+      showModal(e.message || '打开会话失败');
     }
   });
     on("myCartEntryBtn", "click", () => {
@@ -4509,7 +4560,7 @@ function bindAllEvents() {
   on("closeSpecSheetBtn", "click", closeProductSpecSheet);
   on("confirmAddToCartBtn", "click", addSelectedProductToCart);
   on("saveProductEditorBtn", "click", () => {
-    alert('商品草稿已保存');
+    showModal('商品草稿已保存');
     if($("productEditorTitle")) $("productEditorTitle").value = '';
     if($("productEditorPrice")) $("productEditorPrice").value = '';
     if($("productEditorDesc")) $("productEditorDesc").value = '';
@@ -4524,7 +4575,7 @@ function bindAllEvents() {
   on("saveBroadcastDraftBtn", "click", saveBroadcastDraft);
   on("sendBroadcastNowBtn", "click", async () => {
     const draft = state.selectedBroadcastDraft;
-    if(!draft) return alert('请先选择一条广播');
+    if(!draft) return showModal('请先选择一条广播');
     const title = draft.title || '广播通知';
     const summary = draft.summary || '';
     const btn = $("sendBroadcastNowBtn");
@@ -4533,7 +4584,7 @@ function bindAllEvents() {
       await window.sendMessage({ type: 'broadcast_card', broadcast: { title, summary, cover: '' } });
       showToast('广播已发送');
       if($("backBtn")) $("backBtn").click();
-    } catch(e) { alert(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '发送'; } }
+    } catch(e) { showModal(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '发送'; } }
   });
 
   on("profileMoreBtn", "click", () => showProfileActionSheet());
@@ -4545,33 +4596,33 @@ function bindAllEvents() {
       hideProfileActionSheet();
       const newRemark = prompt("请输入好友备注名：", p.remarkName || "");
       if(newRemark === null) return;
-      try { await api('/api/friends/remark', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: p.id, remark: newRemark }) }); alert("备注设置成功"); loadFriends(); loadConversations(); if($("backBtn")) $("backBtn").click(); } catch(e) { alert(e.message); }
+      try { await api('/api/friends/remark', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: p.id, remark: newRemark }) }); showModal("备注设置成功"); loadFriends(); loadConversations(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message); }
   });
   on("profileActionMoveGroupBtn", "click", () => { hideProfileActionSheet(); if(state.currentProfileUser) window.openGroupSelect(state.currentProfileUser.id); });
   on("profileActionBlacklistBtn", "click", async () => {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
       showLoading('处理中...');
-      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); alert('已加入黑名单'); loadFriends(); } catch(e) { alert(e.message || '操作失败'); } finally { hideLoading(); }
+      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); showModal('已加入黑名单'); loadFriends(); } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
   });
-  on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); alert('已收到举报，我们会尽快处理'); });
+  on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); showModal('已收到举报，我们会尽快处理'); });
   on("btnSettingsMoveGroup", "click", () => { const peerId = conversationPeerId(state.activeConversation); if(peerId) window.openGroupSelect(peerId); });
 
   on("openGroupManageBtn", "click", () => window.openSecondaryPage('groupManagePage'));
   on("openFriendRequestsBtn", "click", () => window.openSecondaryPage('friendRequestsView'));
   on("doAddGroupBtn", "click", async () => {
       const n = normalizeGroupNameInput($("newGroupInput").value);
-      if(!n) return alert('分组名称不能为空');
+      if(!n) return showModal('分组名称不能为空');
       let cg = getCustomGroups();
-      if(cg.includes(n)) return alert('分组已存在');
+      if(cg.includes(n)) return showModal('分组已存在');
       try {
         const data = await api('/api/groups/create', {method:'POST', body: JSON.stringify({userId: state.currentUser.id, name: n})});
         syncSessionGroups(data.groups || [...cg, n]);
         renderGroupManageList();
         $("newGroupInput").value = '';
         await loadFriends();
-        alert('添加分组成功');
-      } catch(e) { alert(e.message || '添加失败'); }
+        showModal('添加分组成功');
+      } catch(e) { showModal(e.message || '添加失败'); }
   });
 
   on("imageViewer", "click", (e) => { if(e.target === $("imageViewer")) window.closeImageViewer(); });
@@ -4626,17 +4677,17 @@ function bindAllEvents() {
           state.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {}); state.audioChunks = []; recordStartTime = Date.now();
           state.mediaRecorder.ondataavailable = ev => state.audioChunks.push(ev.data);
           state.mediaRecorder.onstop = async () => {
-              if (Date.now() - recordStartTime < 1000) return alert("录音太短");
+              if (Date.now() - recordStartTime < 1000) return showModal("录音太短");
               try {
                   const audioBlob = new Blob(state.audioChunks, { type: mimeType || 'audio/webm' });
                   const audioUrl = await uploadBinary(audioBlob, `voice_${Date.now()}.webm`, audioBlob.type || 'audio/webm');
                   await window.sendMessage({ type: 'audio', audioUrl });
               } catch (err) {
-                  alert('语音上传失败: ' + err.message);
+                  showModal('语音上传失败: ' + err.message);
               }
           };
           state.mediaRecorder.start();
-      } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; alert("无录音权限"); }
+      } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; showModal("无录音权限"); }
   });
   on("pttBtn", "touchend", (e) => {
       e.preventDefault(); if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
@@ -4701,13 +4752,13 @@ function bindAllEvents() {
           const imageUrl = await uploadBinary(blob, file.name || `image_${Date.now()}.jpg`, 'image/jpeg');
           await window.sendMessage({ type: "image", imageUrl });
       } catch (err) {
-          alert('图片上传失败: ' + err.message);
+          showModal('图片上传失败: ' + err.message);
       }
   };
   on("imageInput", "change", handleImageUpload);
   on("cameraInput", "change", handleImageUpload);
 
-  on("toggleSpeakerBtn", "click", () => { alert('【原生限制说明】\n网页端无法用代码强制切换听筒，请直接按手机侧边的音量键调节声音。'); });
+  on("toggleSpeakerBtn", "click", () => { showModal('【原生限制说明】\n网页端无法用代码强制切换听筒，请直接按手机侧边的音量键调节声音。'); });
   on("toggleMuteBtn", "click", () => { if (!state.rtc.localStream) return; isMuted = !isMuted; state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted); if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; } if($("muteText")) $("muteText").textContent = isMuted ? "已静音" : "静音"; });
   on("toggleCameraBtn", "click", () => { if (!state.rtc.localStream) return; isCameraOff = !isCameraOff; state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff); if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; } if($("cameraText")) $("cameraText").textContent = isCameraOff ? "已关镜头" : "镜头"; });
   
@@ -4742,7 +4793,7 @@ function bindAllEvents() {
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
           if($("callName")) $("callName").textContent = peerName;
           state.rtc.pendingOffer = null; 
-      } catch (err) { window.stopCall(); alert(err && err.message ? err.message : '接听失败'); } finally { state.rtc._accepting = false; }
+      } catch (err) { window.stopCall(); showModal(err && err.message ? err.message : '接听失败'); } finally { state.rtc._accepting = false; }
   });
   
   on("rejectCallBtn", "click", () => { finalizeCall({ event: 'reject', reason: 'manual' }); });
@@ -5405,7 +5456,7 @@ function insertCallRecordMessage(ev, meta = {}){
 function finalizeCall(options = {}) {
   const { alertText = '', event = '', reason = '' } = options;
   if (!hasActiveCallSession()) {
-    if (alertText) alert(alertText);
+    if (alertText) showModal(alertText);
     return;
   }
   const callConversationId = state.rtc.conversationId || state.activeConversation?.id || null;
@@ -5422,7 +5473,7 @@ function finalizeCall(options = {}) {
   if (event && callConversationId) {
     insertCallRecordMessage({ conversationId: callConversationId, mode: callMode, senderId: callPeerId }, { reason: reason || event, durationSec });
   }
-  if (alertText) alert(alertText);
+  if (alertText) showModal(alertText);
 }
 window.stopCall = () => { 
   const endedCallId = state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || state.rtc.lastEndedCallId || null;
@@ -5498,11 +5549,11 @@ async function createPeerConnection(mode) {
 
 window.startCall = async (mode) => {
   if (state.rtc._starting) return;
-  if (hasActiveCallSession()) return alert('当前已有通话进行中');
+  if (hasActiveCallSession()) return showModal('当前已有通话进行中');
   const now = Date.now();
-  if (now - lastCallAttemptAt < 1200) return alert('操作过快，请稍后再试');
+  if (now - lastCallAttemptAt < 1200) return showModal('操作过快，请稍后再试');
   lastCallAttemptAt = now;
-  const peerId = conversationPeerId(state.activeConversation); if (!peerId) return alert('仅支持单聊进行通话');
+  const peerId = conversationPeerId(state.activeConversation); if (!peerId) return showModal('仅支持单聊进行通话');
   // On Android native app, ensure mic (and camera for video) permissions before starting call
   if (window.__NATIVE_ANDROID__ && window.NativeBridge) {
     const needMic = !window.NativeBridge.hasMicrophonePermission();
@@ -5512,8 +5563,8 @@ window.startCall = async (mode) => {
       else if (needMic) window.NativeBridge.requestMicrophonePermission();
       else window.NativeBridge.requestCameraPermission();
       await new Promise(r => setTimeout(r, 1500));
-      if (!window.NativeBridge.hasMicrophonePermission()) return alert('需要麦克风权限才能通话，请在设置中开启');
-      if (mode === 'video' && !window.NativeBridge.hasCameraPermission()) return alert('需要摄像头权限才能视频通话，请在设置中开启');
+      if (!window.NativeBridge.hasMicrophonePermission()) return showModal('需要麦克风权限才能通话，请在设置中开启');
+      if (mode === 'video' && !window.NativeBridge.hasCameraPermission()) return showModal('需要摄像头权限才能视频通话，请在设置中开启');
     }
   }
   state.rtc._starting = true;
@@ -5528,7 +5579,7 @@ window.startCall = async (mode) => {
     api(`/api/conversations/${state.rtc.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode, callId, senderName: state.currentUser.displayName }) }).catch(() => {});
     enqueueSignal(state.rtc.conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: peerId, mode, callId, signal: { type: 'offer', sdp: offer } }); 
     outgoingTimeoutTimer = setTimeout(() => { finalizeCall({ alertText: "对方无应答", event: 'cancel', reason: 'timeout' }); }, 30000);
-  } catch (e) { window.stopCall(); alert(e && e.message ? e.message : describeMediaAccessError(e, mode)); } finally { state.rtc._starting = false; }
+  } catch (e) { window.stopCall(); showModal(e && e.message ? e.message : describeMediaAccessError(e, mode)); } finally { state.rtc._starting = false; }
 }
 
 function safeParseEventData(event) {
@@ -5971,7 +6022,7 @@ async function bootstrap() {
     if($("authScreen") && $("authScreen").classList.contains("hidden") && $("appScreen") && $("appScreen").classList.contains("hidden")) {
         localStorage.removeItem(SESSION_KEY);
         $("authScreen").classList.remove("hidden");
-        alert("页面重载异常，请重新登录");
+        showModal("页面重载异常，请重新登录");
     }
   }
 }

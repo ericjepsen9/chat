@@ -10,8 +10,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.Log;
-import android.view.KeyEvent;
-import android.view.View;
 import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.GeolocationPermissions;
@@ -23,6 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -86,6 +85,7 @@ public class MainActivity extends AppCompatActivity {
         setupWebView();
         requestPermissions();
         requestOverlayPermission();
+        setupBackNavigation();
 
         webView.loadUrl(WEB_URL);
     }
@@ -282,23 +282,36 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // Handle back button — let WebView navigate back first
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            // Let JS handle back navigation
-            webView.evaluateJavascript(
-                    "if(document.getElementById('backBtn') && " +
-                    "!document.getElementById('backBtn').classList.contains('hidden')) { " +
-                    "document.getElementById('backBtn').click(); true; } else { false; }",
-                    result -> {
-                        if (!"true".equals(result)) {
-                            finish();
-                        }
-                    });
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+    /**
+     * Handle system back gesture and hardware back button.
+     * For SPA: try JS back navigation first, only exit app if on home screen.
+     */
+    private void setupBackNavigation() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (webView == null) {
+                    finish();
+                    return;
+                }
+                // Ask JS if there's a page to go back to (back button visible = in sub-page)
+                webView.evaluateJavascript(
+                        "(function() {" +
+                        "  var btn = document.getElementById('backBtn');" +
+                        "  if (btn && !btn.classList.contains('hidden')) { btn.click(); return 'back'; }" +
+                        "  var modal = document.getElementById('_appModal');" +
+                        "  if (modal && !modal.classList.contains('hidden')) { modal.querySelector('.app-modal-cancel')?.click(); return 'modal'; }" +
+                        "  return 'home';" +
+                        "})()",
+                        result -> {
+                            String r = result != null ? result.replace("\"", "") : "home";
+                            if ("home".equals(r)) {
+                                // On home screen — move to background instead of killing
+                                moveTaskToBack(true);
+                            }
+                        });
+            }
+        });
     }
 
     public WebView getWebView() {
