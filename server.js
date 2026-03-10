@@ -85,6 +85,19 @@ const PHONE_CODE_IP_COOLDOWN_MS = 3 * 1000;
 const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
 const PHONE_CODE_VERIFY_BLOCK_MS = 10 * 60 * 1000;
 const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
+const csrfTokens = new Map(); // token -> csrfSecret
+function issueCsrfToken(sessionToken) {
+  const secret = crypto.randomBytes(24).toString('hex');
+  csrfTokens.set(sessionToken, secret);
+  return secret;
+}
+function validateCsrf(req, sessionToken) {
+  if (!sessionToken) return false;
+  const expected = csrfTokens.get(sessionToken);
+  if (!expected) return false;
+  const provided = req.headers['x-csrf-token'] || '';
+  return provided === expected;
+}
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 function normalizePhone(phone) {
@@ -949,11 +962,20 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With, X-File-Name');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With, X-File-Name, X-CSRF-Token');
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
     res.end();
     return;
+  }
+
+  // CSRF validation for state-changing requests
+  const CSRF_EXEMPT = ['/api/login', '/api/register', '/api/auth/send-code', '/api/password/forgot', '/api/login/phone-code'];
+  if (req.method === 'POST' && pathname.startsWith('/api/') && !CSRF_EXEMPT.some(p => matchRoute(pathname, p))) {
+    const sessionToken = parseAuthToken(req);
+    if (sessionToken && !validateCsrf(req, sessionToken)) {
+      return sendJson(res, 403, { error: 'csrf_token_invalid' });
+    }
   }
 
   try {
@@ -992,7 +1014,8 @@ const server = http.createServer(async (req, res) => {
         await schedulePersistCritical('migrate_password', { userId: user.id });
       }
       const token = issueSession(user.id);
-      return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
+      const csrfToken = issueCsrfToken(token);
+      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user) });
     }
 
 
@@ -1038,7 +1061,8 @@ const server = http.createServer(async (req, res) => {
       }
       recordPhoneCodeIpAttempt(clientIp, true);
       const token = issueSession(user.id);
-      return sendJson(res, 200, { token, user: sanitizePublicUser(user) });
+      const csrfToken = issueCsrfToken(token);
+      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user) });
     }
 
     if (matchRoute(pathname, '/api/password/forgot') && req.method === 'POST') {
@@ -1087,8 +1111,9 @@ const server = http.createServer(async (req, res) => {
       authUser.password = await hashPasswordAsync(nextPassword);
       revokeSessionsForUser(authUser.id);
       const token = issueSession(authUser.id);
+      const csrfToken = issueCsrfToken(token);
       await schedulePersistCritical('password_change', { userId: authUser.id });
-      return sendJson(res, 200, { ok: true, token });
+      return sendJson(res, 200, { ok: true, token, csrfToken });
     }
 
 
@@ -1137,8 +1162,9 @@ const server = http.createServer(async (req, res) => {
       rebuildIndexes();
       await schedulePersistCritical('register', { userId: user.id });
       const token = issueSession(user.id);
+      const csrfToken = issueCsrfToken(token);
       broadcastAll('users_updated', { userId: user.id });
-      return sendJson(res, 201, { token, user: sanitizePublicUser(user) });
+      return sendJson(res, 201, { token, csrfToken, user: sanitizePublicUser(user) });
     }
 
 
@@ -1525,6 +1551,8 @@ const server = http.createServer(async (req, res) => {
       const data = queryMallItems({
         mallItems: index.mallItems,
         keyword: searchParams.get('q') || '',
+        limit: searchParams.get('limit'),
+        offset: searchParams.get('offset'),
       });
       return sendJson(res, 200, data);
     }

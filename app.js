@@ -4,17 +4,19 @@ const $ = id => document.getElementById(id);
 function readSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return { user: null, token: null };
+    if (!raw) return { user: null, token: null, csrfToken: null };
     const parsed = JSON.parse(raw);
     if (parsed && parsed.user && parsed.token) return parsed;
-    if (parsed && parsed.id) return { user: parsed, token: null };
+    if (parsed && parsed.id) return { user: parsed, token: null, csrfToken: null };
   } catch (_) {}
-  return { user: null, token: null };
+  return { user: null, token: null, csrfToken: null };
 }
-function writeSession(user, token) {
+function writeSession(user, token, csrfToken) {
   const nextToken = token ?? state.sessionToken ?? null;
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, savedAt: Date.now() }));
+  const nextCsrf = csrfToken ?? state.csrfToken ?? null;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, csrfToken: nextCsrf, savedAt: Date.now() }));
   state.sessionToken = nextToken;
+  state.csrfToken = nextCsrf;
 }
 // Session expiry: auto-logout after 7 days or on 401
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -43,6 +45,8 @@ async function api(p, o={}) {
     if (!(o.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
     const token = state.sessionToken || session.token;
     if (token) headers.Authorization = `Bearer ${token}`;
+    const csrf = state.csrfToken || session.csrfToken;
+    if (csrf && o.method && o.method !== 'GET') headers['X-CSRF-Token'] = csrf;
     let r;
     try {
       r = await fetch(p, { ...o, headers });
@@ -430,7 +434,7 @@ function renderBuyerOrdersManage(){
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
-    empty.innerHTML = '<div class="order-empty-icon">🧾</div><div>暂无购买订单</div>';
+    empty.textContent = '🧾 暂无购买订单';
     list.replaceChildren(empty);
     return;
   }
@@ -448,7 +452,7 @@ function renderSellerOrdersManage(){
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
-    empty.innerHTML = '<div class="order-empty-icon">📋</div><div>暂无卖家订单</div>';
+    empty.textContent = '📋 暂无卖家订单';
     list.replaceChildren(empty);
     return;
   }
@@ -496,7 +500,7 @@ function renderSellerProductsManage(){
   if(!products.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
-    empty.innerHTML = '<div class="order-empty-icon">📦</div><div>' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布') + '</div>';
+    empty.textContent = '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布');
     list.replaceChildren(empty);
     return;
   }
@@ -3637,7 +3641,7 @@ function bindAllEvents() {
     if (!phone) return;
     try {
       const res = await api('/api/login/phone-code', { method: 'POST', body: JSON.stringify({ phone, code }) });
-      writeSession(res.user, res.token);
+      writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (e) {
       alert(e.message || '验证码错误');
@@ -3655,7 +3659,7 @@ function bindAllEvents() {
     btn.textContent = "登录中...";
     try {
       const res = await api("/api/login", { method: "POST", body: JSON.stringify({ phone, password: p }) });
-      writeSession(res.user, res.token);
+      writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
       alert("登录失败：" + (err.message || "手机号或密码错误"));
@@ -3712,7 +3716,7 @@ function bindAllEvents() {
     btn.textContent = "注册中...";
     try {
       const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, username: u, password: p, phone }) });
-      writeSession(res.user, res.token);
+      writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
       alert("注册失败：" + (err.message || "账号可能已存在"));
@@ -4230,7 +4234,7 @@ function bindAllEvents() {
           const data = await api(`/api/blacklist?userId=${encodeURIComponent(state.currentUser.id)}`);
           const list = $("blacklistContainer"); if(!list) return;
           const blacklist = data.users || data.blacklist || [];
-          if(blacklist.length === 0) list.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:14px;">黑名单为空</div>`;
+          if(blacklist.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center;padding:40px;color:var(--text-muted);font-size:14px;'; emptyDiv.textContent = '黑名单为空'; list.replaceChildren(emptyDiv); }
           else {
             list.replaceChildren();
             blacklist.forEach((u) => {
@@ -4534,7 +4538,7 @@ function bindAllEvents() {
       if(!$("pttBtn") || !$("messageInput")) return; const isVoice = $("pttBtn").classList.contains("hidden");
       if($("actionPanel")) $("actionPanel").classList.add("hidden"); if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); 
       $("pttBtn").classList.toggle("hidden", !isVoice); $("messageInput").classList.toggle("hidden", isVoice);
-      if($("voiceToggleBtn")) $("voiceToggleBtn").innerHTML = isVoice ? "⌨️" : "🎙️";
+      if($("voiceToggleBtn")) $("voiceToggleBtn").textContent = isVoice ? "⌨️" : "🎙️";
       if(!isVoice) {
           const hasText = $("messageInput").value.trim().length > 0;
           if($("toggleActionsBtn")) $("toggleActionsBtn").classList.toggle("hidden", hasText); if($("sendMsgBtn")) $("sendMsgBtn").classList.toggle("hidden", !hasText);
@@ -5752,7 +5756,7 @@ function renderSystemMessagesList(){
   if(!msgs.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
-    empty.innerHTML = '<div class="order-empty-icon">📢</div><div>暂无系统消息</div>';
+    empty.textContent = '📢 暂无系统消息';
     list.replaceChildren(empty);
     return;
   }
@@ -5815,6 +5819,7 @@ async function bootstrap() {
     const session = readSession();
     const user = session.user;
     state.sessionToken = session.token || null;
+    state.csrfToken = session.csrfToken || null;
     if (!user || !user.id || !state.sessionToken) { if($("authScreen")) $("authScreen").classList.remove("hidden"); return; }
     
     try {
