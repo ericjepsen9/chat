@@ -555,7 +555,7 @@ function renderOrderDetailPage(){
     return;
   }
   if($("orderDetailStatus")) $("orderDetailStatus").textContent = orderStatusText(order.status);
-  box.innerHTML = '';
+  box.replaceChildren();
   const title = document.createElement('div');
   title.className = 'profile-order-title';
   title.textContent = `订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total)}`;
@@ -1334,7 +1334,7 @@ function showTradePicker(title, items, renderLine, emptyText) {
   const titleEl = $("tradePickerTitle");
   if (!sheet || !list || !titleEl) return Promise.resolve(null);
   titleEl.textContent = title;
-  list.innerHTML = '';
+  list.replaceChildren();
   if (!Array.isArray(items) || !items.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1670,7 +1670,7 @@ function normalizeMediaUrl(url) {
 function setImagePreview(el, url, fallbackText = '+') {
   if (!el) return;
   const safe = normalizeMediaUrl(url);
-  el.innerHTML = '';
+  el.replaceChildren();
   if (!safe) { el.textContent = fallbackText; return; }
   const img = document.createElement('img');
   img.src = safe;
@@ -3183,7 +3183,7 @@ window.openGroupSelect = (targetUserId) => {
     const list = $("groupSelectList");
     const cg = getCustomGroups();
     if (list) {
-      list.innerHTML = '';
+      list.replaceChildren();
       cg.forEach((g) => {
         const btn = document.createElement('button');
         btn.className = 'primary-btn';
@@ -4445,7 +4445,7 @@ function bindAllEvents() {
 
   const emojiList = ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚"];
   if($("emojiPanel")) {
-    $("emojiPanel").innerHTML = '';
+    $("emojiPanel").replaceChildren();
     emojiList.forEach((e) => {
       const span = document.createElement('span');
       span.textContent = e;
@@ -4517,8 +4517,8 @@ async function loadMyProducts() {
     const data = await api(`/api/users/${state.currentUser.id}/profile?viewerId=${state.currentUser.id}`);
     const list = $("myProductsList"); if(!list) return;
     const products = data.profile.products || [];
-    if(products.length === 0) { list.innerHTML = `<div style="text-align:center; padding: 40px; color:#8e8e93; font-size:14px;">你还没有发布任何闲置商品</div>`; return; }
-    list.innerHTML = '';
+    if(products.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;'; emptyDiv.textContent = '你还没有发布任何闲置商品'; list.replaceChildren(emptyDiv); return; }
+    list.replaceChildren();
     products.forEach((p) => {
       const row = document.createElement('div');
       row.className = 'chat-item';
@@ -4650,7 +4650,7 @@ async function loadFriendRequests() {
     }
     if($("requestsList")) {
       const container = $("requestsList");
-      container.innerHTML = '';
+      container.replaceChildren();
       if (!state.friendRequests.length) {
         const empty = document.createElement('div');
         empty.className = 'empty-state';
@@ -4815,7 +4815,7 @@ function applyLastOutgoingReadState(){
 function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
   const oldScrollHeight = chatView.scrollHeight;
-  chatView.innerHTML = "";
+  chatView.replaceChildren();
   const fragment = document.createDocumentFragment();
   let lastTime = 0;
   state.messages.forEach((msg) => {

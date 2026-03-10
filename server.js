@@ -1026,8 +1026,7 @@ const server = http.createServer(async (req, res) => {
       if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
       }
-      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
-      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
+      if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       if (!ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
@@ -1052,10 +1051,9 @@ const server = http.createServer(async (req, res) => {
       if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
       }
-      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
-      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '请输入4位验证码' });
       if (nextPassword.length < 4) return sendJson(res, 400, { error: '新密码至少4位' });
+      if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'reset');
