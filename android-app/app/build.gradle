@@ -16,7 +16,7 @@ android {
         // EMAS push config — replace with your real values
         manifestPlaceholders = [
             EMAS_APP_KEY   : "335676357",
-            EMAS_APP_SECRET: "YOUR_APP_SECRET_HERE"
+            EMAS_APP_SECRET: "fd45fa5a08744f36b109076c20b426f1"
         ]
     }
 
