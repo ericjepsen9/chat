@@ -230,7 +230,7 @@ function orderMatchesFilters(order, role = 'buyer'){
   }
   if (toVal) {
     const toTs = Date.parse(toVal);
-    if (Number.isFinite(toTs) && createdAt > toTs) return false;
+    if (Number.isFinite(toTs) && createdAt > toTs + 86400000) return false;
   }
   return true;
 }
@@ -1808,9 +1808,11 @@ function upsertMessage(msg) {
     state.messages[idx] = { ...state.messages[idx], ...msg };
     return { action: 'replace', index: idx };
   }
-  state.messages.push(msg);
-  state.messages.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  return { action: 'append', index: state.messages.length - 1 };
+  const ts = msg.createdAt || 0;
+  let lo = 0, hi = state.messages.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if ((state.messages[mid].createdAt || 0) <= ts) lo = mid + 1; else hi = mid; }
+  state.messages.splice(lo, 0, msg);
+  return { action: 'append', index: lo };
 }
 function buildMessageChunk(msg, prevCreatedAt = 0) {
   const fragment = document.createDocumentFragment();
@@ -4726,7 +4728,7 @@ async function loadFriends() {
     const keyword = $("friendSearchInput") ? $("friendSearchInput").value.trim().toLowerCase() : "";
     const data = await api(`/api/friends?userId=${encodeURIComponent(state.currentUser.id)}`);
     let filteredFriends = data.friends;
-    if (keyword) filteredFriends = filteredFriends.filter(f => f.friend.displayName.toLowerCase().includes(keyword) || f.friend.username.toLowerCase().includes(keyword));
+    if (keyword) filteredFriends = filteredFriends.filter(f => f.friend && ((f.friend.displayName || '').toLowerCase().includes(keyword) || (f.friend.username || '').toLowerCase().includes(keyword)));
     state.friends = data.friends;
     const grouped = new Map();
     grouped.set('我的好友', filteredFriends.slice());
@@ -4923,9 +4925,9 @@ function resolveCallPeerMeta(peerId, fallbackName = '') {
   let name = fallbackName || peerId || '';
   let avatarUrl = null;
   const friend = state.friends.find(f =>
-    f.friend.id === peerId ||
+    f.friend && (f.friend.id === peerId ||
     f.friend.username === peerId ||
-    f.friend.friendId === peerId
+    f.friend.friendId === peerId)
   );
   if (friend) {
     name = friend.friend.remark || friend.friend.displayName || friend.friend.username || name;
