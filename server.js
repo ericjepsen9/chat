@@ -22,6 +22,7 @@ const { createBroadcastMessage } = require('./broadcast_service');
 const { listFriendRequests, listFriends, listConversations } = require('./social_query_service');
 const { deleteConversationMessage, recallConversationMessage, applyConversationAction } = require('./conversation_action_service');
 const { listConversationMessages, createConversationMessage } = require('./conversation_message_service');
+const { pushIncomingCall, pushNewMessage, pushFriendRequest, isUserOnline } = require('./push_service');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -541,11 +542,40 @@ function sendSse(res, event, payload) {
 }
 function broadcastToUser(userId, event, payload) {
   const clients = sseClientsByUser.get(userId);
-  if (!clients) return;
+  if (!clients || clients.size === 0) {
+    // User is offline — send push notification as fallback
+    sendPushFallback(userId, event, payload);
+    return;
+  }
   for (const client of [...clients]) {
     const ok = sendSse(client, event, payload);
     if (!ok) removeSseClient(userId, client);
   }
+}
+/**
+ * Push fallback: when user has no active SSE connection, send via EMAS push.
+ * Only sends push for important events (calls, messages).
+ */
+function sendPushFallback(userId, event, payload) {
+  try {
+    if (event === 'call_event' && payload.event === 'start') {
+      pushIncomingCall(userId, payload.senderId, payload.senderName,
+        payload.mode, payload.conversationId, payload.callId).catch(() => {});
+    } else if (event === 'webrtc_signal' && payload.signal?.type === 'offer') {
+      pushIncomingCall(userId, payload.senderId, payload.senderName,
+        payload.mode, payload.conversationId, payload.callId).catch(() => {});
+    } else if (event === 'message_created' && payload.message) {
+      const msg = payload.message;
+      if (msg.type !== 'system') {
+        const sender = db.users.find(u => u.id === msg.senderId);
+        const senderName = sender?.displayName || '新消息';
+        const content = msg.text || (msg.type === 'image' ? '[图片]' : msg.type === 'audio' ? '[语音]' : '[消息]');
+        pushNewMessage(userId, senderName, content, payload.conversationId).catch(() => {});
+      }
+    } else if (event === 'friend_request_updated') {
+      pushFriendRequest(userId, '有人').catch(() => {});
+    }
+  } catch (_) { /* push is best-effort */ }
 }
 function broadcastToConversation(conversationId, event, payload) {
   const conv = index.convById.get(conversationId);

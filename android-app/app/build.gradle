@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mychat.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mychat.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        // EMAS push config — replace with your real values
+        manifestPlaceholders = [
+            EMAS_APP_KEY   : "335676357",
+            EMAS_APP_SECRET: "YOUR_APP_SECRET_HERE"
+        ]
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.webkit:webkit:1.9.0'
+
+    // Alibaba Cloud EMAS Push SDK
+    implementation 'com.aliyun.ams:alicloud-android-push:3.9.2'
+    // Huawei/Xiaomi/OPPO/Vivo manufacturer push channels
+    implementation 'com.aliyun.ams:alicloud-android-third-push:3.9.2'
+}

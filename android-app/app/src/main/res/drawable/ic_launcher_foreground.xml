@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- ChatTrade logo: chat bubble with trade icon -->
+    <path
+        android:fillColor="#07C160"
+        android:pathData="M54,24C35.22,24 20,36.97 20,52.8c0,8.93 4.62,16.96 11.88,22.22L30,84l8.36,-3.74C41.95,81.38 47.86,82 54,82c18.78,0 34,-12.97 34,-29.2S72.78,24 54,24z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,48h24v3H42zM42,55h18v3H42z" />
+</vector>

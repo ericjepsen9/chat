@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#07C160</color>
+    <color name="primary_dark">#06AD56</color>
+    <color name="accent">#07C160</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="call_accept">#07C160</color>
+    <color name="call_reject">#FF4444</color>
+    <color name="call_bg">#1A1A2E</color>
+</resources>

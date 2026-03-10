@@ -4152,7 +4152,7 @@ function bindAllEvents() {
       } else { setMainTab('messages'); }
   });
 
-  on("logoutBtn", "click", async () => { if(confirm("确定要退出登录吗？")) { try { await api('/api/logout', { method: 'POST' }); } catch (e) { console.warn('logout api failed, fallback to local logout', e); } localStorage.removeItem(SESSION_KEY); location.reload(); } });
+  on("logoutBtn", "click", async () => { if(confirm("确定要退出登录吗？")) { nativeOnLogout(state.currentUser?.id); try { await api('/api/logout', { method: 'POST' }); } catch (e) { console.warn('logout api failed, fallback to local logout', e); } localStorage.removeItem(SESSION_KEY); location.reload(); } });
   on("clearCacheBtn", "click", () => { if(confirm("确定清理本地缓存吗？")) { localStorage.clear(); location.reload(); } });
   on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
   on("globalNotifyBtn", "click", () => { alert("新消息通知目前跟随系统默认设置开启"); });
@@ -5303,7 +5303,16 @@ function markCallConnecting(peerId, mode, statusText = '建立连接中...') {
   setCallActionLayout('outgoing');
 }
 function setRtcPhase(phase) {
+  const prev = state.rtc.phase;
   state.rtc.phase = phase;
+  // Native bridge: start foreground service when call connects, stop when idle
+  if (phase === 'connected' && prev !== 'connected') {
+    const peerName = state.rtc.incomingMeta?.senderName || state.rtc.peerId || '通话';
+    nativeOnCallConnected(peerName, state.rtc.mode);
+  }
+  if (phase === 'idle' && prev !== 'idle') {
+    nativeOnCallEnded();
+  }
 }
 function isRingingPhase() {
   return state.rtc.phase === 'outgoing' || state.rtc.phase === 'incoming' || state.rtc.phase === 'connecting';
@@ -5903,6 +5912,7 @@ async function bootstrap() {
     }
 
     state.currentUser = user;
+    nativeOnLogin(user.id);
     loadCartFromStorage();
     if($("authScreen")) $("authScreen").classList.add("hidden");
     if($("appScreen")) $("appScreen").classList.remove("hidden");
@@ -5933,6 +5943,90 @@ async function bootstrap() {
     }
   }
 }
+
+// ==========================================
+// ★ Android Native Bridge Integration ★
+// ==========================================
+// Detects if running inside Android WebView with NativeBridge
+// and connects H5 call/push logic to native capabilities.
+
+const isNativeAndroid = () => !!(window.__NATIVE_ANDROID__ && window.NativeBridge);
+
+/**
+ * Bind EMAS push alias after login so push is routed to this user.
+ */
+function nativeOnLogin(userId) {
+  if (!isNativeAndroid()) return;
+  try { window.NativeBridge.bindPushAlias(userId); } catch (_) {}
+}
+
+/**
+ * Unbind push alias on logout.
+ */
+function nativeOnLogout(userId) {
+  if (!isNativeAndroid()) return;
+  try { window.NativeBridge.unbindPushAlias(userId); } catch (_) {}
+  try { window.NativeBridge.stopCallService(); } catch (_) {}
+}
+
+/**
+ * Start native foreground service when call connects.
+ * Shows persistent notification so Android doesn't kill the app.
+ */
+function nativeOnCallConnected(peerName, mode) {
+  if (!isNativeAndroid()) return;
+  try { window.NativeBridge.startCallService(peerName || '通话中', mode || 'voice'); } catch (_) {}
+}
+
+/**
+ * Stop native foreground service when call ends.
+ */
+function nativeOnCallEnded() {
+  if (!isNativeAndroid()) return;
+  try { window.NativeBridge.stopCallService(); } catch (_) {}
+  try { window.NativeBridge.dismissCallNotification(); } catch (_) {}
+}
+
+/**
+ * Handle incoming call action from native IncomingCallActivity.
+ * Native side calls this after user taps Accept/Reject on the native call screen.
+ */
+window.__onNativeCallAction = (action, callerId, conversationId, callId) => {
+  if (action === 'accept_call') {
+    // Open conversation and auto-accept
+    if (conversationId) {
+      window.openConversation(conversationId, { skipFetch: false }).then(() => {
+        // The SSE webrtc_signal handler will pick up the pending offer
+        // Set pendingAccept so it auto-accepts when offer arrives
+        state.rtc.pendingAccept = true;
+      }).catch(() => {});
+    }
+  } else if (action === 'reject_call') {
+    // Send reject signal to server
+    if (conversationId && callerId) {
+      api(`/api/conversations/${conversationId}/call`, {
+        method: 'POST',
+        body: JSON.stringify({
+          senderId: state.currentUser?.id,
+          targetUserId: callerId,
+          event: 'reject',
+          reason: 'user_reject',
+          callId: callId || null
+        })
+      }).catch(() => {});
+    }
+  }
+};
+
+/**
+ * Bridge ready callback — native side calls this after WebView loads.
+ */
+window.__onNativeBridgeReady = () => {
+  // If already logged in, bind push
+  if (state.currentUser?.id) {
+    nativeOnLogin(state.currentUser.id);
+  }
+};
 
 // 暴力启动，绝不等待任何事件
 bootstrap();

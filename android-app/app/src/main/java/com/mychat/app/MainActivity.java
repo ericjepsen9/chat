@@ -1,0 +1,278 @@
+package com.mychat.app;
+
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.util.Log;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+
+import com.mychat.app.bridge.NativeBridge;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainActivity extends AppCompatActivity {
+
+    private static final String TAG = "MainActivity";
+    private static final int PERMISSION_REQUEST_CODE = 1001;
+
+    /** Replace with your server URL */
+    private static final String WEB_URL = "http://10.0.2.2:3000";
+
+    private WebView webView;
+    private NativeBridge nativeBridge;
+    private ValueCallback<Uri[]> fileUploadCallback;
+
+    private final ActivityResultLauncher<Intent> fileChooserLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (fileUploadCallback == null) return;
+                Uri[] uris = null;
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    String dataString = result.getData().getDataString();
+                    if (dataString != null) {
+                        uris = new Uri[]{Uri.parse(dataString)};
+                    }
+                }
+                fileUploadCallback.onReceiveValue(uris);
+                fileUploadCallback = null;
+            });
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // Edge-to-edge display
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(true);
+
+        // Keep screen on during active use
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        setContentView(R.layout.activity_main);
+        webView = findViewById(R.id.webView);
+
+        setupWebView();
+        requestPermissions();
+        requestOverlayPermission();
+
+        webView.loadUrl(WEB_URL);
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void setupWebView() {
+        WebSettings settings = webView.getSettings();
+
+        // JavaScript
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+
+        // Media
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setAllowFileAccess(true);
+
+        // Cache
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // Viewport
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+
+        // Mixed content (allow HTTP in WebView if needed)
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+        // Geolocation
+        settings.setGeolocationEnabled(true);
+
+        // JS bridge — allows H5 to call native methods via window.NativeBridge
+        nativeBridge = new NativeBridge(this, webView);
+        webView.addJavascriptInterface(nativeBridge, "NativeBridge");
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                // External links open in browser
+                if (!url.startsWith(WEB_URL)) {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, request.getUrl());
+                    startActivity(intent);
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Inject native bridge availability flag
+                view.evaluateJavascript(
+                        "window.__NATIVE_ANDROID__ = true; " +
+                        "if (window.__onNativeBridgeReady) window.__onNativeBridgeReady();",
+                        null);
+            }
+        });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            // Handle file upload (<input type="file">)
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (fileUploadCallback != null) {
+                    fileUploadCallback.onReceiveValue(null);
+                }
+                fileUploadCallback = callback;
+                Intent intent = params.createIntent();
+                fileChooserLauncher.launch(intent);
+                return true;
+            }
+
+            // Handle WebRTC camera/mic permission requests from JS
+            @Override
+            public void onPermissionRequest(PermissionRequest request) {
+                runOnUiThread(() -> {
+                    String[] resources = request.getResources();
+                    List<String> granted = new ArrayList<>();
+                    for (String res : resources) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res) &&
+                                hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                            granted.add(res);
+                        }
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res) &&
+                                hasPermission(Manifest.permission.CAMERA)) {
+                            granted.add(res);
+                        }
+                    }
+                    if (!granted.isEmpty()) {
+                        request.grant(granted.toArray(new String[0]));
+                    } else {
+                        request.deny();
+                    }
+                });
+            }
+
+            // Handle geolocation permission
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin,
+                                                           GeolocationPermissions.Callback callback) {
+                callback.invoke(origin, true, false);
+            }
+
+            // Forward console.log to Android Logcat
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage cm) {
+                Log.d("WebConsole", cm.message() + " [" + cm.sourceId() + ":" + cm.lineNumber() + "]");
+                return true;
+            }
+        });
+    }
+
+    /**
+     * Request runtime permissions needed for core features
+     */
+    private void requestPermissions() {
+        List<String> needed = new ArrayList<>();
+        String[] perms = {
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+        };
+        // Android 13+ needs POST_NOTIFICATIONS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        for (String p : perms) {
+            if (!hasPermission(p)) needed.add(p);
+        }
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    needed.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    /**
+     * Request SYSTEM_ALERT_WINDOW for incoming call overlay
+     */
+    private void requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        }
+    }
+
+    private boolean hasPermission(String permission) {
+        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        // Handle back button — let WebView navigate back first
+        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
+            // Let JS handle back navigation
+            webView.evaluateJavascript(
+                    "if(document.getElementById('backBtn') && " +
+                    "!document.getElementById('backBtn').classList.contains('hidden')) { " +
+                    "document.getElementById('backBtn').click(); true; } else { false; }",
+                    result -> {
+                        if (!"true".equals(result)) {
+                            finish();
+                        }
+                    });
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    public WebView getWebView() {
+        return webView;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) webView.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (webView != null) webView.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.destroy();
+        }
+        super.onDestroy();
+    }
+}
