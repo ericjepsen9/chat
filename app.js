@@ -3740,8 +3740,10 @@ window.openConversation = async (id, options = {}) => {
   if($("backBtn")) $("backBtn").classList.remove("hidden");
   if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
   if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
-  if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+  // show sidebar in chat conversation view
+  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
+  if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
+  applySidebarMode();
   applyChatRelationshipState();
   if (!skipFetch) {
     await fetchMessages(); 
@@ -4709,11 +4711,14 @@ function bindAllEvents() {
           return;
       }
       if (backTo === 'chat' && state.activeConversation) {
-          if($("backBtn")) $("backBtn").classList.remove('hidden'); 
-          if($("chatView")) $("chatView").classList.remove('hidden'); 
+          if($("backBtn")) $("backBtn").classList.remove('hidden');
+          if($("chatView")) $("chatView").classList.remove('hidden');
           if($("composerPanel")) $("composerPanel").classList.remove('hidden');
           if($("chatTitle")) $("chatTitle").textContent = state.conversations.find((c) => c.id === state.activeConversation.id)?.title || '会话';
           if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
+          // restore sidebar when returning to conversation
+          if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
+          if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
           return;
       }
       state.activeConversation = null;
@@ -5410,9 +5415,9 @@ function setMainTab(tab) {
   else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); loadMall().catch(() => {}); } 
   else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; }
   if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
-  // sidebar avatar bar only visible on messages tab
-  if($("sidebarPanel")) $("sidebarPanel").classList.toggle("sidebar-tab-hidden", tab !== 'messages');
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.toggle("hidden", tab !== 'messages');
+  // sidebar avatar bar only visible inside chat conversation, hide on all tab views
+  if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
 }
 
 function renderGroupManageList() {
