@@ -2830,20 +2830,17 @@ function patchMallCard(card, product) {
 // ★ 1. 全局方法池（100%防止找不到函数） ★
 // ==========================================
 
-window.switchAuth = (type) => {
-    $("loginForm").classList.toggle("hidden", type !== 'login');
-    $("registerForm").classList.toggle("hidden", type !== 'register');
-    $("loginTab").classList.toggle("active", type === 'login');
-    $("registerTab").classList.toggle("active", type === 'register');
-    if (type === 'login') switchLoginMode('code');
+// ---- WeChat-style auth step navigation ----
+window._authState = { loginPhone: '', regPhone: '', regCode: '' };
+window.authGotoStep = (stepId) => {
+  const allSteps = document.querySelectorAll('#authScreen .auth-step');
+  allSteps.forEach(s => { if (!s.classList.contains('hidden')) s.classList.add('hidden'); });
+  const target = $(stepId);
+  if (target) target.classList.remove('hidden');
 };
-
-window.switchLoginMode = (mode) => {
-    $("loginPasswordForm")?.classList.toggle("hidden", mode !== 'password');
-    $("loginCodeForm")?.classList.toggle("hidden", mode !== 'code');
-    $("loginPasswordTab")?.classList.toggle("active", mode === 'password');
-    $("loginCodeTab")?.classList.toggle("active", mode === 'code');
-};
+// Keep old names as no-ops for compatibility
+window.switchAuth = () => {};
+window.switchLoginMode = () => {};
 
 const SECONDARY_PAGE_IDS = [
   'profileDetailPage','messageSettingsPage','friendRequestsView','addFriendPage','scanPage','privacyPage',
@@ -3439,126 +3436,276 @@ function bindAllEvents() {
   if (_eventsBound) return;
   _eventsBound = true;
 
+  // ---- Auth: code box input handling ----
+  function setupCodeBoxes(containerId, onComplete) {
+    const container = $(containerId);
+    if (!container) return;
+    const boxes = container.querySelectorAll('.auth-code-box');
+    boxes.forEach((box, i) => {
+      box.addEventListener('input', () => {
+        const v = box.value.replace(/\D/g, '');
+        box.value = v.slice(0, 1);
+        if (v && i < boxes.length - 1) boxes[i + 1].focus();
+        const code = Array.from(boxes).map(b => b.value).join('');
+        if (code.length === 4) onComplete(code);
+      });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !box.value && i > 0) { boxes[i - 1].focus(); boxes[i - 1].value = ''; }
+      });
+      box.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const pasted = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 4);
+        pasted.split('').forEach((ch, j) => { if (boxes[j]) boxes[j].value = ch; });
+        if (pasted.length === 4) onComplete(pasted);
+        else if (boxes[pasted.length]) boxes[pasted.length].focus();
+      });
+    });
+  }
+  function clearCodeBoxes(containerId) {
+    const container = $(containerId);
+    if (!container) return;
+    container.querySelectorAll('.auth-code-box').forEach(b => { b.value = ''; });
+    const first = container.querySelector('.auth-code-box');
+    if (first) first.focus();
+  }
+  function startResendCountdown(btnId, seconds, sendFn) {
+    const btn = $(btnId);
+    if (!btn) return;
+    let remaining = seconds;
+    btn.disabled = true;
+    btn.textContent = `重新发送 (${remaining}s)`;
+    const timer = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '重新发送'; return; }
+      btn.textContent = `重新发送 (${remaining}s)`;
+    }, 1000);
+    btn.onclick = () => { if (!btn.disabled) sendFn(); };
+  }
+
+  // ---- Auth: phone input validation for enabling Next button ----
+  function bindPhoneValidation(inputId, btnId, checkboxId) {
+    const input = $(inputId);
+    const btn = $(btnId);
+    const checkbox = $(checkboxId);
+    if (!input || !btn) return;
+    const validate = () => {
+      const phone = normalizePhoneInput(input.value.trim());
+      const agreed = checkbox ? checkbox.checked : true;
+      btn.disabled = !(phone && agreed);
+    };
+    input.addEventListener('input', validate);
+    if (checkbox) checkbox.addEventListener('change', validate);
+    validate();
+  }
+
+  // ---- Welcome screen buttons ----
+  on("authGoLogin", "click", () => authGotoStep('authLoginPhone'));
+  on("authGoRegister", "click", () => authGotoStep('authRegPhone'));
+
+  // ---- Auth back buttons & goto buttons ----
+  document.querySelectorAll('[data-auth-back]').forEach(btn => {
+    btn.addEventListener('click', () => authGotoStep(btn.dataset.authBack));
+  });
+  document.querySelectorAll('[data-auth-goto]').forEach(btn => {
+    btn.addEventListener('click', () => authGotoStep(btn.dataset.authGoto));
+  });
+
+  // ---- Login: Phone input → Next ----
+  bindPhoneValidation('loginPhone', 'loginPhoneNextBtn', 'loginAgreeCheck');
+  on("loginPhoneNextBtn", "click", async () => {
+    const phone = normalizePhoneInput($("loginPhone")?.value.trim());
+    if (!phone) return;
+    window._authState.loginPhone = phone;
+    const btn = $("loginPhoneNextBtn");
+    btn.disabled = true;
+    btn.textContent = '发送中...';
+    try {
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) });
+    } catch (e) {
+      // Ignore send failure - code might already exist or use 1234
+    }
+    btn.disabled = false;
+    btn.textContent = '下一步';
+    if ($("loginCodePhoneDisplay")) $("loginCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+    clearCodeBoxes('loginCodeBoxes');
+    authGotoStep('authLoginCode');
+    startResendCountdown('resendLoginCodeBtn', 60, async () => {
+      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) }); } catch (_) {}
+      startResendCountdown('resendLoginCodeBtn', 60, () => {});
+    });
+  });
+  on("loginPhone", "keydown", (e) => { if (e.key === 'Enter' && !$("loginPhoneNextBtn")?.disabled) $("loginPhoneNextBtn").click(); });
+
+  // ---- Login: SMS code auto-submit ----
+  setupCodeBoxes('loginCodeBoxes', async (code) => {
+    const phone = window._authState.loginPhone;
+    if (!phone) return;
+    try {
+      const res = await api('/api/login/phone-code', { method: 'POST', body: JSON.stringify({ phone, code }) });
+      writeSession(res.user, res.token);
+      location.reload();
+    } catch (e) {
+      alert(e.message || '验证码错误');
+      clearCodeBoxes('loginCodeBoxes');
+    }
+  });
+
+  // ---- Login: Password mode ----
   on("doLoginBtn", "click", async () => {
-      const phone = normalizePhoneInput($("loginPhone")?.value.trim()); const p = $("loginPassword").value;
-      if(!phone || !p) return alert("请输入手机号和密码！");
-      const loginBtn = $("doLoginBtn");
-      loginBtn.disabled = true;
-      const prevText = loginBtn.textContent;
-      loginBtn.textContent = "登录中...";
-      try {
-          const res = await api("/api/login", { method: "POST", body: JSON.stringify({phone, password: p}) });
-          writeSession(res.user, res.token); location.reload();
-      } catch(err) {
-          alert("登录失败：" + (err.message || "手机号或密码错误"));
-      } finally {
-          loginBtn.disabled = false;
-          loginBtn.textContent = prevText || "立即登录";
-      }
+    const phone = normalizePhoneInput($("loginPwdPhone")?.value.trim());
+    const p = $("loginPassword")?.value;
+    if (!phone || !p) return alert("请输入手机号和密码");
+    const btn = $("doLoginBtn");
+    btn.disabled = true;
+    btn.textContent = "登录中...";
+    try {
+      const res = await api("/api/login", { method: "POST", body: JSON.stringify({ phone, password: p }) });
+      writeSession(res.user, res.token);
+      location.reload();
+    } catch (err) {
+      alert("登录失败：" + (err.message || "手机号或密码错误"));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "登录";
+    }
+  });
+  on("loginPwdPhone", "keydown", (e) => { if (e.key === 'Enter') $("loginPassword")?.focus(); });
+  on("loginPassword", "keydown", (e) => { if (e.key === 'Enter') $("doLoginBtn").click(); });
+
+  // ---- Register: Phone → Next ----
+  bindPhoneValidation('registerPhone', 'regPhoneNextBtn', 'regAgreeCheck');
+  on("regPhoneNextBtn", "click", async () => {
+    const phone = normalizePhoneInput($("registerPhone")?.value.trim());
+    if (!phone) return;
+    window._authState.regPhone = phone;
+    const btn = $("regPhoneNextBtn");
+    btn.disabled = true;
+    btn.textContent = '发送中...';
+    try {
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) });
+    } catch (_) {}
+    btn.disabled = false;
+    btn.textContent = '下一步';
+    if ($("regCodePhoneDisplay")) $("regCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+    clearCodeBoxes('regCodeBoxes');
+    authGotoStep('authRegCode');
+    startResendCountdown('resendRegCodeBtn', 60, async () => {
+      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) }); } catch (_) {}
+      startResendCountdown('resendRegCodeBtn', 60, () => {});
+    });
+  });
+  on("registerPhone", "keydown", (e) => { if (e.key === 'Enter' && !$("regPhoneNextBtn")?.disabled) $("regPhoneNextBtn").click(); });
+
+  // ---- Register: SMS code → Profile ----
+  setupCodeBoxes('regCodeBoxes', (code) => {
+    window._authState.regCode = code;
+    authGotoStep('authRegProfile');
+    setTimeout(() => $("registerDisplayName")?.focus(), 100);
   });
 
-  on("sendLoginCodeBtn", "click", async () => {
-      const phone = normalizePhoneInput($("loginCodePhone")?.value.trim());
-      if(!phone) return alert('请输入11位手机号');
-      const sendBtn = $("sendLoginCodeBtn");
-      sendBtn.disabled = true;
-      const prevText = sendBtn.textContent;
-      sendBtn.textContent = '发送中...';
-      try {
-        const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'login' }) });
-        alert('验证码已发送，请注意查收');
-      } catch (e) {
-        const waitSec = Number(e?.data?.retryAfterSec || 0);
-        if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
-        else alert(e.message || '发送验证码失败');
-      } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = prevText || '获取验证码';
-      }
-  });
-
-  on("doLoginCodeBtn", "click", async () => {
-      const phone = normalizePhoneInput($("loginCodePhone")?.value.trim());
-      const code = $("loginCodeInput")?.value.trim();
-      if(!phone || !code) return alert('请输入手机号和验证码');
-      if(!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
-      const loginCodeBtn = $("doLoginCodeBtn");
-      loginCodeBtn.disabled = true;
-      const prevText = loginCodeBtn.textContent;
-      loginCodeBtn.textContent = '登录中...';
-      try {
-        const res = await api('/api/login/phone-code', { method:'POST', body: JSON.stringify({ phone, code }) });
-        writeSession(res.user, res.token); location.reload();
-      } catch (e) {
-        alert(e.message || '验证码登录失败');
-      } finally {
-        loginCodeBtn.disabled = false;
-        loginCodeBtn.textContent = prevText || '验证码登录';
-      }
-  });
-
+  // ---- Register: Complete registration ----
   on("doRegisterBtn", "click", async () => {
-      const n = $("registerDisplayName").value.trim(); const u = $("registerUsername").value.trim(); const p = $("registerPassword").value; const phone = normalizePhoneInput($("registerPhone")?.value.trim());
-      if(!n || !u || !p || !phone) return alert("请填写完整信息（含手机号）！");
-      if(!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return alert('登录账号需为3-32位英文、数字或下划线');
-      if((p || '').length < 4) return alert('密码至少4位');
-      const registerBtn = $("doRegisterBtn");
-      registerBtn.disabled = true;
-      registerBtn.textContent = "注册中...";
-      try {
-          const res = await api("/api/register", { method: "POST", body: JSON.stringify({displayName: n, username: u, password: p, phone}) });
-          alert("注册成功，自动登录！"); writeSession(res.user, res.token); location.reload();
-      } catch(err) {
-          alert("注册失败：" + (err.message || "账号可能已存在"));
-      } finally {
-          registerBtn.disabled = false;
-          registerBtn.textContent = "注册并登录";
-      }
+    const n = $("registerDisplayName")?.value.trim();
+    const u = $("registerUsername")?.value.trim();
+    const p = $("registerPassword")?.value;
+    const phone = window._authState.regPhone;
+    if (!n || !u || !p) return alert("请填写完整信息");
+    if (!/^[a-zA-Z0-9_]{3,32}$/.test(u)) return alert('登录账号需为3-32位英文、数字或下划线');
+    if (p.length < 4) return alert('密码至少4位');
+    const btn = $("doRegisterBtn");
+    btn.disabled = true;
+    btn.textContent = "注册中...";
+    try {
+      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, username: u, password: p, phone }) });
+      writeSession(res.user, res.token);
+      location.reload();
+    } catch (err) {
+      alert("注册失败：" + (err.message || "账号可能已存在"));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "完成注册";
+    }
   });
+  on("registerDisplayName", "keydown", (e) => { if (e.key === 'Enter') $("registerUsername")?.focus(); });
+  on("registerUsername", "keydown", (e) => { if (e.key === 'Enter') $("registerPassword")?.focus(); });
+  on("registerPassword", "keydown", (e) => { if (e.key === 'Enter') $("doRegisterBtn").click(); });
 
-  on("forgotPasswordBtn", "click", () => window.openSecondaryPage('forgotPasswordPage', 'home'));
-  on("sendForgotCodeBtn", "click", async () => {
-    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
-    if(!phone) return alert('请输入11位手机号');
-    const sendBtn = $("sendForgotCodeBtn");
+  // ---- Forgot password ----
+  on("forgotPasswordBtn", "click", () => authGotoStep('authForgotPwd'));
+  on("forgotPasswordBtn2", "click", () => authGotoStep('authForgotPwd'));
+  on("authForgotSendBtn", "click", async () => {
+    const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
+    if (!phone) return alert('请输入11位手机号');
+    const sendBtn = $("authForgotSendBtn");
     sendBtn.disabled = true;
-    const prevText = sendBtn.textContent;
     sendBtn.textContent = '发送中...';
     try {
-      const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
-      alert('验证码已发送，请注意查收');
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'reset' }) });
+      alert('验证码已发送（测试环境请输入 1234）');
     } catch (e) {
       const waitSec = Number(e?.data?.retryAfterSec || 0);
       if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
       else alert(e.message || '发送验证码失败');
     } finally {
       sendBtn.disabled = false;
-      sendBtn.textContent = prevText || '发送验证码';
+      sendBtn.textContent = '获取验证码';
     }
+  });
+  on("authForgotSubmitBtn", "click", async () => {
+    const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
+    const code = $("authForgotCode")?.value.trim();
+    const newPassword = $("authForgotNewPwd")?.value || '';
+    if (!phone || !code || !newPassword) return alert('请填写完整信息');
+    if (!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
+    if (newPassword.length < 4) return alert('新密码至少4位');
+    const submitBtn = $("authForgotSubmitBtn");
+    submitBtn.disabled = true;
+    submitBtn.textContent = '提交中...';
+    try {
+      await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
+      alert('密码重置成功，请重新登录');
+      authGotoStep('authLoginPassword');
+    } catch (e) {
+      alert(e.message || '重置密码失败');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '重置密码';
+    }
+  });
+
+  // ---- Settings: forgot password page (in appScreen for logged-in users) ----
+  on("sendForgotCodeBtn", "click", async () => {
+    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
+    if (!phone) return alert('请输入11位手机号');
+    const sendBtn = $("sendForgotCodeBtn");
+    sendBtn.disabled = true;
+    sendBtn.textContent = '发送中...';
+    try {
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'reset' }) });
+      alert('验证码已发送（测试环境请输入 1234）');
+    } catch (e) {
+      const waitSec = Number(e?.data?.retryAfterSec || 0);
+      if (waitSec > 0) alert(`操作频繁，请${waitSec}秒后重试`);
+      else alert(e.message || '发送验证码失败');
+    } finally { sendBtn.disabled = false; sendBtn.textContent = '获取验证码'; }
   });
   on("submitForgotPasswordBtn", "click", async () => {
     const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
     const code = $("forgotCodeInput")?.value.trim();
     const newPassword = $("forgotNewPasswordInput")?.value || '';
-    if(!phone || !code || !newPassword) return alert('请填写完整信息');
-    if(!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
-    if((newPassword || '').length < 4) return alert('新密码至少4位');
+    if (!phone || !code || !newPassword) return alert('请填写完整信息');
+    if (!/^\d{4}$/.test(code)) return alert('请输入4位验证码');
+    if (newPassword.length < 4) return alert('新密码至少4位');
     const submitBtn = $("submitForgotPasswordBtn");
     submitBtn.disabled = true;
-    const prevText = submitBtn.textContent;
     submitBtn.textContent = '提交中...';
     try {
-      await api('/api/password/forgot', { method:'POST', body: JSON.stringify({ phone, code, newPassword }) });
-      alert('密码重置成功，请返回登录');
-      if($("backBtn")) $("backBtn").click();
-    } catch (e) {
-      alert(e.message || '重置密码失败');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = prevText || '重置密码';
-    }
+      await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
+      alert('密码重置成功，请重新登录');
+      localStorage.removeItem(SESSION_KEY); location.reload();
+    } catch (e) { alert(e.message || '重置密码失败');
+    } finally { submitBtn.disabled = false; submitBtn.textContent = '重置密码'; }
   });
-
   on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'settingsPage'));
   on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
   on("sendChangePhoneCodeBtn", "click", async () => {
@@ -3609,20 +3756,11 @@ function bindAllEvents() {
     }
   });
 
-  on("loginPhone", "keydown", (e) => { if(e.key === 'Enter') $("doLoginBtn").click(); });
-  on("loginPassword", "keydown", (e) => { if(e.key === 'Enter') $("doLoginBtn").click(); });
-  on("loginCodePhone", "keydown", (e) => { if(e.key === 'Enter') $("sendLoginCodeBtn").click(); });
-  on("loginCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("doLoginCodeBtn").click(); });
-  on("registerPassword", "keydown", (e) => { if(e.key === 'Enter') $("doRegisterBtn").click(); });
   on("forgotPhoneInput", "keydown", (e) => { if(e.key === 'Enter') $("sendForgotCodeBtn").click(); });
   on("forgotCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
   on("forgotNewPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
   on("oldPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
   on("newPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
-  on("loginTab", "click", () => switchAuth('login'));
-  on("registerTab", "click", () => switchAuth('register'));
-  on("loginPasswordTab", "click", () => switchLoginMode('password'));
-  on("loginCodeTab", "click", () => switchLoginMode('code'));
 
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
 

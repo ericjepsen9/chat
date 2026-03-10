@@ -137,7 +137,7 @@ function issuePhoneCode(phone, scene = 'login') {
   if (cooldownUntil > now) {
     return { ok: false, error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((cooldownUntil - now) / 1000) };
   }
-  const code = String(Math.floor(1000 + Math.random() * 9000));
+  const code = '1234'; // Mock code for testing (SMS service not configured)
   phoneCodeStore.set(key, { code, expiresAt: now + 5 * 60 * 1000 });
   phoneCodeCooldownStore.set(key, now + PHONE_CODE_COOLDOWN_MS);
   phoneCodeVerifyAttempts.delete(key);

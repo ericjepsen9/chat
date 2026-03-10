@@ -8,39 +8,173 @@
   </head>
   <body>
     <div id="authScreen" class="auth-screen hidden">
-      <div class="auth-card">
-        <h1 style="color:var(--brand); margin-bottom:10px;">ChatTrade</h1>
-        <p style="color:var(--text-muted); font-size:14px; margin-bottom:30px;">记录生活，发现好物</p>
-        <div class="auth-tabs">
-          <button id="loginTab" class="auth-tab-btn active" type="button">登录</button>
-          <button id="registerTab" class="auth-tab-btn" type="button">注册新用户</button>
+      <!-- Step 0: Welcome -->
+      <div id="authWelcome" class="auth-step">
+        <div class="auth-welcome-top">
+          <div class="auth-logo">
+            <svg width="72" height="72" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#07c160"/><path d="M20 32c0-8.8 7.6-16 17-16 8.2 0 15.1 5.4 16.6 12.7.3 1.3-.7 2.3-1.5 2.3s-1.4-.6-1.6-1.5C49.2 23.6 43.5 19 37 19c-7.7 0-14 5.9-14 13 0 3.5 1.5 6.7 4 9.1.5.5.7 1.2.5 1.9l-1.2 4 4.5-2.3c.5-.3 1.1-.3 1.7-.2 1.4.3 2.9.5 4.5.5.8 0 1.5.7 1.5 1.5S37.8 48 37 48c-1.8 0-3.5-.2-5.1-.6l-7.1 3.6c-.8.4-1.8-.3-1.6-1.2l1.9-6.5C22 40.3 20 36.3 20 32z" fill="#fff"/><path d="M53 40c0-6.1-5.8-11-13-11s-13 4.9-13 11 5.8 11 13 11c1.5 0 2.9-.2 4.3-.6l5.2 2.6c.6.3 1.3-.2 1.2-.9l-1.3-4.5C51.8 45.9 53 43.1 53 40z" fill="#fff" opacity=".85"/></svg>
+          </div>
+          <h1 class="auth-app-name">ChatTrade</h1>
         </div>
-        <div id="loginForm" class="auth-form">
-          <div class="auth-tabs" style="margin-bottom:8px;">
-            <button id="loginPasswordTab" class="auth-tab-btn" type="button">手机号+密码</button>
-            <button id="loginCodeTab" class="auth-tab-btn active" type="button">手机号+验证码</button>
+        <div class="auth-welcome-bottom">
+          <button id="authGoLogin" type="button" class="auth-btn-primary">登录</button>
+          <button id="authGoRegister" type="button" class="auth-btn-outline">注册</button>
+          <p class="auth-agreement">登录即代表你已同意<a href="javascript:void(0)">《服务协议》</a>和<a href="javascript:void(0)">《隐私政策》</a></p>
+        </div>
+      </div>
+
+      <!-- Step 1: Login - Phone -->
+      <div id="authLoginPhone" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authWelcome">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">手机号登录</h2>
+          <p class="auth-page-desc">未注册的手机号验证后将自动创建账号</p>
+          <div class="auth-field">
+            <span class="auth-field-prefix">+86</span>
+            <input id="loginPhone" type="tel" placeholder="请输入手机号" autocomplete="tel" maxlength="11" />
           </div>
-          <div id="loginPasswordForm" class="auth-form hidden" style="gap:12px;">
-            <input id="loginPhone" placeholder="手机号" autocomplete="off" />
-            <input id="loginPassword" type="password" placeholder="密码" />
-            <button id="doLoginBtn" type="button" class="primary-btn" style="width:100%; padding:14px; font-size:16px;">立即登录</button>
+          <div class="auth-check-row">
+            <label class="auth-checkbox"><input type="checkbox" id="loginAgreeCheck" checked /><span class="auth-checkmark"></span>我已阅读并同意<a href="javascript:void(0)">服务协议</a>和<a href="javascript:void(0)">隐私政策</a></label>
           </div>
-          <div id="loginCodeForm" class="auth-form" style="gap:12px;">
-            <input id="loginCodePhone" placeholder="手机号" autocomplete="off" />
-            <div style="display:flex; gap:8px;">
-              <input id="loginCodeInput" placeholder="验证码" autocomplete="off" style="flex:1;" />
-              <button id="sendLoginCodeBtn" type="button" class="secondary-btn" style="min-width:110px;">获取验证码</button>
+          <button id="loginPhoneNextBtn" type="button" class="auth-btn-primary" disabled>下一步</button>
+          <div class="auth-alt-actions">
+            <button type="button" class="auth-link-btn" data-auth-goto="authLoginPassword">使用密码登录</button>
+            <span class="auth-alt-sep">|</span>
+            <button type="button" class="auth-link-btn" id="forgotPasswordBtn">找回密码</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 1b: Login - Password -->
+      <div id="authLoginPassword" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authLoginPhone">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">密码登录</h2>
+          <div class="auth-field-group">
+            <div class="auth-field">
+              <span class="auth-field-prefix">+86</span>
+              <input id="loginPwdPhone" type="tel" placeholder="请输入手机号" autocomplete="tel" maxlength="11" />
             </div>
-            <button id="doLoginCodeBtn" type="button" class="primary-btn" style="width:100%; padding:14px; font-size:16px;">验证码登录</button>
+            <div class="auth-field">
+              <input id="loginPassword" type="password" placeholder="请输入密码" autocomplete="current-password" />
+            </div>
           </div>
-          <button id="forgotPasswordBtn" type="button" class="secondary-btn" style="width:100%;">找回密码</button>
+          <button id="doLoginBtn" type="button" class="auth-btn-primary">登录</button>
+          <div class="auth-alt-actions">
+            <button type="button" class="auth-link-btn" data-auth-goto="authLoginPhone">使用验证码登录</button>
+            <span class="auth-alt-sep">|</span>
+            <button type="button" class="auth-link-btn" id="forgotPasswordBtn2">找回密码</button>
+          </div>
         </div>
-        <div id="registerForm" class="auth-form hidden">
-          <input id="registerDisplayName" placeholder="昵称 (如 隔壁老王)" autocomplete="off" />
-          <input id="registerUsername" placeholder="设置登录账号 (限英文/数字)" autocomplete="off" />
-          <input id="registerPhone" placeholder="手机号（必填，用于登录/找回）" autocomplete="off" />
-          <input id="registerPassword" type="password" placeholder="设置密码" />
-          <button id="doRegisterBtn" type="button" class="primary-btn" style="width:100%; background:#ff9500; padding:14px; font-size:16px;">注册并登录</button>
+      </div>
+
+      <!-- Step 2: Login - SMS Code -->
+      <div id="authLoginCode" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authLoginPhone">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">输入验证码</h2>
+          <p class="auth-page-desc">验证码已发送至 <span id="loginCodePhoneDisplay"></span></p>
+          <p class="auth-page-hint">（测试环境验证码为 1234）</p>
+          <div class="auth-code-inputs" id="loginCodeBoxes">
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="0" autocomplete="one-time-code" />
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="1" />
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="2" />
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="3" />
+          </div>
+          <button id="resendLoginCodeBtn" type="button" class="auth-link-btn auth-resend-btn" disabled>重新发送 (60s)</button>
+        </div>
+      </div>
+
+      <!-- Register Step 1: Phone + Code -->
+      <div id="authRegPhone" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authWelcome">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">手机号注册</h2>
+          <p class="auth-page-desc">请使用手机号进行注册</p>
+          <div class="auth-field">
+            <span class="auth-field-prefix">+86</span>
+            <input id="registerPhone" type="tel" placeholder="请输入手机号" autocomplete="tel" maxlength="11" />
+          </div>
+          <div class="auth-check-row">
+            <label class="auth-checkbox"><input type="checkbox" id="regAgreeCheck" checked /><span class="auth-checkmark"></span>我已阅读并同意<a href="javascript:void(0)">服务协议</a>和<a href="javascript:void(0)">隐私政策</a></label>
+          </div>
+          <button id="regPhoneNextBtn" type="button" class="auth-btn-primary" disabled>下一步</button>
+        </div>
+      </div>
+
+      <!-- Register Step 2: SMS Code -->
+      <div id="authRegCode" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authRegPhone">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">输入验证码</h2>
+          <p class="auth-page-desc">验证码已发送至 <span id="regCodePhoneDisplay"></span></p>
+          <p class="auth-page-hint">（测试环境验证码为 1234）</p>
+          <div class="auth-code-inputs" id="regCodeBoxes">
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="0" autocomplete="one-time-code" />
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="1" />
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="2" />
+            <input type="tel" maxlength="1" class="auth-code-box" data-idx="3" />
+          </div>
+          <button id="resendRegCodeBtn" type="button" class="auth-link-btn auth-resend-btn" disabled>重新发送 (60s)</button>
+        </div>
+      </div>
+
+      <!-- Register Step 3: Profile Info -->
+      <div id="authRegProfile" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authRegCode">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">完善资料</h2>
+          <p class="auth-page-desc">设置你的昵称和登录账号</p>
+          <div class="auth-field-group">
+            <div class="auth-field">
+              <input id="registerDisplayName" type="text" placeholder="昵称" autocomplete="name" maxlength="20" />
+            </div>
+            <div class="auth-field">
+              <input id="registerUsername" type="text" placeholder="登录账号（英文/数字/下划线，3-32位）" autocomplete="username" maxlength="32" />
+            </div>
+            <div class="auth-field">
+              <input id="registerPassword" type="password" placeholder="设置密码（至少4位）" autocomplete="new-password" />
+            </div>
+          </div>
+          <button id="doRegisterBtn" type="button" class="auth-btn-primary">完成注册</button>
+        </div>
+      </div>
+
+      <!-- Forgot Password -->
+      <div id="authForgotPwd" class="auth-step hidden">
+        <div class="auth-page">
+          <button type="button" class="auth-back-btn" data-auth-back="authLoginPhone">
+            <svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+          </button>
+          <h2 class="auth-page-title">找回密码</h2>
+          <p class="auth-page-desc">通过手机验证码重置密码</p>
+          <p class="auth-page-hint">（测试环境验证码为 1234）</p>
+          <div class="auth-field-group">
+            <div class="auth-field">
+              <span class="auth-field-prefix">+86</span>
+              <input id="authForgotPhone" type="tel" placeholder="请输入手机号" maxlength="11" />
+            </div>
+            <div class="auth-field" style="gap:12px;">
+              <input id="authForgotCode" type="tel" placeholder="验证码" maxlength="4" style="flex:1;" />
+              <button id="authForgotSendBtn" type="button" class="auth-link-btn" style="white-space:nowrap;color:#07c160;font-size:15px;">获取验证码</button>
+            </div>
+            <div class="auth-field">
+              <input id="authForgotNewPwd" type="password" placeholder="设置新密码（至少4位）" />
+            </div>
+          </div>
+          <button id="authForgotSubmitBtn" type="button" class="auth-btn-primary" style="margin-top:24px;">重置密码</button>
         </div>
       </div>
     </div>
