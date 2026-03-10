@@ -3716,7 +3716,7 @@ function bindAllEvents() {
     btn.disabled = true;
     btn.textContent = '发送中...';
     try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) });
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) });
     } catch (_) {}
     btn.disabled = false;
     btn.textContent = '下一步';
@@ -3724,7 +3724,7 @@ function bindAllEvents() {
     clearCodeBoxes('regCodeBoxes');
     authGotoStep('authRegCode');
     startResendCountdown('resendRegCodeBtn', 60, async () => {
-      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) }); } catch (_) {}
+      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) }); } catch (_) {}
       startResendCountdown('resendRegCodeBtn', 60, () => {});
     });
   });
@@ -3750,7 +3750,7 @@ function bindAllEvents() {
     btn.disabled = true;
     btn.textContent = "注册中...";
     try {
-      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, username: u, password: p, phone }) });
+      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, username: u, password: p, phone, code: window._authState.regCode }) });
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {

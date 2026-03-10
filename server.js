@@ -1054,7 +1054,7 @@ const server = http.createServer(async (req, res) => {
       const phone = normalizePhone(body.phone || '');
       const scene = String(body.scene || 'login');
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
-      if (!['login','reset'].includes(scene)) return sendJson(res, 400, { error: '验证码场景不支持' });
+      if (!['login','reset','register'].includes(scene)) return sendJson(res, 400, { error: '验证码场景不支持' });
       const clientIp = getClientIp(req);
       if (clientIp) {
         const ipCooldownUntil = Number(phoneCodeIpCooldownStore.get(clientIp) || 0);
@@ -1080,9 +1080,6 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
       }
       if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      const user = findUserByPhone(phone);
-      if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      if (!ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
       const codeResult = consumePhoneCode(phone, code, 'login');
       if (!codeResult.ok) {
         recordPhoneCodeIpAttempt(clientIp, false);
@@ -1090,6 +1087,32 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
       }
       recordPhoneCodeIpAttempt(clientIp, true);
+      let user = findUserByPhone(phone);
+      if (user && !ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
+      // Auto-register if phone is not registered (as UI promises)
+      if (!user) {
+        user = {
+          id: uid('u'),
+          username: `u_${Date.now()}`,
+          password: '',
+          displayName: `用户${phone.slice(-4)}`,
+          signature: '暂未填写签名',
+          avatarUrl: null,
+          products: [],
+          blacklist: [],
+          customGroups: ['我的好友'],
+          appNumberId: `CT${Math.floor(Math.random() * 900000 + 100000)}`,
+          createdAt: Date.now(),
+          role: 'user',
+          status: 'active',
+          paymentCodes: { wechat: '', alipay: '', cloudpay: '' },
+          phone,
+        };
+        db.users.push(user);
+        rebuildIndexes();
+        await schedulePersistCritical('register', { userId: user.id });
+        broadcastAll('users_updated', { userId: user.id });
+      }
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user) });
@@ -1169,6 +1192,14 @@ const server = http.createServer(async (req, res) => {
       }
       const phone = normalizePhone(body.phone || '');
       if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
+      // Verify phone code on server side (try 'register' scene first, fall back to 'login')
+      const regCode = String(body.code || '').trim();
+      if (regCode) {
+        const codeResult = consumePhoneCode(phone, regCode, 'register') || consumePhoneCode(phone, regCode, 'login');
+        if (!codeResult.ok) {
+          return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期' });
+        }
+      }
       if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该登录账号已被注册，请更换账号' });
       if (phone && findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const user = {
