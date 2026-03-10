@@ -84,7 +84,7 @@ public class ChatApplication extends Application {
     public static void bindPushAlias(String userId) {
         if (userId == null || userId.isEmpty()) return;
         CloudPushService pushService = PushServiceFactory.getCloudPushService();
-        pushService.bindAlias(userId, new CommonCallback() {
+        pushService.addAlias(userId, new CommonCallback() {
             @Override
             public void onSuccess(String s) {
                 Log.i(TAG, "Push alias bound: " + userId);
@@ -102,7 +102,7 @@ public class ChatApplication extends Application {
     public static void unbindPushAlias(String userId) {
         if (userId == null || userId.isEmpty()) return;
         CloudPushService pushService = PushServiceFactory.getCloudPushService();
-        pushService.unbindAlias(userId, new CommonCallback() {
+        pushService.removeAlias(userId, new CommonCallback() {
             @Override
             public void onSuccess(String s) {
                 Log.i(TAG, "Push alias unbound");
