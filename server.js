@@ -751,7 +751,10 @@ function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
 function revokeSessionsForUser(userId) {
   if (!userId) return;
   for (const [token, session] of sessions.entries()) {
-    if (session?.userId === userId) sessions.delete(token);
+    if (session?.userId === userId) {
+      sessions.delete(token);
+      csrfTokens.delete(token);
+    }
   }
 }
 
@@ -854,7 +857,10 @@ function recordPhoneCodeIpAttempt(ip, success) {
 function cleanupAuthState() {
   const now = Date.now();
   for (const [token, session] of sessions.entries()) {
-    if (session?.expiresAt && Number(session.expiresAt) < now) sessions.delete(token);
+    if (session?.expiresAt && Number(session.expiresAt) < now) {
+      sessions.delete(token);
+      csrfTokens.delete(token);
+    }
   }
   for (const [token, entry] of sseSessionTokens.entries()) {
     if (!entry?.expiresAt || Number(entry.expiresAt) < now) sseSessionTokens.delete(token);
@@ -1178,6 +1184,9 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const body = await parseBody(req);
+      if (!authUser.password) {
+        return sendJson(res, 400, { error: '当前账号未设置密码，请通过忘记密码功能设置新密码' });
+      }
       if (!(await verifyPasswordAsync(body.oldPassword, authUser.password))) {
         return sendJson(res, 400, { error: '旧密码错误' });
       }
@@ -1219,10 +1228,13 @@ const server = http.createServer(async (req, res) => {
       if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
       // Verify phone code on server side (try 'register' scene first, fall back to 'login')
       const regCode = String(body.code || '').trim();
-      if (regCode) {
-        const codeResult = consumePhoneCode(phone, regCode, 'register') || consumePhoneCode(phone, regCode, 'login');
-        if (!codeResult.ok) {
-          return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期' });
+      if (!regCode) return sendJson(res, 400, { error: '请输入验证码' });
+      const codeResult = consumePhoneCode(phone, regCode, 'register');
+      if (!codeResult.ok) {
+        // Fall back to 'login' scene if 'register' scene code not found
+        const fallbackResult = consumePhoneCode(phone, regCode, 'login');
+        if (!fallbackResult.ok) {
+          return sendJson(res, 400, { error: fallbackResult.error || '验证码错误或已过期' });
         }
       }
       if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该登录账号已被注册，请更换账号' });

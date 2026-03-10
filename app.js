@@ -14,7 +14,17 @@ function readSession() {
 function writeSession(user, token, csrfToken) {
   const nextToken = token ?? state.sessionToken ?? null;
   const nextCsrf = csrfToken ?? state.csrfToken ?? null;
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, csrfToken: nextCsrf, savedAt: Date.now() }));
+  // Preserve original loginAt timestamp; only set on new login (when token is provided)
+  let loginAt;
+  if (token) {
+    loginAt = Date.now();
+  } else {
+    try {
+      const existing = JSON.parse(localStorage.getItem(SESSION_KEY) || '{}');
+      loginAt = existing.loginAt || existing.savedAt || Date.now();
+    } catch (_) { loginAt = Date.now(); }
+  }
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, csrfToken: nextCsrf, savedAt: Date.now(), loginAt }));
   state.sessionToken = nextToken;
   state.csrfToken = nextCsrf;
 }
@@ -25,7 +35,7 @@ function checkSessionExpiry() {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
-    if (parsed && parsed.savedAt && (Date.now() - parsed.savedAt > SESSION_MAX_AGE_MS)) {
+    if (parsed && (parsed.loginAt || parsed.savedAt) && (Date.now() - (parsed.loginAt || parsed.savedAt) > SESSION_MAX_AGE_MS)) {
       localStorage.removeItem(SESSION_KEY);
       showToast('登录已过期，请重新登录');
       setTimeout(() => location.reload(), 1500);
