@@ -721,7 +721,7 @@ function buildConversationMeta(conv, userId) {
     if (!foundPreview) {
       if (msg.type === 'image') preview = '[图片]';
       else if (msg.type === 'audio') preview = '[语音]';
-      else if (msg.type === 'order_card') preview = '[交易提醒]';
+      else if (msg.type === 'order_card') preview = '[订单]';
       else if (msg.type === 'broadcast_card') preview = '[系统消息]';
       else if (msg.type === 'card') {
         const cardType = String(msg.card?.cardType || '').trim();

@@ -2292,8 +2292,8 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         bubble.textContent = '图片已失效';
       }
       wrap.appendChild(bubble);
-    } else if (msg.type === 'card') {
-      const c = msg.card || {};
+    } else if (msg.type === 'card' && msg.card) {
+      const c = msg.card;
       const card = document.createElement('div');
       card.className = 'trade-card';
       const isContactCard = isContactCardPayload(c);
@@ -2364,9 +2364,9 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         });
       }
       wrap.appendChild(card);
-    } else if (msg.type === 'order_card') {
+    } else if (msg.type === 'order_card' && msg.order) {
       wrap.appendChild(buildOrderCardMessage(msg));
-    } else if (msg.type === 'broadcast_card') {
+    } else if (msg.type === 'broadcast_card' && msg.broadcast) {
       wrap.appendChild(buildBroadcastCardMessage(msg));
     } else {
       const bubble = document.createElement('div');
