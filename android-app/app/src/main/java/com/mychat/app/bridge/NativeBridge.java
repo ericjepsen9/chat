@@ -189,10 +189,12 @@ public class NativeBridge {
     /**
      * Notify H5 about incoming call action from native call screen
      */
-    public void notifyCallAction(String action, String callerId, String conversationId, String callId) {
+    public void notifyCallAction(String action, String callerId, String callerName,
+                                 String conversationId, String callId, String callMode) {
         String js = String.format(
-                "if(window.__onNativeCallAction) window.__onNativeCallAction('%s','%s','%s','%s');",
-                escapeJS(action), escapeJS(callerId), escapeJS(conversationId), escapeJS(callId));
+                "if(window.__onNativeCallAction) window.__onNativeCallAction('%s','%s','%s','%s','%s','%s');",
+                escapeJS(action), escapeJS(callerId), escapeJS(callerName),
+                escapeJS(conversationId), escapeJS(callId), escapeJS(callMode));
         callJS(js);
     }
 

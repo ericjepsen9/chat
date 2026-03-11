@@ -5813,7 +5813,7 @@ function bindAllEvents() {
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
           if($("callName")) $("callName").textContent = peerName;
           state.rtc.pendingOffer = null; 
-      } catch (err) { window.stopCall(); showModal(err && err.message ? err.message : '接听失败'); } finally { state.rtc._accepting = false; }
+      } catch (err) { finalizeCall({ alertText: err && err.message ? err.message : '接听失败', event: 'reject', reason: 'error' }); } finally { state.rtc._accepting = false; }
   });
   
   on("rejectCallBtn", "click", () => { finalizeCall({ event: 'reject', reason: 'manual' }); });
@@ -7473,16 +7473,32 @@ function nativeOnCallEnded() {
  * Handle incoming call action from native IncomingCallActivity.
  * Native side calls this after user taps Accept/Reject on the native call screen.
  */
-window.__onNativeCallAction = (action, callerId, conversationId, callId) => {
+window.__onNativeCallAction = (action, callerId, callerName, conversationId, callId, callMode) => {
   if (action === 'accept_call') {
-    // Open conversation and auto-accept
-    if (conversationId) {
-      window.openConversation(conversationId, { skipFetch: false }).then(() => {
-        // The SSE webrtc_signal handler will pick up the pending offer
-        // Set pendingAccept so it auto-accepts when offer arrives
-        state.rtc.pendingAccept = true;
-      }).catch(() => {});
+    if (!conversationId) return;
+    // Set up call state BEFORE opening conversation to avoid race with SSE offer.
+    // If the SSE webrtc_signal arrives while openConversation is in progress,
+    // pendingAccept must already be true so the auto-click at line 6989 fires.
+    state.rtc.pendingAccept = true;
+    state.rtc.callId = callId || state.rtc.callId || null;
+    state.rtc.conversationId = conversationId;
+    if (callerId) {
+      state.rtc.incomingMeta = state.rtc.incomingMeta || {
+        senderId: callerId,
+        senderName: callerName || callerId,
+        mode: callMode || 'voice',
+        conversationId: conversationId,
+        callId: callId || null
+      };
     }
+    // Use skipFetch: true to open the conversation UI immediately without
+    // blocking on network; messages will load lazily in the background.
+    window.openConversation(conversationId, { skipFetch: true }).then(() => {
+      // If the pendingOffer already arrived via SSE, auto-click accept now
+      if (state.rtc.pendingOffer && state.rtc.pendingAccept && $("acceptCallBtn")) {
+        $("acceptCallBtn").click();
+      }
+    }).catch(() => {});
   } else if (action === 'reject_call') {
     // Send reject signal to server
     if (conversationId && callerId) {

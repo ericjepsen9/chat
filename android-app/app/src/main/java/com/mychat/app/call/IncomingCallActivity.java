@@ -110,9 +110,16 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopVibration();
 
-        // Launch MainActivity with call accept action
+        // Launch MainActivity with call accept action.
+        // IMPORTANT: Do NOT use FLAG_ACTIVITY_CLEAR_TOP here. Although MainActivity is
+        // singleTask (so CLEAR_TOP should just call onNewIntent per AOSP), some OEM ROMs
+        // (Xiaomi, OPPO, vivo, etc.) destroy and recreate the activity when CLEAR_TOP is
+        // combined with NEW_TASK from a singleInstance caller. This kills the WebView and
+        // all WebRTC / SSE state, causing the app to appear to "exit".
+        // FLAG_ACTIVITY_NEW_TASK alone is sufficient — singleTask already guarantees the
+        // existing instance receives onNewIntent().
         Intent intent = new Intent(this, MainActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra("action", "accept_call");
         intent.putExtra("callerId", callerId);
         intent.putExtra("callerName", callerName);
@@ -128,9 +135,9 @@ public class IncomingCallActivity extends AppCompatActivity {
         stopRingtone();
         stopVibration();
 
-        // Launch MainActivity with reject action
+        // Launch MainActivity with reject action (same flag rationale as acceptCall)
         Intent intent = new Intent(this, MainActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.putExtra("action", "reject_call");
         intent.putExtra("callerId", callerId);
         intent.putExtra("conversationId", conversationId);

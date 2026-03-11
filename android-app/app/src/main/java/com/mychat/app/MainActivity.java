@@ -388,11 +388,13 @@ public class MainActivity extends AppCompatActivity {
 
         // Call actions: accept_call, reject_call
         String callerId = intent.getStringExtra("callerId");
+        String callerName = intent.getStringExtra("callerName");
         String conversationId = intent.getStringExtra("conversationId");
         String callId = intent.getStringExtra("callId");
+        String callMode = intent.getStringExtra("callMode");
 
         if (nativeBridge != null) {
-            nativeBridge.notifyCallAction(action, callerId, conversationId, callId);
+            nativeBridge.notifyCallAction(action, callerId, callerName, conversationId, callId, callMode);
         }
     }
 
