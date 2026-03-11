@@ -4273,7 +4273,8 @@ function bindAllEvents() {
     }, { passive: true });
   }
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
-  on("mallSearchInput", "input", loadMall);
+  on("mallSearchBtn", "click", () => { if (checkSearchCooldown('mallSearch')) loadMall(); });
+  on("mallSearchInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (checkSearchCooldown('mallSearch')) loadMall(); } });
   // ---- Tag input (still used for adding new items inline) ----
   function initTagInput(wrapperId, inputId, onAdd) {
     const wrap = $(wrapperId); const input = $(inputId);
@@ -5496,56 +5497,87 @@ function bindAllEvents() {
     _origStopCall();
   };
 
+  // ── Search cooldown utility ──
+  const _searchCooldowns = {};
+  const SEARCH_COOLDOWN_MS = 3000; // 3 second cooldown between searches
+  function showCooldownToast(seconds) {
+    let toast = document.querySelector('.search-cooldown-toast');
+    if (toast) toast.remove();
+    toast = document.createElement('div');
+    toast.className = 'search-cooldown-toast';
+    toast.textContent = `搜索太频繁，请 ${seconds} 秒后再试`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 1500);
+  }
+  function checkSearchCooldown(key) {
+    const now = Date.now();
+    const last = _searchCooldowns[key] || 0;
+    const remaining = SEARCH_COOLDOWN_MS - (now - last);
+    if (remaining > 0) {
+      showCooldownToast(Math.ceil(remaining / 1000));
+      return false;
+    }
+    _searchCooldowns[key] = now;
+    return true;
+  }
+
   // ── Enhanced message search (conversations + chat content) ──
-  let _msgSearchTimer = null;
-  on("searchInput", "input", () => {
-    loadConversations().catch(() => {});
-    clearTimeout(_msgSearchTimer);
+  async function doMsgSearch() {
     const keyword = ($("searchInput")?.value || '').trim();
     if (!keyword) {
       if ($("msgSearchResults")) { $("msgSearchResults").classList.add('hidden'); $("msgSearchResults").innerHTML = ''; }
       if ($("chatList")) $("chatList").style.display = '';
       return;
     }
-    _msgSearchTimer = setTimeout(async () => {
-      try {
-        const res = await api(`/api/messages/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
-        const el = $("msgSearchResults");
-        if (!el) return;
-        if (!res.results || !res.results.length) {
-          el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关聊天记录</div>';
-          el.classList.remove('hidden');
-          if ($("chatList")) $("chatList").style.display = 'none';
-          return;
-        }
-        const kw = escapeHTML(keyword);
-        const highlightText = (text) => {
-          const escaped = escapeHTML(text.length > 80 ? text.slice(0, 80) + '...' : text);
-          return escaped.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
-        };
-        el.innerHTML = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
-          res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${r.conversationId}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
-              <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
-            </div>
-            <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
-          </button>`).join('');
-        if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${res.total} 条结果</div>`;
+    if (!checkSearchCooldown('msgSearch')) return;
+    loadConversations().catch(() => {});
+    try {
+      const res = await api(`/api/messages/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
+      const el = $("msgSearchResults");
+      if (!el) return;
+      if (!res.results || !res.results.length) {
+        el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关聊天记录</div>';
         el.classList.remove('hidden');
         if ($("chatList")) $("chatList").style.display = 'none';
-        el.querySelectorAll('.msg-search-item').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const convId = btn.dataset.convId;
-            if (convId) window.openConversation(convId);
-            if ($("searchInput")) $("searchInput").value = '';
-            el.classList.add('hidden');
-            el.innerHTML = '';
-            if ($("chatList")) $("chatList").style.display = '';
-          });
+        return;
+      }
+      const kw = escapeHTML(keyword);
+      const highlightText = (text) => {
+        const escaped = escapeHTML(text.length > 80 ? text.slice(0, 80) + '...' : text);
+        return escaped.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
+      };
+      el.innerHTML = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
+        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${r.conversationId}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
+            <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
+          </div>
+          <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
+        </button>`).join('');
+      if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${res.total} 条结果</div>`;
+      el.classList.remove('hidden');
+      if ($("chatList")) $("chatList").style.display = 'none';
+      el.querySelectorAll('.msg-search-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const convId = btn.dataset.convId;
+          if (convId) window.openConversation(convId);
+          if ($("searchInput")) $("searchInput").value = '';
+          el.classList.add('hidden');
+          el.innerHTML = '';
+          if ($("chatList")) $("chatList").style.display = '';
         });
-      } catch (_) {}
-    }, 350);
+      });
+    } catch (_) {}
+  }
+  on("searchBtn", "click", doMsgSearch);
+  on("searchInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); doMsgSearch(); } });
+  // Clear results when input is emptied
+  on("searchInput", "input", () => {
+    const keyword = ($("searchInput")?.value || '').trim();
+    if (!keyword) {
+      if ($("msgSearchResults")) { $("msgSearchResults").classList.add('hidden'); $("msgSearchResults").innerHTML = ''; }
+      if ($("chatList")) $("chatList").style.display = '';
+    }
   });
   on("friendSearchInput", "input", () => { loadFriends().catch(() => {}); });
 
