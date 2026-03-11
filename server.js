@@ -22,7 +22,7 @@ const { createBroadcastMessage } = require('./broadcast_service');
 const { listFriendRequests, listFriends, listConversations } = require('./social_query_service');
 const { deleteConversationMessage, recallConversationMessage, applyConversationAction } = require('./conversation_action_service');
 const { listConversationMessages, createConversationMessage } = require('./conversation_message_service');
-const { pushIncomingCall, pushNewMessage, pushFriendRequest, isUserOnline } = require('./push_service');
+const { pushIncomingCall, pushNewMessage, pushFriendRequest, pushOrderUpdate, isUserOnline } = require('./push_service');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -617,7 +617,11 @@ function sendPushFallback(userId, event, payload) {
         payload.mode, payload.conversationId, payload.callId).catch(() => {});
     } else if (event === 'message_created' && payload.message) {
       const msg = payload.message;
-      if (msg.type !== 'system') {
+      if (msg.type === 'order_card') {
+        const orderData = msg.order || {};
+        const title = orderData.title || '订单更新';
+        pushOrderUpdate(userId, orderData.id || '', title).catch(() => {});
+      } else if (msg.type !== 'system') {
         const sender = index.usersById.get(msg.senderId);
         const senderName = sender?.displayName || '新消息';
         const content = msg.text || (msg.type === 'image' ? '[图片]' : msg.type === 'audio' ? '[语音]' : '[消息]');
