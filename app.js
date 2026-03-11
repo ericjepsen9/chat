@@ -3774,7 +3774,7 @@ window.openConversation = async (id, options = {}) => {
     conv.unread = 0;
     renderConversationListFromState();
   }
-  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","contactCardPickerPage","productCardPickerPage","orderCardPickerPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
+  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","contactCardPickerPage","productCardPickerPage","orderCardPickerPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage","msgSearchPage","mallSearchPage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
   if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
   if($("chatListView")) $("chatListView").classList.add("hidden"); 
   if($("friendListView")) $("friendListView").classList.add("hidden");
@@ -5562,7 +5562,7 @@ function bindAllEvents() {
         return escaped.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
       };
       el.innerHTML = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
-        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${r.conversationId}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
+        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${r.conversationId}" data-msg-id="${r.messageId}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
           <div style="flex:1;min-width:0;">
             <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
             <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
@@ -5571,9 +5571,30 @@ function bindAllEvents() {
         </button>`).join('');
       if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${res.total} 条结果</div>`;
       el.querySelectorAll('.msg-search-item').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
           const convId = btn.dataset.convId;
-          if (convId) window.openConversation(convId);
+          const msgId = btn.dataset.msgId;
+          if (!convId) return;
+          // Close search page and navigate to conversation
+          if ($("msgSearchPageInput")) $("msgSearchPageInput").value = '';
+          if ($("msgSearchPageResults")) $("msgSearchPageResults").innerHTML = '';
+          state.secondaryPage = null;
+          await window.openConversation(convId);
+          // Scroll to the target message after messages are loaded
+          if (msgId) {
+            setTimeout(() => {
+              const chatView = $("chatView");
+              if (!chatView) return;
+              const target = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(msgId))}"]`);
+              if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Briefly highlight the target message
+                target.style.transition = 'background 0.3s';
+                target.style.background = '#fff3cd';
+                setTimeout(() => { target.style.background = ''; }, 2000);
+              }
+            }, 300);
+          }
         });
       });
     } catch (_) {}
