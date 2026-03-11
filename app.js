@@ -1333,6 +1333,14 @@ function updateProfileCartBar(){
   if(countEl) countEl.textContent = `${count} 件商品`;
   if(totalEl) totalEl.textContent = formatMoney(currentCart.reduce((sum, item) => sum + (Number(item.unitPrice)||0)*(Number(item.quantity)||0), 0));
   if(bar) bar.classList.toggle('hidden', count <= 0);
+  updateMyCartBadge();
+}
+function updateMyCartBadge(){
+  const badge = $("myCartBadge");
+  if(!badge) return;
+  const totalCount = getGroupedCartCount();
+  if(totalCount > 0){ badge.textContent = totalCount > 99 ? '99+' : String(totalCount); badge.classList.remove('hidden'); }
+  else { badge.classList.add('hidden'); }
 }
 
 function renderProfileCartPage(){
@@ -5825,7 +5833,7 @@ function setMainTab(tab) {
   if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; loadConversations().catch(() => {}); loadSystemMessages().catch(() => {}); scheduleTradeReminderRefresh(0); }
   else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; loadFriends().catch(() => {}); loadFriendRequests().catch(() => {}); }
   else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); loadMall().catch(() => {}); } 
-  else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; }
+  else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; updateMyCartBadge(); }
   if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
   // sidebar avatar bar only visible inside chat conversation, hide on all tab views
   if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
@@ -7125,6 +7133,7 @@ async function bootstrap() {
     state.currentUser = user;
     nativeOnLogin(user.id);
     loadCartFromStorage();
+    updateMyCartBadge();
     if($("authScreen")) $("authScreen").classList.add("hidden");
     if($("appScreen")) $("appScreen").classList.remove("hidden");
     
