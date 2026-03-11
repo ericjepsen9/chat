@@ -3406,7 +3406,7 @@ window.deleteLocalMsg = async (id) => {
   } catch(e) {
     state.messages = prevMessages;
     renderMessages();
-  applyLastOutgoingReadState();
+    applyLastOutgoingReadState();
     showModal(e.message || '删除失败');
   }
 };
@@ -3414,7 +3414,7 @@ window.recallMsg = async (id) => {
   try {
     await api(`/api/conversations/${state.activeConversation.id}/messages/${id}/recall`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
     if (!applyRecalledMessageLocally(id, state.currentUser.id)) renderMessages();
-  applyLastOutgoingReadState();
+    applyLastOutgoingReadState();
     syncActiveConversationListMeta();
     renderConversationListFromState();
     loadConversations();
@@ -3864,10 +3864,10 @@ window.sendMessage = async (payload) => {
       const result = upsertMessage(res.message);
       if (result.action === 'replace') {
         if (!replaceMessageInView(res.message)) renderMessages();
-  applyLastOutgoingReadState();
       } else {
         appendMessageToView(res.message);
       }
+      applyLastOutgoingReadState();
       syncActiveConversationListMeta();
       renderConversationListFromState();
       refreshMessageReadReceipts();
@@ -3877,7 +3877,7 @@ window.sendMessage = async (payload) => {
   } catch (err) {
     state.messages = state.messages.filter(m => m.id !== tempMsg.id);
     if (!removeMessageFromView(tempMsg.id)) renderMessages();
-  applyLastOutgoingReadState();
+    applyLastOutgoingReadState();
     syncActiveConversationListMeta();
     renderConversationListFromState();
     if (err.message && err.message.includes('拒收')) {
@@ -6007,10 +6007,9 @@ async function loadFriends() {
     if (keyword) filteredFriends = filteredFriends.filter(f => f.friend && ((f.friend.displayName || '').toLowerCase().includes(keyword) || (f.friend.username || '').toLowerCase().includes(keyword)));
     state.friends = data.friends;
     const grouped = new Map();
-    grouped.set('我的好友', filteredFriends.slice());
+    grouped.set('我的好友', []);
     filteredFriends.forEach((f) => {
-      const groupName = f.group && f.group !== '我的好友' ? f.group : '';
-      if (!groupName) return;
+      const groupName = f.group && f.group !== '我的好友' ? f.group : '我的好友';
       if (!grouped.has(groupName)) grouped.set(groupName, []);
       grouped.get(groupName).push(f);
     });
@@ -6116,7 +6115,7 @@ async function fetchMessages(before = 0) {
       if (state.activeConversation) state.activeConversation.peerLastReadAt = Number(data.peerLastReadAt || state.activeConversation.peerLastReadAt || 0);
       state.peerLastReadAt = Number(data.peerLastReadAt || state.peerLastReadAt || 0);
       renderMessages();
-  applyLastOutgoingReadState();
+      applyLastOutgoingReadState();
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
       state.messages = [...data.messages, ...state.messages];

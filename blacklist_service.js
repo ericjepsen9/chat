@@ -2,6 +2,7 @@ function updateBlacklist({ authUser, targetId, action, index, rebuildBlacklistVi
   const target = index.usersById.get(targetId);
   if (!target) return { ok: false, status: 404, error: 'not_found' };
 
+  if (!Array.isArray(authUser.blacklist)) authUser.blacklist = [];
   if (action === 'add') {
     if (!authUser.blacklist.includes(target.id)) authUser.blacklist.push(target.id);
   } else {

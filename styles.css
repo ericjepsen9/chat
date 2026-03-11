@@ -897,7 +897,7 @@ input, textarea { font-size: var(--font-body); }
 
 
 /* V42 read state polish */
-.msg.me{position:relative;}
+.message-row.me{position:relative;}
 .message-read-state{
   position:absolute;
   right:6px;
@@ -925,23 +925,23 @@ input, textarea { font-size: var(--font-body); }
 .message-read-state.is-unread{
   color:#9ca3af;
 }
-.msg.me + .time,
-.time + .msg.me .message-read-state{
+.message-row.me + .time,
+.time + .message-row.me .message-read-state{
   /* no-op selector kept to increase specificity near timestamp blocks */
 }
 
 
 /* V43 read-state spacing polish */
-.msg{
+.message-row{
   margin-bottom: 22px;
 }
-.msg.me .message-read-state{
+.message-row.me .message-read-state{
   right: 8px;
   bottom: -14px;
   font-size: 10px;
   letter-spacing: 0;
 }
-.msg.me .message-read-text{
+.message-row.me .message-read-text{
   opacity: .92;
 }
 .time{
@@ -950,29 +950,29 @@ input, textarea { font-size: var(--font-body); }
   line-height: 1.2;
   color: #9ca3af;
 }
-.msg.me + .time{
+.message-row.me + .time{
   margin-top: 16px;
 }
-.msg.me .bubble,
-.msg.other .bubble{
+.message-row.me .bubble,
+.message-row:not(.me) .bubble{
   position: relative;
 }
 
 
 /* V45 read-state precision polish */
-.msg.me .message-read-state{
+.message-row.me .message-read-state{
   gap: 3px;
   right: 10px;
   bottom: -13px;
   font-size: 10px;
 }
-.msg.me .message-read-dot{
+.message-row.me .message-read-dot{
   width: 3px;
   height: 3px;
   opacity: .8;
 }
-.msg.me .message-read-state.is-unread{ color:#94a3b8; }
-.msg.me .message-read-state.is-read{ color:#3b82f6; }
+.message-row.me .message-read-state.is-unread{ color:#94a3b8; }
+.message-row.me .message-read-state.is-read{ color:#3b82f6; }
 
 /* v46/v49 scan camera (consolidated into main scan styles above) */
 .scan-camera-wrap{

@@ -1283,7 +1283,7 @@ const server = http.createServer(async (req, res) => {
         products: [],
         blacklist: [],
         customGroups: ['我的好友'],
-        appNumberId: `CT${Math.floor(Math.random() * 900000 + 100000)}`,
+        appNumberId: generateUniqueAppNumberId(),
         createdAt: Date.now(),
         role: 'user',
         status: 'active',
