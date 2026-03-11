@@ -3,7 +3,10 @@ package com.mychat.app;
 import android.app.Application;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.media.AudioAttributes;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import android.util.Log;
 
 import com.alibaba.sdk.android.push.CloudPushService;
@@ -34,10 +37,16 @@ public class ChatApplication extends Application {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
 
+        AudioAttributes audioAttr = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+
         // Incoming call — highest importance, shows full-screen intent
         NotificationChannel callChannel = new NotificationChannel(
                 CHANNEL_CALL, "来电通知", NotificationManager.IMPORTANCE_HIGH);
         callChannel.setDescription("来电提醒和通话状态");
+        callChannel.setSound(Settings.System.DEFAULT_RINGTONE_URI, audioAttr);
         callChannel.enableVibration(true);
         callChannel.setVibrationPattern(new long[]{0, 500, 300, 500});
         callChannel.setBypassDnd(true);
@@ -48,6 +57,11 @@ public class ChatApplication extends Application {
         NotificationChannel msgChannel = new NotificationChannel(
                 CHANNEL_MESSAGE, "聊天消息", NotificationManager.IMPORTANCE_HIGH);
         msgChannel.setDescription("新消息通知");
+        msgChannel.setSound(Settings.System.DEFAULT_NOTIFICATION_URI,
+                new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
         msgChannel.enableVibration(true);
         nm.createNotificationChannel(msgChannel);
 

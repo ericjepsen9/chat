@@ -4,6 +4,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.provider.Settings;
 
 import androidx.core.app.NotificationCompat;
 
@@ -37,6 +38,7 @@ public class NotificationHelper {
                 .setContentTitle(senderName)
                 .setContentText(content)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setSound(Settings.System.DEFAULT_NOTIFICATION_URI)
                 .setAutoCancel(true)
                 .setContentIntent(pending)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE);

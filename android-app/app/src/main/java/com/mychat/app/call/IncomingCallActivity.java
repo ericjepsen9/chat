@@ -3,11 +3,16 @@ package com.mychat.app.call;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageButton;
@@ -34,6 +39,7 @@ public class IncomingCallActivity extends AppCompatActivity {
     private String callId;
 
     private Vibrator vibrator;
+    private MediaPlayer ringtonePlayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -95,11 +101,13 @@ public class IncomingCallActivity extends AppCompatActivity {
             }
         });
 
-        // Start vibration
+        // Start ringtone and vibration
+        startRingtone();
         startVibration();
     }
 
     private void acceptCall() {
+        stopRingtone();
         stopVibration();
 
         // Launch MainActivity with call accept action
@@ -117,6 +125,7 @@ public class IncomingCallActivity extends AppCompatActivity {
     }
 
     private void rejectCall() {
+        stopRingtone();
         stopVibration();
 
         // Launch MainActivity with reject action
@@ -129,6 +138,36 @@ public class IncomingCallActivity extends AppCompatActivity {
         startActivity(intent);
 
         finish();
+    }
+
+    private void startRingtone() {
+        try {
+            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            ringtonePlayer = new MediaPlayer();
+            ringtonePlayer.setDataSource(this, ringtoneUri);
+            ringtonePlayer.setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build());
+            ringtonePlayer.setLooping(true);
+            ringtonePlayer.prepare();
+            ringtonePlayer.start();
+        } catch (Exception e) {
+            Log.w("IncomingCall", "Failed to play ringtone", e);
+            ringtonePlayer = null;
+        }
+    }
+
+    private void stopRingtone() {
+        if (ringtonePlayer != null) {
+            try {
+                ringtonePlayer.stop();
+                ringtonePlayer.release();
+            } catch (Exception e) {
+                Log.w("IncomingCall", "Failed to stop ringtone", e);
+            }
+            ringtonePlayer = null;
+        }
     }
 
     private void startVibration() {
@@ -157,6 +196,7 @@ public class IncomingCallActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        stopRingtone();
         stopVibration();
         super.onDestroy();
     }
