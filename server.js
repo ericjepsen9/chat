@@ -8,7 +8,7 @@ const { isAdmin, normalizeUserRole, canAccessConversation } = require('./server_
 const { parseAuthToken, requireAuth, requireAdmin } = require('./server_auth');
 const { createFriendRequest, acceptFriendRequest, rejectFriendRequest } = require('./friend_request_service');
 const { queryOrders } = require('./order_query_service');
-const { createOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange, deleteOrder } = require('./order_mutation_service');
+const { createOrder, acceptOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange, deleteOrder } = require('./order_mutation_service');
 const { buildAdminDashboardData } = require('./admin_dashboard_service');
 const { createPersistence } = require('./server_persistence');
 const { updateBlacklist } = require('./blacklist_service');
@@ -1504,6 +1504,25 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         rebuildMallIndex,
         broadcastAll,
+        ordersById: index.ordersById,
+      });
+      if (!result.ok) return sendJson(res, result.status, { error: result.error });
+      return sendJson(res, result.status, result.payload);
+    }
+
+    const orderAcceptMatch = pathname.match(/^\/api\/orders\/([^/]+)\/accept$/);
+    if (orderAcceptMatch && req.method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context) return;
+      const result = acceptOrder({
+        authUser: context.authUser,
+        orderId: orderAcceptMatch[1],
+        body: context.body,
+        db,
+        usersById: index.usersById,
+        getOrCreateDirectConversation,
+        addTradeMessage,
+        schedulePersist,
         ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });

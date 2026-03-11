@@ -1946,6 +1946,10 @@ input, textarea { font-size: var(--font-body); }
   background:#ecfdf5;
   color:#059669;
 }
+.trade-card-status.active{
+  background:#fff7ed;
+  color:#ea580c;
+}
 .trade-card-cover{
   margin-top:8px;
   width:100%;

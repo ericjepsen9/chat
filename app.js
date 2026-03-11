@@ -1017,8 +1017,9 @@ function renderOrderDetailPage(){
   box.appendChild(totalDiv);
 
   // Action buttons visibility
-  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status === 'completed' || !!order.priceAdjustmentLocked);
-  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', role !== 'buyer' || order.status === 'completed');
+  if($("orderDetailAcceptBtn")) $("orderDetailAcceptBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
+  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'accepted' || !!order.priceAdjustmentLocked);
+  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', order.status !== 'accepted');
   if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
 }
 
@@ -1038,7 +1039,8 @@ async function updateSelectedOrderPrice(){
 async function completeSelectedOrder(){
   const order = state.selectedOrderDetail;
   if(!order?.id) return;
-  if(!confirm('确认已收到商品？订单将标记为已完成。')) return;
+  const isBuyerRole = state.selectedOrderRole === 'buyer';
+  if(!confirm(isBuyerRole ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？')) return;
   try{
     const data = await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
     state.selectedOrderDetail = data.order || order;
@@ -1786,22 +1788,44 @@ function renderProfileOrders(){
     const canManage = state.currentUser?.id && state.currentUser.id === order.sellerId;
 
     if (canManage) {
-      const editBtn = document.createElement('button');
-      editBtn.type = 'button';
-      editBtn.className = 'secondary-btn';
-      editBtn.textContent = '修改价格';
-      editBtn.addEventListener('click', async () => {
-        if(!order.id) return;
-        const raw = prompt('请输入新的总价', String(order.total || ''));
-        if(raw === null) return;
-        try{
-          await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await loadProfileOrders();
-        }catch(e){ showModal(e.message || '修改失败'); }
-      });
-      actions.appendChild(editBtn);
+      // Accept button for pending orders
+      if(order.status === 'pending'){
+        const acceptBtn = document.createElement('button');
+        acceptBtn.type = 'button';
+        acceptBtn.className = 'primary-btn';
+        acceptBtn.textContent = '接单';
+        acceptBtn.addEventListener('click', async (e) => { e.stopPropagation();
+          if(!order.id) return;
+          try{
+            await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
+            await loadProfileOrders();
+            if(state.activeConversation?.id) await reloadActiveConversationMessages();
+          }catch(e){ showModal(e.message || '接单失败'); }
+        });
+        actions.appendChild(acceptBtn);
+      }
 
-      if(order.status !== 'completed'){
+      // Price edit only on accepted, non-locked, non-completed orders
+      if(order.status === 'accepted' && !order.priceAdjustmentLocked){
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'secondary-btn';
+        editBtn.textContent = '修改价格';
+        editBtn.addEventListener('click', async (e) => { e.stopPropagation();
+          if(!order.id) return;
+          const raw = prompt('请输入新的总价', String(order.total || ''));
+          if(raw === null) return;
+          try{
+            await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
+            await loadProfileOrders();
+            if(state.activeConversation?.id) await reloadActiveConversationMessages();
+          }catch(e){ showModal(e.message || '修改失败'); }
+        });
+        actions.appendChild(editBtn);
+      }
+
+      // Complete button only on accepted orders
+      if(order.status === 'accepted'){
         const doneBtn = document.createElement('button');
         doneBtn.type = 'button';
         doneBtn.className = 'primary-btn';
@@ -2564,7 +2588,7 @@ function buildOrderCardMessage(msg){
   price.className = 'trade-card-price';
   price.textContent = formatMoney(order.total || 0);
   const status = document.createElement('div');
-  status.className = 'trade-card-status' + (order.status === 'completed' ? ' done' : '');
+  status.className = 'trade-card-status' + (order.status === 'completed' ? ' done' : order.status === 'accepted' ? ' active' : '');
   status.textContent = formatOrderStatusLabel(order.status);
   wrap.append(title, sub, price, status);
 
@@ -2584,12 +2608,41 @@ function buildOrderCardMessage(msg){
   actions.appendChild(detailBtn);
 
   const currentUserId = state.currentUser?.id || '';
-  const isParticipant = currentUserId && (currentUserId === order.buyerId || currentUserId === order.sellerId);
+  const isBuyer = currentUserId && currentUserId === order.buyerId;
+  const isSeller = currentUserId && currentUserId === order.sellerId;
+  const isParticipant = isBuyer || isSeller;
   const pendingRequester = order.pendingPriceRequestedBy || '';
   const hasPendingPrice = order.pendingPrice != null && !!pendingRequester;
   const isPriceLocked = !!order.priceAdjustmentLocked;
 
-  const canRequest = isParticipant && order.status !== 'completed' && !hasPendingPrice && !isPriceLocked;
+  // Seller can accept pending orders
+  if(isSeller && order.status === 'pending'){
+    const acceptBtn = document.createElement('button');
+    acceptBtn.type = 'button';
+    acceptBtn.className = 'primary-btn';
+    acceptBtn.textContent = '接单';
+    acceptBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if(!order.id || acceptBtn.disabled) return;
+      acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
+      try{
+        await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
+        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
+      }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
+    });
+    actions.appendChild(acceptBtn);
+  }
+
+  // Buyer waiting for seller to accept
+  if(isBuyer && order.status === 'pending'){
+    const waitHint = document.createElement('span');
+    waitHint.className = 'trade-card-sub';
+    waitHint.textContent = '等待商家接单';
+    actions.appendChild(waitHint);
+  }
+
+  // Only buyer can request price change, and only on accepted orders
+  const canRequest = isBuyer && order.status === 'accepted' && !hasPendingPrice && !isPriceLocked;
   if(canRequest){
     const reqBtn = document.createElement('button');
     reqBtn.type = 'button';
@@ -5357,6 +5410,18 @@ function bindAllEvents() {
     window.openSecondaryPage('profileCartPage', state.secondaryReturn || (state.activeConversation ? 'chat' : 'home'));
   });
   on("submitProfileOrderBtn", "click", submitProfileOrder);
+  on("orderDetailAcceptBtn", "click", async () => {
+    const order = state.selectedOrderDetail;
+    if(!order?.id) return;
+    try{
+      const data = await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
+      state.selectedOrderDetail = data.order || order;
+      await Promise.all([loadSellerOrders(), loadProfileOrders(), loadBuyerOrders()]);
+      if(state.activeConversation?.id) await reloadActiveConversationMessages();
+      renderOrderDetailPage();
+      showToast('已接单');
+    }catch(e){ showModal(e.message || '接单失败'); }
+  });
   on("orderDetailEditPriceBtn", "click", updateSelectedOrderPrice);
   on("orderDetailCompleteBtn", "click", completeSelectedOrder);
   on("orderDetailChatBtn", "click", async () => {

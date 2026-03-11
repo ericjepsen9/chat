@@ -132,7 +132,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     sellerId: seller.id,
     items: normalized,
     total,
-    status: 'accepted',
+    status: 'pending',
     createdAt: now,
     updatedAt: now,
     clientRequestId: clientRequestId || null,
@@ -157,12 +157,39 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   return { ok: true, status: 201, payload: { order, deduplicated: false } };
 }
 
+function acceptOrder({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
+  const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
+  if (!order) return { ok: false, status: 404, error: 'not_found' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
+  if (!actor.ok) return actor;
+  if (order.status !== 'pending') return { ok: false, status: 409, error: 'order_not_pending' };
+  const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
+  if (versionError) return versionError;
+
+  order.status = 'accepted';
+  order.updatedAt = Date.now();
+
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  addTradeMessage(conv.id, {
+    senderId: authUser.id,
+    type: 'order_card',
+    order: buildOrderCardPayload(order, {
+      title: '商家已接单',
+      role: 'seller',
+    }),
+  });
+  conv.updatedAt = Date.now();
+  schedulePersist('order_accept', { orderId: order.id });
+  return { ok: true, status: 200, payload: { order } };
+}
+
 function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
   const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
   if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
+  if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
@@ -191,7 +218,7 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
 function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
   const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
-  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: false });
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: true });
   if (!actor.ok) return actor;
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
@@ -201,6 +228,7 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
   if (order.status === 'completed') {
     return { ok: true, status: 200, payload: { order, deduplicated: true } };
   }
+  if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
 
   order.status = 'completed';
   order.updatedAt = Date.now();
@@ -226,6 +254,7 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: false });
   if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
+  if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'pending_price_request_exists' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
@@ -295,6 +324,7 @@ function deleteOrder({ authUser, orderId, db, usersById, schedulePersist, orders
 
 module.exports = {
   createOrder,
+  acceptOrder,
   updateOrderPrice,
   updateOrderStatus,
   requestOrderPriceChange,
