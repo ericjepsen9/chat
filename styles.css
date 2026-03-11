@@ -1971,6 +1971,19 @@ input, textarea { font-size: var(--font-body); }
 }
 
 
+/* Search pages – toolbar pinned at top */
+#msgSearchPage,
+#mallSearchPage {
+  background: #f2f2f6;
+}
+#msgSearchPage .toolbar,
+#mallSearchPage .toolbar {
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 /* V62 consistency fixes for mall/mine secondary pages */
 #mallView,
 #profileView,
