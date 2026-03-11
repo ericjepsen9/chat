@@ -41,6 +41,12 @@ function uid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function generateUniqueAppNumberId() {
+  let appNum;
+  do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber && index.usersByAppNumber.has(appNum));
+  return appNum;
+}
+
 function makeSalt() {
   return crypto.randomBytes(16).toString('hex');
 }
@@ -504,7 +510,11 @@ function rebuildIndexes() {
       }
       user.specPresets = [...specs];
     }
-    if (!user.appNumberId) user.appNumberId = `CT${Math.floor(Math.random() * 900000 + 100000)}`;
+    if (!user.appNumberId) {
+      let appNum;
+      do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber.has(appNum));
+      user.appNumberId = appNum;
+    }
     index.usersById.set(user.id, user);
     index.usersByName.set(user.username, user);
     index.usersByAppNumber.set(user.appNumberId, user);
@@ -549,9 +559,18 @@ rebuildIndexes();
 const sseClientsByUser = new Map();
 const sseSessionTokens = new Map();
 const sseHeartbeatByRes = new WeakMap();
+const MAX_SSE_PER_USER = 8;
 function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
-  sseClientsByUser.get(userId).add(res);
+  const conns = sseClientsByUser.get(userId);
+  if (conns.size >= MAX_SSE_PER_USER) {
+    for (const old of conns) {
+      try { old.end(); } catch (_) {}
+      removeSseClient(userId, old);
+      if (conns.size < MAX_SSE_PER_USER) break;
+    }
+  }
+  conns.add(res);
   const timer = setInterval(() => {
     try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
   }, 15000);
@@ -680,7 +699,7 @@ function ensureUploadRoot() {
 
 function safeUploadFileName(name) {
   const base = path.basename(String(name || '').trim()).replace(/[^a-zA-Z0-9._-]/g, '_');
-  return base.slice(-80) || 'file.bin';
+  return base.slice(0, 80) || 'file.bin';
 }
 
 function fileExtFromType(contentType, originalName = '') {
@@ -1143,7 +1162,7 @@ const server = http.createServer(async (req, res) => {
           products: [],
           blacklist: [],
           customGroups: ['我的好友'],
-          appNumberId: `CT${Math.floor(Math.random() * 900000 + 100000)}`,
+          appNumberId: generateUniqueAppNumberId(),
           createdAt: Date.now(),
           role: 'user',
           status: 'active',
@@ -1172,6 +1191,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
       if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
+      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
       if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
@@ -1206,6 +1226,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
       if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
+      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
       authUser.password = await hashPasswordAsync(nextPassword);
       revokeSessionsForUser(authUser.id);
       const token = issueSession(authUser.id);
@@ -1248,10 +1269,14 @@ const server = http.createServer(async (req, res) => {
       }
       if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
       if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
+      if (String(body.password || '').length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
+      const hashedPassword = await hashPasswordAsync(body.password);
+      // Re-check after async hash to prevent race condition
+      if (index.usersByName.has(username) || findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const user = {
         id: uid('u'),
         username,
-        password: await hashPasswordAsync(body.password),
+        password: hashedPassword,
         displayName,
         signature: '暂未填写签名',
         avatarUrl: null,
