@@ -4770,6 +4770,7 @@ function bindAllEvents() {
       }
       state.activeConversation = null;
       state.chatListSignature = '';
+      state.conversationItemSignatures = {};
       renderConversationListFromState();
       if($("chatView")) $("chatView").classList.add("hidden"); if($("composerPanel")) $("composerPanel").classList.add("hidden"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
       if($("homeTabbar")) $("homeTabbar").classList.remove("hidden"); if($("backBtn")) $("backBtn").classList.add("hidden"); if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
