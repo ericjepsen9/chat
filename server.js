@@ -1333,6 +1333,8 @@ const server = http.createServer(async (req, res) => {
         if (buf[0]===0xFF && (buf[1]===0xF1 || buf[1]===0xF9)) return true;
         // M4A/MP4: ftyp at offset 4
         if (buf.length >= 8 && buf[4]===0x66 && buf[5]===0x74 && buf[6]===0x79 && buf[7]===0x70) return true;
+        // WebM (EBML header): 1A 45 DF A3
+        if (buf[0]===0x1A && buf[1]===0x45 && buf[2]===0xDF && buf[3]===0xA3) return true;
         return false;
       })(raw);
       if (!magicValid) return sendJson(res, 400, { error: 'file_type_mismatch' });

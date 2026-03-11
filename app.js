@@ -227,7 +227,7 @@ function updateProfileDetailActions(){
   const isSelf = p.id === state.currentUser?.id;
   const pendingReq = !isFriend && !isSelf ? getPendingFriendRequest(p.id) : null;
   if($("profileAddFriendBtn")) $("profileAddFriendBtn").classList.toggle("hidden", isFriend || !!pendingReq);
-  if($("profileStrangerHint")) $("profileStrangerHint").classList.toggle("hidden", isFriend);
+  if($("profileStrangerHint")) $("profileStrangerHint").classList.toggle("hidden", isFriend || isSelf);
   if($("profileActionRemarkBtn")) $("profileActionRemarkBtn").style.display = isFriend ? '' : 'none';
   if($("profileActionMoveGroupBtn")) $("profileActionMoveGroupBtn").style.display = isFriend ? '' : 'none';
   if($("profileSendMessageBtn")) $("profileSendMessageBtn").classList.toggle("hidden", isSelf);
@@ -920,7 +920,7 @@ function openProductDetail(item, fromSeller = false){
   if($("productDetailStock")) $("productDetailStock").textContent = `库存 ${stock}`;
   const specsEl = $("productDetailSpecs");
   if(specsEl){
-    const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格', '标准版', '高配版'];
+    const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
     const frag = document.createDocumentFragment();
     specs.forEach(spec => {
       const chip = document.createElement('span');
@@ -2467,7 +2467,6 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         const img = document.createElement('img');
         img.className = 'trade-card-img';
         img.src = safeImage;
-        img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
         card.appendChild(img);
       }
       if (!isContactCard) {
