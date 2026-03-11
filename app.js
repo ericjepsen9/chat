@@ -954,24 +954,72 @@ function renderOrderDetailPage(){
   const box = $("orderDetailCard");
   if(!box) return;
   const order = state.selectedOrderDetail;
+  const role = state.selectedOrderRole || 'buyer';
   if(!order){
     box.textContent = '暂无订单详情';
     return;
   }
   if($("orderDetailStatus")) $("orderDetailStatus").textContent = orderStatusText(order.status);
   box.replaceChildren();
-  const title = document.createElement('div');
-  title.className = 'profile-order-title';
-  title.textContent = `订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total)}`;
-  const sub = document.createElement('div');
-  sub.className = 'profile-order-sub';
-  sub.textContent = (order.items || []).map(i => `${i.title} · ${i.spec || '默认'} · x${i.quantity || 1} · ${formatMoney(i.price || 0)}`).join('，');
-  const status = document.createElement('div');
-  status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
-  status.textContent = orderStatusText(order.status);
-  box.append(title, sub, status);
-  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', state.selectedOrderRole !== 'seller');
-  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', state.selectedOrderRole !== 'seller' || order.status === 'completed');
+
+  // Order number & time
+  const headerDiv = document.createElement('div');
+  headerDiv.className = 'od-section';
+  headerDiv.innerHTML = `<div class="od-row"><span class="od-label">订单编号</span><span class="od-value">${escapeHTML(String(order.id || '-'))}</span></div>`
+    + `<div class="od-row"><span class="od-label">下单时间</span><span class="od-value">${order.createdAt ? formatTime(order.createdAt) : '-'}</span></div>`
+    + `<div class="od-row"><span class="od-label">订单状态</span><span class="od-value od-status-${order.status === 'completed' ? 'done' : 'active'}">${escapeHTML(orderStatusText(order.status))}</span></div>`;
+  box.appendChild(headerDiv);
+
+  // Counterparty info
+  const counterLabel = role === 'buyer' ? '卖家' : '买家';
+  const counterId = role === 'buyer' ? order.sellerId : order.buyerId;
+  const counterName = order.sellerName || order.buyerName || '';
+  const partyDiv = document.createElement('div');
+  partyDiv.className = 'od-section';
+  partyDiv.innerHTML = `<div class="od-row"><span class="od-label">${escapeHTML(counterLabel)}</span><span class="od-value od-link" id="odCounterpartyLink">${escapeHTML(counterName || counterId || '-')}</span></div>`;
+  box.appendChild(partyDiv);
+  const counterLink = box.querySelector('#odCounterpartyLink');
+  if(counterLink && counterId) {
+    counterLink.style.cursor = 'pointer';
+    counterLink.style.color = 'var(--brand, #07c160)';
+    counterLink.addEventListener('click', () => window.openUserProfile(counterId, counterName));
+  }
+
+  // Item list
+  const itemsDiv = document.createElement('div');
+  itemsDiv.className = 'od-section';
+  const itemsTitle = document.createElement('div');
+  itemsTitle.className = 'od-section-title';
+  itemsTitle.textContent = '商品清单';
+  itemsDiv.appendChild(itemsTitle);
+  (order.items || []).forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'od-item-row';
+    const imgUrl = normalizeMediaUrl(item.imageUrl || item.image || '');
+    row.innerHTML = (imgUrl ? `<img class="od-item-img" src="${escapeHTML(imgUrl)}" alt="" />` : '')
+      + `<div class="od-item-info"><div class="od-item-name">${escapeHTML(item.title || '商品')}</div>`
+      + `<div class="od-item-spec">${escapeHTML(item.spec || '默认规格')} x${item.quantity || 1}</div></div>`
+      + `<div class="od-item-price">${escapeHTML(formatMoney((item.price || 0) * (item.quantity || 1)))}</div>`;
+    itemsDiv.appendChild(row);
+  });
+  box.appendChild(itemsDiv);
+
+  // Total
+  const totalDiv = document.createElement('div');
+  totalDiv.className = 'od-section od-total-section';
+  totalDiv.innerHTML = `<div class="od-row"><span class="od-label">合计</span><span class="od-value od-total">${escapeHTML(formatMoney(order.total))}</span></div>`;
+  if(order.pendingPrice != null && order.pendingPriceRequestedBy){
+    totalDiv.innerHTML += `<div class="od-row"><span class="od-label">改价申请中</span><span class="od-value" style="color:#ff9500;">${escapeHTML(formatMoney(order.pendingPrice))}</span></div>`;
+  }
+  if(order.priceAdjustmentLocked){
+    totalDiv.innerHTML += `<div class="od-row"><span class="od-label" style="color:#999;">价格已锁定</span></div>`;
+  }
+  box.appendChild(totalDiv);
+
+  // Action buttons visibility
+  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status === 'completed' || !!order.priceAdjustmentLocked);
+  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', role !== 'buyer' || order.status === 'completed');
+  if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
 }
 
 async function updateSelectedOrderPrice(){
@@ -990,11 +1038,14 @@ async function updateSelectedOrderPrice(){
 async function completeSelectedOrder(){
   const order = state.selectedOrderDetail;
   if(!order?.id) return;
+  if(!confirm('确认已收到商品？订单将标记为已完成。')) return;
   try{
     const data = await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
     state.selectedOrderDetail = data.order || order;
     await Promise.all([loadSellerOrders(), loadProfileOrders(), loadBuyerOrders()]);
+    if(state.activeConversation?.id) await reloadActiveConversationMessages();
     renderOrderDetailPage();
+    showToast('订单已完成');
   }catch(e){ showModal(e.message || '更新失败'); }
 }
 
@@ -1246,10 +1297,11 @@ function renderProfileStore(){
   updateProfileCartBar();
 }
 
-function openProductSpecSheet(item){
+function openProductSpecSheet(item, mode = 'cart'){
   if(!item) return;
   state.selectedProfileProduct = item;
   state.specSheetQty = 1;
+  state.specSheetMode = mode;
   const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格','标准版','高配版'];
   state.selectedProfileSpec = specs[0];
   if($("specSheetImage")) $("specSheetImage").src = normalizeMediaUrl(item.image || item.imageUrl) || '';
@@ -1275,6 +1327,9 @@ function openProductSpecSheet(item){
   // Reset quantity UI
   if($("specSheetQtyNum")) $("specSheetQtyNum").textContent = '1';
   if($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = true;
+  // Toggle cart vs buy-now buttons
+  if($("confirmAddToCartBtn")) $("confirmAddToCartBtn").classList.toggle('hidden', mode === 'buyNow');
+  if($("confirmBuyNowBtn")) $("confirmBuyNowBtn").classList.toggle('hidden', mode !== 'buyNow');
   $("productSpecSheet")?.classList.remove('hidden');
 }
 
@@ -1316,6 +1371,35 @@ function addSelectedProductToCart(){
   updateProfileCartBar();
   renderProfileStore();
   showToast(`已加入购物车 x${addQty}`);
+}
+
+function buyNowAndCheckout(){
+  const item = state.selectedProfileProduct;
+  if(!item) return;
+  const spec = state.selectedProfileSpec || '默认规格';
+  const addQty = Math.max(1, state.specSheetQty || 1);
+  const sellerId = item.sellerId || state.currentProfileUser?.id || '';
+  if(!sellerId) return showToast('无法确定卖家');
+  const availableStock = getItemAvailableStock(item);
+  if(addQty > availableStock){ showToast('库存不足'); return; }
+  // Add to cart then navigate to checkout
+  const key = `${item.id}__${spec}`;
+  const cart = getCurrentSellerCart(sellerId);
+  const found = cart.find(i => i.key === key);
+  if(found){
+    found.quantity = (Number(found.quantity) || 0) + addQty;
+  }else{
+    cart.push({
+      key, productId: item.id, title: item.title || '商品', desc: item.desc || '',
+      image: item.image || item.imageUrl || '', spec, unitPrice: parseMoney(item.price),
+      quantity: addQty, sellerId
+    });
+  }
+  closeProductSpecSheet();
+  updateProfileCartBar();
+  state.currentCartSellerId = sellerId;
+  renderProfileCartPage();
+  window.openSecondaryPage('profileCartPage', state.activeConversation ? 'chat' : 'home');
 }
 
 function getProfileCartTotal(){
@@ -2594,23 +2678,14 @@ function buildBroadcastCardMessage(msg){
 }
 
 function openChatOrderDetail(order){
-  const card = $('chatOrderDetailCard');
-  if(!card) return;
-  card.replaceChildren();
-  const title = document.createElement('div');
-  title.className = 'profile-order-title';
-  title.textContent = order.title || `订单 #${String(order.id || '').slice(-6) || '-'}`;
-  const sub = document.createElement('div');
-  sub.className = 'profile-order-sub';
-  sub.textContent = order.summary || '订单详情';
-  const status = document.createElement('div');
-  status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
-  status.textContent = formatOrderStatusLabel(order.status);
-  const total = document.createElement('div');
-  total.className = 'trade-card-price';
-  total.textContent = formatMoney(order.total || 0);
-  card.append(title, sub, status, total);
-  window.openSecondaryPage('chatOrderDetailPage', state.activeConversation ? 'chat' : 'home');
+  if(!order || !order.id) return;
+  // Try to find full order from local state for richer details
+  const fullOrder = (state.buyerOrders || []).find(o => o.id === order.id)
+    || (state.sellerOrders || []).find(o => o.id === order.id)
+    || order;
+  const currentUserId = state.currentUser?.id || '';
+  const role = currentUserId === fullOrder.buyerId ? 'buyer' : (currentUserId === fullOrder.sellerId ? 'seller' : 'buyer');
+  openOrderDetail(fullOrder, role);
 }
 
 async function reloadActiveConversationMessages(){
@@ -3388,10 +3463,10 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'myProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '我的闲置'; }
   else if (page === 'settingsPage') { if($("chatTitle")) $("chatTitle").textContent = '设置'; }
   else if (page === 'groupManagePage') { if($("chatTitle")) $("chatTitle").textContent = '分组管理'; renderGroupManageList(); }
-  else if (page === 'buyerOrdersManagePage') { if($("chatTitle")) $("chatTitle").textContent = '我购买的订单'; }
+  else if (page === 'buyerOrdersManagePage') { if($("chatTitle")) $("chatTitle").textContent = '我购买的订单'; renderBuyerOrdersManage(); }
   else if (page === 'sellerCenterPage') { if($("chatTitle")) $("chatTitle").textContent = '卖家中心'; }
   else if (page === 'sellerPaymentPage') { if($("chatTitle")) $("chatTitle").textContent = '收款码管理'; }
-  else if (page === 'sellerOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '订单管理'; }
+  else if (page === 'sellerOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '订单管理'; renderSellerOrdersManage(); }
   else if (page === 'sellerProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '商品管理'; }
   else if (page === 'productDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '商品详情'; }
   else if (page === 'orderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
@@ -5285,8 +5360,17 @@ function bindAllEvents() {
   on("submitProfileOrderBtn", "click", submitProfileOrder);
   on("orderDetailEditPriceBtn", "click", updateSelectedOrderPrice);
   on("orderDetailCompleteBtn", "click", completeSelectedOrder);
+  on("orderDetailChatBtn", "click", async () => {
+    const order = state.selectedOrderDetail;
+    if(!order) return;
+    const role = state.selectedOrderRole || 'buyer';
+    const peerId = role === 'buyer' ? order.sellerId : order.buyerId;
+    if(!peerId) return;
+    try { await window.openPrivateChat(peerId); } catch(e) { showModal(e.message || '打开会话失败'); }
+  });
   on("closeSpecSheetBtn", "click", closeProductSpecSheet);
   on("confirmAddToCartBtn", "click", addSelectedProductToCart);
+  on("confirmBuyNowBtn", "click", buyNowAndCheckout);
   // Backdrop click to close spec sheet
   if ($("productSpecSheet")) {
     $("productSpecSheet").addEventListener("click", (e) => {
@@ -5494,13 +5578,13 @@ function bindAllEvents() {
   on("productDetailAddCartBtn", "click", () => {
     const item = state.selectedProductDetail;
     if(!item) return;
-    openProductSpecSheet(item);
+    openProductSpecSheet(item, 'cart');
   });
-  // Product detail - buy now: add to cart and go to cart
+  // Product detail - buy now: add to cart and go directly to checkout
   on("productDetailBuyNowBtn", "click", () => {
     const item = state.selectedProductDetail;
     if(!item) return;
-    openProductSpecSheet(item);
+    openProductSpecSheet(item, 'buyNow');
   });
 
   const handleImageUpload = async (e) => { 

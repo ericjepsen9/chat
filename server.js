@@ -1478,6 +1478,13 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
       const data = queryOrders({ db, authUser, searchParams, isAdmin });
+      // Enrich orders with buyer/seller display names
+      (data.orders || []).forEach(o => {
+        const buyer = usersById.get(o.buyerId);
+        const seller = usersById.get(o.sellerId);
+        o.buyerName = buyer?.displayName || buyer?.nickname || '';
+        o.sellerName = seller?.displayName || seller?.nickname || '';
+      });
       return sendJson(res, 200, data);
     }
 

@@ -802,10 +802,11 @@
 
         <section id="orderDetailPage" class="chat-list-view hidden order-flow-page">
           <div class="order-flow-head"><strong>订单详情</strong><span id="orderDetailStatus">已下单</span></div>
-          <div id="orderDetailCard" class="profile-order-card"></div>
+          <div id="orderDetailCard" class="order-detail-full"></div>
           <div class="order-detail-actions">
             <button id="orderDetailEditPriceBtn" type="button" class="secondary-btn">修改价格</button>
-            <button id="orderDetailCompleteBtn" type="button" class="primary-btn">标记已完成</button>
+            <button id="orderDetailCompleteBtn" type="button" class="primary-btn">确认收货</button>
+            <button id="orderDetailChatBtn" type="button" class="secondary-btn">联系对方</button>
           </div>
         </section>
 
@@ -959,6 +960,7 @@
             <div class="product-spec-actions">
               <button id="closeSpecSheetBtn" type="button" class="secondary-btn">取消</button>
               <button id="confirmAddToCartBtn" type="button" class="primary-btn">加入购物车</button>
+              <button id="confirmBuyNowBtn" type="button" class="primary-btn hidden" style="background:#ff5000;">立即购买</button>
             </div>
           </div>
         </div>
