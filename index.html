@@ -205,6 +205,7 @@
       <div class="main-content-wrapper">
         <section id="chatListView" class="chat-list-view">
           <div class="toolbar"><input id="searchInput" placeholder="搜索聊天" /></div>
+          <div id="msgSearchResults" class="hidden" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
           <div id="chatList" style="flex:1; overflow-y:auto;"></div>
         </section>
 
@@ -264,6 +265,13 @@
           </button>
         </section>
 
+        <div id="chatSearchBar" class="hidden" style="display:none; padding:8px 12px; background:#f2f2f6; align-items:center; gap:8px;">
+          <input id="chatSearchInput" placeholder="搜索聊天记录" style="flex:1; height:32px; border:none; border-radius:6px; padding:0 10px; font-size:14px; background:#fff;" />
+          <span id="chatSearchCount" style="font-size:12px; color:#999; white-space:nowrap;"></span>
+          <button id="chatSearchUpBtn" type="button" style="border:none; background:none; font-size:18px; color:#07c160; cursor:pointer;">▲</button>
+          <button id="chatSearchDownBtn" type="button" style="border:none; background:none; font-size:18px; color:#07c160; cursor:pointer;">▼</button>
+          <button id="chatSearchCloseBtn" type="button" style="border:none; background:none; font-size:14px; color:#999; cursor:pointer;">取消</button>
+        </div>
         <main id="chatView" class="messages hidden"></main>
 
         <section id="settingsPage" class="chat-list-view hidden" style="background:#f2f2f6;">
@@ -539,6 +547,7 @@
 
         <section id="messageSettingsPage" class="chat-list-view hidden">
           <div id="chatSettingsPeerProfile" class="chat-item" style="padding: 24px 16px; border-bottom: 8px solid #f2f2f6; cursor: pointer;"></div>
+          <button id="chatSearchMsgBtn" class="chat-item" style="justify-content:center;">搜索聊天记录</button>
           <button id="muteSettingBtn" class="chat-item" style="justify-content:center;">消息免打扰</button>
           <button id="pinConversationBtn" class="chat-item" style="justify-content:center;">置顶聊天</button>
           <button id="btnSettingsMoveGroup" class="chat-item" style="justify-content:center;">移动好友分组</button>

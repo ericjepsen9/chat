@@ -31,6 +31,7 @@ const DB_FILE = path.join(ROOT, 'data.json');
 const USE_SQLITE = process.env.USE_SQLITE === '1';
 const SQLITE_FILE = path.join(ROOT, 'data.sqlite');
 const MSG_WAL_FILE = path.join(ROOT, 'message.wal');
+const MESSAGE_RETENTION_DAYS = parseInt(process.env.MESSAGE_RETENTION_DAYS || '90', 10);
 const BODY_LIMIT = 2 * 1024 * 1024;
 const UPLOAD_LIMIT = 8 * 1024 * 1024;
 const UPLOAD_ROOT = path.join(ROOT, 'uploads');
@@ -1955,6 +1956,70 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, result.status, result.payload);
     }
 
+    // Global message search across all conversations
+    if (matchRoute(pathname, '/api/messages/search') && req.method === 'GET') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
+      if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
+      const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
+      const offset = parseInt(searchParams.get('offset') || '0', 10);
+      const results = [];
+      const userConvs = index.convByUser.get(authUser.id) || [];
+      for (const conv of userConvs) {
+        const msgs = index.messagesByConv.get(conv.id) || [];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const msg = msgs[i];
+          if (msg.type !== 'text' || !msg.text) continue;
+          if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
+          if (msg.text.toLowerCase().includes(keyword)) {
+            const peerId = (conv.members || []).find((id) => id !== authUser.id);
+            const peer = peerId ? index.usersById.get(peerId) : null;
+            results.push({
+              messageId: msg.id,
+              conversationId: conv.id,
+              senderId: msg.senderId,
+              text: msg.text,
+              createdAt: msg.createdAt,
+              peerName: peer ? (peer.nickname || peer.username) : (conv.title || ''),
+              peerAvatarUrl: peer ? peer.avatarUrl : '',
+              peerId: peerId || '',
+            });
+          }
+        }
+      }
+      results.sort((a, b) => b.createdAt - a.createdAt);
+      const paged = results.slice(offset, offset + limit);
+      return sendJson(res, 200, { results: paged, total: results.length, hasMore: offset + limit < results.length });
+    }
+
+    // In-conversation message search
+    const convSearchMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/search$/);
+    if (convSearchMatch && req.method === 'GET') {
+      const conversationId = convSearchMatch[1];
+      const conv = index.convById.get(conversationId);
+      if (!conv) return sendJson(res, 404, { error: 'not_found' });
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
+      const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
+      if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
+      const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
+      const offset = parseInt(searchParams.get('offset') || '0', 10);
+      const msgs = index.messagesByConv.get(conversationId) || [];
+      const results = [];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const msg = msgs[i];
+        if (msg.type !== 'text' || !msg.text) continue;
+        if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
+        if (msg.text.toLowerCase().includes(keyword)) {
+          results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
+        }
+      }
+      const paged = results.slice(offset, offset + limit);
+      return sendJson(res, 200, { results: paged, total: results.length, hasMore: offset + limit < results.length });
+    }
+
     const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
     if (convMsgMatch) {
       const conversationId = convMsgMatch[1];
@@ -2126,6 +2191,20 @@ async function gracefulShutdown(signal) {
 }
 
 setInterval(cleanupAuthState, 60 * 1000).unref();
+
+// Message retention cleanup — runs daily, removes messages older than MESSAGE_RETENTION_DAYS
+function cleanupExpiredMessages() {
+  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const before = db.messages.length;
+  db.messages = db.messages.filter((m) => m.createdAt > cutoff);
+  if (db.messages.length < before) {
+    rebuildIndexes();
+    schedulePersist('message_retention_cleanup', {});
+    console.log(`[retention] cleaned ${before - db.messages.length} messages older than ${MESSAGE_RETENTION_DAYS} days`);
+  }
+}
+setInterval(cleanupExpiredMessages, 24 * 60 * 60 * 1000).unref();
+setTimeout(cleanupExpiredMessages, 30 * 1000); // run once shortly after startup
 
 process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });

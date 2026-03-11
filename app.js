@@ -3287,6 +3287,7 @@ const SECONDARY_PAGE_IDS = [
 window.openSecondaryPage = (page, backTo = 'home') => {
   state.secondaryPage = page; state.secondaryReturn = backTo;
   ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+  if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
   if($(page)) $(page).classList.remove('hidden');
   if($("backBtn")) $("backBtn").classList.remove('hidden');
   if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
@@ -4753,7 +4754,7 @@ function bindAllEvents() {
       state.activeConversation = null;
       state.chatListSignature = '';
       renderConversationListFromState();
-      if($("chatView")) $("chatView").classList.add("hidden"); if($("composerPanel")) $("composerPanel").classList.add("hidden");
+      if($("chatView")) $("chatView").classList.add("hidden"); if($("composerPanel")) $("composerPanel").classList.add("hidden"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
       if($("homeTabbar")) $("homeTabbar").classList.remove("hidden"); if($("backBtn")) $("backBtn").classList.add("hidden"); if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
       const activeTab = document.querySelector('.tab-item.active');
       if(activeTab) {
@@ -5495,8 +5496,143 @@ function bindAllEvents() {
     _origStopCall();
   };
 
-  on("searchInput", "input", () => { loadConversations().catch(() => {}); });
+  // ── Enhanced message search (conversations + chat content) ──
+  let _msgSearchTimer = null;
+  on("searchInput", "input", () => {
+    loadConversations().catch(() => {});
+    clearTimeout(_msgSearchTimer);
+    const keyword = ($("searchInput")?.value || '').trim();
+    if (!keyword) {
+      if ($("msgSearchResults")) { $("msgSearchResults").classList.add('hidden'); $("msgSearchResults").innerHTML = ''; }
+      if ($("chatList")) $("chatList").style.display = '';
+      return;
+    }
+    _msgSearchTimer = setTimeout(async () => {
+      try {
+        const res = await api(`/api/messages/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
+        const el = $("msgSearchResults");
+        if (!el) return;
+        if (!res.results || !res.results.length) {
+          el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关聊天记录</div>';
+          el.classList.remove('hidden');
+          if ($("chatList")) $("chatList").style.display = 'none';
+          return;
+        }
+        const kw = escapeHTML(keyword);
+        const highlightText = (text) => {
+          const escaped = escapeHTML(text.length > 80 ? text.slice(0, 80) + '...' : text);
+          return escaped.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
+        };
+        el.innerHTML = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
+          res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${r.conversationId}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
+              <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
+            </div>
+            <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
+          </button>`).join('');
+        if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${res.total} 条结果</div>`;
+        el.classList.remove('hidden');
+        if ($("chatList")) $("chatList").style.display = 'none';
+        el.querySelectorAll('.msg-search-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const convId = btn.dataset.convId;
+            if (convId) window.openConversation(convId);
+            if ($("searchInput")) $("searchInput").value = '';
+            el.classList.add('hidden');
+            el.innerHTML = '';
+            if ($("chatList")) $("chatList").style.display = '';
+          });
+        });
+      } catch (_) {}
+    }, 350);
+  });
   on("friendSearchInput", "input", () => { loadFriends().catch(() => {}); });
+
+  // ── In-chat message search ──
+  on("chatSearchMsgBtn", "click", () => {
+    if ($("backBtn")) $("backBtn").click(); // go back from settings page
+    const bar = $("chatSearchBar");
+    if (bar) { bar.classList.remove('hidden'); bar.style.display = 'flex'; }
+    if ($("chatSearchInput")) { $("chatSearchInput").value = ''; $("chatSearchInput").focus(); }
+    if ($("chatSearchCount")) $("chatSearchCount").textContent = '';
+    state._chatSearchResults = [];
+    state._chatSearchIdx = -1;
+  });
+  on("chatSearchCloseBtn", "click", () => {
+    const bar = $("chatSearchBar");
+    if (bar) { bar.classList.add('hidden'); bar.style.display = 'none'; }
+    // Remove highlights
+    document.querySelectorAll('#chatView .search-highlight').forEach(el => {
+      const parent = el.parentNode;
+      parent.replaceChild(document.createTextNode(el.textContent), el);
+      parent.normalize();
+    });
+    state._chatSearchResults = [];
+    state._chatSearchIdx = -1;
+  });
+  let _chatSearchTimer = null;
+  on("chatSearchInput", "input", () => {
+    clearTimeout(_chatSearchTimer);
+    _chatSearchTimer = setTimeout(() => {
+      const keyword = ($("chatSearchInput")?.value || '').trim().toLowerCase();
+      // Remove old highlights
+      document.querySelectorAll('#chatView .search-highlight').forEach(el => {
+        const parent = el.parentNode;
+        parent.replaceChild(document.createTextNode(el.textContent), el);
+        parent.normalize();
+      });
+      state._chatSearchResults = [];
+      state._chatSearchIdx = -1;
+      if (!keyword) { if ($("chatSearchCount")) $("chatSearchCount").textContent = ''; return; }
+      // Search in loaded messages DOM
+      const chatView = $("chatView");
+      if (!chatView) return;
+      const bubbles = chatView.querySelectorAll('.message-row:not(.system-msg) .bubble:not(.audio-bubble):not(.image-bubble)');
+      const matches = [];
+      bubbles.forEach(bubble => {
+        const text = bubble.textContent || '';
+        if (text.toLowerCase().includes(keyword)) {
+          // Highlight occurrences in this bubble
+          const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
+          const textNodes = [];
+          while (walker.nextNode()) textNodes.push(walker.currentNode);
+          textNodes.forEach(node => {
+            const idx = node.textContent.toLowerCase().indexOf(keyword);
+            if (idx === -1) return;
+            const range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + keyword.length);
+            const mark = document.createElement('span');
+            mark.className = 'search-highlight';
+            mark.style.cssText = 'background:#b4efc8;padding:0 1px;border-radius:2px;';
+            range.surroundContents(mark);
+            matches.push(mark);
+          });
+        }
+      });
+      state._chatSearchResults = matches;
+      state._chatSearchIdx = matches.length > 0 ? 0 : -1;
+      if ($("chatSearchCount")) $("chatSearchCount").textContent = matches.length > 0 ? `1/${matches.length}` : '0';
+      if (matches.length > 0) {
+        matches[0].style.background = '#f5c518';
+        matches[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 250);
+  });
+  const chatSearchNav = (dir) => {
+    const results = state._chatSearchResults || [];
+    if (!results.length) return;
+    const old = state._chatSearchIdx;
+    if (old >= 0 && old < results.length) results[old].style.background = '#b4efc8';
+    state._chatSearchIdx = (old + dir + results.length) % results.length;
+    const cur = results[state._chatSearchIdx];
+    cur.style.background = '#f5c518';
+    cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if ($("chatSearchCount")) $("chatSearchCount").textContent = `${state._chatSearchIdx + 1}/${results.length}`;
+  };
+  on("chatSearchUpBtn", "click", () => chatSearchNav(-1));
+  on("chatSearchDownBtn", "click", () => chatSearchNav(1));
 
   const emojiList = ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚"];
   if($("emojiPanel")) {
