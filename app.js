@@ -2231,11 +2231,11 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
   }
 
   const node = document.createElement('article');
-  node.className = `message-row ${msg.senderId === state.currentUser.id ? 'me' : ''}`;
+  node.className = `message-row ${msg.senderId === state.currentUser?.id ? 'me' : ''}`;
   node.dataset.id = msg.id;
   if (msg.clientMessageId) node.dataset.clientMessageId = msg.clientMessageId;
   let userObj = state.currentUser; let finalName = '我';
-  if (msg.senderId !== state.currentUser.id) {
+  if (msg.senderId !== state.currentUser?.id) {
     const friend = state.friends.find(f => f.friend?.id === msg.senderId);
     userObj = friend ? friend.friend : { displayName: '用户' };
     finalName = userObj.remark || userObj.displayName;
@@ -2776,17 +2776,17 @@ function buildMallSignature(products) {
 function isConversationMuted(conv) {
   if (!conv) return false;
   if (typeof conv.muted === 'boolean') return conv.muted;
-  return Array.isArray(conv.mutedBy) && conv.mutedBy.includes(state.currentUser.id);
+  return Array.isArray(conv.mutedBy) && conv.mutedBy.includes(state.currentUser?.id);
 }
 function isConversationPinned(conv) {
   if (!conv) return false;
   if (typeof conv.pinned === 'boolean') return conv.pinned;
-  return Array.isArray(conv.pinnedBy) && conv.pinnedBy.includes(state.currentUser.id);
+  return Array.isArray(conv.pinnedBy) && conv.pinnedBy.includes(state.currentUser?.id);
 }
 function getConversationClearedAt(conv) {
   if (!conv) return 0;
   if (typeof conv.clearedAt === 'number') return conv.clearedAt;
-  return conv.clearedAt?.[state.currentUser.id] || 0;
+  return conv.clearedAt?.[state.currentUser?.id] || 0;
 }
 function normalizeConversation(conv) {
   if (!conv) return conv;
@@ -3651,16 +3651,16 @@ window.openGroupSelect = (targetUserId) => {
         list.appendChild(btn);
       });
     }
-    $("groupSelectSheet").classList.remove('hidden');
+    if ($("groupSelectSheet")) $("groupSelectSheet").classList.remove('hidden');
 };
 
 window.confirmMoveGroup = async (groupName) => {
-    $("groupSelectSheet").classList.add('hidden');
+    if ($("groupSelectSheet")) $("groupSelectSheet").classList.add('hidden');
     try {
         await api('/api/friends/group', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: state.targetForGroupMove, group: groupName }) });
         showModal("已成功移至分组：" + groupName);
         loadFriends();
-        if($("backBtn") && !$("profileDetailPage").classList.contains("hidden")) $("backBtn").click();
+        if($("backBtn") && $("profileDetailPage") && !$("profileDetailPage").classList.contains("hidden")) $("backBtn").click();
     } catch(e) { showModal(e.message); }
 };
 
@@ -5086,8 +5086,9 @@ function bindAllEvents() {
       if (!user || !resultEl) return;
       // Check if already friends
       const isFriend = (state.friends || []).some(f => f.friendId === user.id || f.userId === user.id);
+      const safeAvatarUrl = escapeHTML(user.avatarUrl || '');
       const avatarContent = user.avatarUrl
-        ? `<img src="${user.avatarUrl}" alt="" />`
+        ? `<img src="${safeAvatarUrl}" alt="" />`
         : firstChar(user.displayName);
       resultEl.innerHTML = `
         <div class="add-friend-card">
@@ -5100,7 +5101,7 @@ function bindAllEvents() {
           </div>
           ${user.signature ? `<div class="add-friend-sig">${escapeHTML(user.signature)}</div>` : ''}
           <div class="add-friend-actions">
-            <button type="button" class="add-friend-add-btn ${isFriend ? 'already' : ''}" id="addFriendSendBtn" data-uid="${user.id}" data-uname="${escapeHTML(user.username)}" ${isFriend ? 'disabled' : ''}>${isFriend ? '已是好友' : '添加好友'}</button>
+            <button type="button" class="add-friend-add-btn ${isFriend ? 'already' : ''}" id="addFriendSendBtn" data-uid="${escapeHTML(user.id)}" data-uname="${escapeHTML(user.username)}" ${isFriend ? 'disabled' : ''}>${isFriend ? '已是好友' : '添加好友'}</button>
           </div>
         </div>
       `;
@@ -5304,6 +5305,7 @@ function bindAllEvents() {
   let recordStartTime = 0;
   on("pttBtn", "touchstart", async (e) => {
       e.preventDefault(); if($("pttBtn")) { $("pttBtn").textContent = "松开 结束"; $("pttBtn").style.background = "#c5c5c6"; }
+      let _pttStream = null;
       try {
           // On Android native app, ensure mic permission before recording
           if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasMicrophonePermission()) {
@@ -5311,9 +5313,9 @@ function bindAllEvents() {
             await new Promise(r => setTimeout(r, 1500));
             if (!window.NativeBridge.hasMicrophonePermission()) throw new Error('需要麦克风权限才能录音，请在设置中开启');
           }
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          _pttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           let mimeType = ''; if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm'; else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
-          state.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {}); state.audioChunks = []; recordStartTime = Date.now();
+          state.mediaRecorder = new MediaRecorder(_pttStream, mimeType ? { mimeType } : {}); state.audioChunks = []; recordStartTime = Date.now();
           state.mediaRecorder.ondataavailable = ev => state.audioChunks.push(ev.data);
           state.mediaRecorder.onstop = async () => {
               if (Date.now() - recordStartTime < 1000) return showModal("录音太短");
@@ -5326,7 +5328,7 @@ function bindAllEvents() {
               }
           };
           state.mediaRecorder.start();
-      } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; showModal("无录音权限"); }
+      } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; if (_pttStream) try { _pttStream.getTracks().forEach(t => t.stop()); } catch(_) {} showModal("无录音权限"); }
   });
   const stopPttRecording = () => {
       if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
@@ -5566,7 +5568,7 @@ function bindAllEvents() {
         return escaped.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
       };
       el.innerHTML = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
-        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${r.conversationId}" data-msg-id="${r.messageId}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
+        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${escapeHTML(r.conversationId)}" data-msg-id="${escapeHTML(r.messageId)}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
           <div style="flex:1;min-width:0;">
             <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
             <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
@@ -7025,9 +7027,9 @@ async function bootstrap() {
     if($("chatListView")) $("chatListView").classList.remove('hidden');
     if($("chatTitle")) $("chatTitle").textContent = "微信"; 
     
-    loadConversations();
-    loadSystemMessages();
-    loadFriendRequests();
+    loadConversations().catch(() => {});
+    loadSystemMessages().catch(() => {});
+    loadFriendRequests().catch(() => {});
     scheduleTradeReminderRefresh(0);
   } catch (err) {
     console.error("启动崩溃:", err);

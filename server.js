@@ -204,7 +204,12 @@ function consumePhoneCode(phone, code, scene = 'login') {
   return { ok: true };
 }
 
-function sanitizePublicUser(user) {
+function maskPhone(phone) {
+  const p = String(phone || '');
+  if (p.length < 7) return p ? p.replace(/.(?=.{2})/g, '*') : '';
+  return p.slice(0, 3) + '****' + p.slice(-4);
+}
+function sanitizePublicUser(user, { includePhone = false } = {}) {
   return {
     id: user.id,
     username: user.username,
@@ -216,7 +221,7 @@ function sanitizePublicUser(user) {
     role: normalizeUserRole(user),
     status: user.status || 'active',
     paymentCodes: user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' },
-    phone: user.phone || '',
+    phone: includePhone ? (user.phone || '') : maskPhone(user.phone),
   };
 }
 
@@ -1014,7 +1019,6 @@ const allowOrigins = new Set([
   `http://localhost:${PORT}`,
   'http://127.0.0.1:4173',
   'http://localhost:4173',
-  'null',
 ]);
 
 const server = http.createServer(async (req, res) => {
@@ -1083,7 +1087,7 @@ const server = http.createServer(async (req, res) => {
       }
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
-      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user) });
+      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
 
@@ -1153,7 +1157,7 @@ const server = http.createServer(async (req, res) => {
       }
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
-      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user) });
+      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
     if (matchRoute(pathname, '/api/password/forgot') && req.method === 'POST') {
@@ -1267,7 +1271,7 @@ const server = http.createServer(async (req, res) => {
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
       broadcastAll('users_updated', { userId: user.id });
-      return sendJson(res, 201, { token, csrfToken, user: sanitizePublicUser(user) });
+      return sendJson(res, 201, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
 

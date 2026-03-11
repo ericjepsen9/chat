@@ -53,7 +53,7 @@ function updateUserProfile({ authUser, body, normalizeUserCustomGroups, normaliz
   broadcastToUser(authUser.id, 'profile_updated', {});
   broadcastAll('mall_updated', {});
 
-  return { ok: true, status: 200, payload: { user: sanitizePublicUser(authUser) } };
+  return { ok: true, status: 200, payload: { user: sanitizePublicUser(authUser, { includePhone: true }) } };
 }
 
 function buildUserProfileView({ authUser, targetId, usersById, friendshipByPair }) {
