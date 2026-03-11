@@ -1354,6 +1354,37 @@ input, textarea { font-size: var(--font-body); }
   margin-bottom:10px;
   font-size:15px;
 }
+.profile-action-sheet{
+  position:fixed;
+  inset:0;
+  z-index:9000;
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  background:rgba(0,0,0,0.45);
+  animation:fadeIn .2s ease;
+}
+.profile-action-sheet.hidden{
+  display:none !important;
+}
+.profile-action-sheet-card{
+  width:100%;
+  max-width:480px;
+  background:#fff;
+  border-radius:16px 16px 0 0;
+  box-shadow:0 -4px 24px rgba(0,0,0,0.12);
+  animation:slideUp .25s ease;
+  max-height:80vh;
+  overflow-y:auto;
+}
+@keyframes slideUp{
+  from{ transform:translateY(100%); }
+  to{ transform:translateY(0); }
+}
+@keyframes fadeIn{
+  from{ opacity:0; }
+  to{ opacity:1; }
+}
 .product-spec-card{
   padding:16px;
 }
@@ -1409,6 +1440,12 @@ input, textarea { font-size: var(--font-body); }
   border-color:#2563eb;
   color:#2563eb;
   background:#eff6ff;
+}
+.product-spec-qty-row{
+  margin-top:16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
 }
 .product-spec-actions{
   margin-top:16px;

@@ -1249,6 +1249,7 @@ function renderProfileStore(){
 function openProductSpecSheet(item){
   if(!item) return;
   state.selectedProfileProduct = item;
+  state.specSheetQty = 1;
   const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格','标准版','高配版'];
   state.selectedProfileSpec = specs[0];
   if($("specSheetImage")) $("specSheetImage").src = normalizeMediaUrl(item.image || item.imageUrl) || '';
@@ -1271,6 +1272,9 @@ function openProductSpecSheet(item){
     });
     list.replaceChildren(frag);
   }
+  // Reset quantity UI
+  if($("specSheetQtyNum")) $("specSheetQtyNum").textContent = '1';
+  if($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = true;
   $("productSpecSheet")?.classList.remove('hidden');
 }
 
@@ -1282,17 +1286,19 @@ function addSelectedProductToCart(){
   const item = state.selectedProfileProduct;
   if(!item) return;
   const spec = state.selectedProfileSpec || '默认规格';
+  const addQty = Math.max(1, state.specSheetQty || 1);
   const key = `${item.id}__${spec}`;
-  const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
+  const sellerId = item.sellerId || state.currentProfileUser?.id || '';
+  const cart = getCurrentSellerCart(sellerId);
   const found = cart.find(i => i.key === key);
   const inCartQty = getProfileStoreItemCartQuantity(item);
   const availableStock = getItemAvailableStock(item);
-  if (inCartQty >= availableStock) {
+  if (inCartQty + addQty > availableStock) {
     showToast('库存不足');
     return;
   }
   if(found){
-    found.quantity = (Number(found.quantity) || 0) + 1;
+    found.quantity = (Number(found.quantity) || 0) + addQty;
   }else{
     cart.push({
       key,
@@ -1302,13 +1308,14 @@ function addSelectedProductToCart(){
       image: item.image || item.imageUrl || '',
       spec,
       unitPrice: parseMoney(item.price),
-      quantity: 1,
-      sellerId: item.sellerId || state.currentProfileUser?.id || ''
+      quantity: addQty,
+      sellerId
     });
   }
   closeProductSpecSheet();
   updateProfileCartBar();
-  showToast('已加入购物车');
+  renderProfileStore();
+  showToast(`已加入购物车 x${addQty}`);
 }
 
 function getProfileCartTotal(){
@@ -5272,6 +5279,33 @@ function bindAllEvents() {
   on("orderDetailCompleteBtn", "click", completeSelectedOrder);
   on("closeSpecSheetBtn", "click", closeProductSpecSheet);
   on("confirmAddToCartBtn", "click", addSelectedProductToCart);
+  // Backdrop click to close spec sheet
+  if ($("productSpecSheet")) {
+    $("productSpecSheet").addEventListener("click", (e) => {
+      if (e.target === $("productSpecSheet")) closeProductSpecSheet();
+    });
+  }
+  // Quantity stepper in spec sheet
+  on("specSheetQtyMinus", "click", () => {
+    const item = state.selectedProfileProduct;
+    if (!item) return;
+    state.specSheetQty = Math.max(1, (state.specSheetQty || 1) - 1);
+    if ($("specSheetQtyNum")) $("specSheetQtyNum").textContent = String(state.specSheetQty);
+    if ($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = state.specSheetQty <= 1;
+  });
+  on("specSheetQtyPlus", "click", () => {
+    const item = state.selectedProfileProduct;
+    if (!item) return;
+    const availableStock = getItemAvailableStock(item);
+    const inCartQty = getProfileStoreItemCartQuantity(item);
+    if ((state.specSheetQty || 1) + inCartQty >= availableStock) {
+      showToast('库存不足');
+      return;
+    }
+    state.specSheetQty = (state.specSheetQty || 1) + 1;
+    if ($("specSheetQtyNum")) $("specSheetQtyNum").textContent = String(state.specSheetQty);
+    if ($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = false;
+  });
   on("saveProductEditorBtn", "click", () => {
     showModal('商品草稿已保存');
     if($("productEditorTitle")) $("productEditorTitle").value = '';
