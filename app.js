@@ -6007,9 +6007,10 @@ async function loadFriends() {
     if (keyword) filteredFriends = filteredFriends.filter(f => f.friend && ((f.friend.displayName || '').toLowerCase().includes(keyword) || (f.friend.username || '').toLowerCase().includes(keyword)));
     state.friends = data.friends;
     const grouped = new Map();
-    grouped.set('我的好友', []);
+    grouped.set('我的好友', filteredFriends.slice());
     filteredFriends.forEach((f) => {
-      const groupName = f.group && f.group !== '我的好友' ? f.group : '我的好友';
+      const groupName = f.group && f.group !== '我的好友' ? f.group : '';
+      if (!groupName) return;
       if (!grouped.has(groupName)) grouped.set(groupName, []);
       grouped.get(groupName).push(f);
     });
