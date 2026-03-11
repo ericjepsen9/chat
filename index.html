@@ -805,8 +805,9 @@
           <div id="orderDetailCard" class="order-detail-full"></div>
           <div class="order-detail-actions">
             <button id="orderDetailAcceptBtn" type="button" class="primary-btn hidden">接单</button>
-            <button id="orderDetailEditPriceBtn" type="button" class="secondary-btn">修改价格</button>
-            <button id="orderDetailCompleteBtn" type="button" class="primary-btn">确认收货</button>
+            <button id="orderDetailEditPriceBtn" type="button" class="secondary-btn hidden">修改价格</button>
+            <button id="orderDetailPriceRequestBtn" type="button" class="secondary-btn hidden">申请改价</button>
+            <button id="orderDetailCompleteBtn" type="button" class="primary-btn hidden">确认收货</button>
             <button id="orderDetailChatBtn" type="button" class="secondary-btn">联系对方</button>
           </div>
         </section>
@@ -882,10 +883,15 @@
 
         <section id="profileCartPage"  class="chat-list-view hidden order-flow-page">
           <div class="order-flow-head">
-            <strong>购物车</strong>
+            <strong>确认订单</strong>
             <span id="profileCartSummaryText">0 件商品</span>
           </div>
+          <div id="profileCartSellerInfo" class="checkout-seller-info hidden"></div>
           <div id="profileCartList" class="order-cart-list"></div>
+          <div class="checkout-remark-section">
+            <label class="checkout-remark-label" for="orderRemarkInput">备注</label>
+            <textarea id="orderRemarkInput" class="checkout-remark-input" rows="2" maxlength="200" placeholder="选填，可备注规格、配送等要求"></textarea>
+          </div>
           <div class="order-flow-footer">
             <div class="order-total-line">
               <span>合计</span><strong id="profileCartPageTotal">¥0.00</strong>

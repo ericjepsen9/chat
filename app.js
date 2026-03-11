@@ -1016,9 +1016,19 @@ function renderOrderDetailPage(){
   }
   box.appendChild(totalDiv);
 
+  // Remark
+  if(order.remark){
+    const remarkDiv = document.createElement('div');
+    remarkDiv.className = 'od-section';
+    remarkDiv.innerHTML = `<div class="od-row"><span class="od-label">备注</span><span class="od-value">${escapeHTML(order.remark)}</span></div>`;
+    box.appendChild(remarkDiv);
+  }
+
   // Action buttons visibility
+  const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
   if($("orderDetailAcceptBtn")) $("orderDetailAcceptBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
   if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'accepted' || !!order.priceAdjustmentLocked);
+  if($("orderDetailPriceRequestBtn")) $("orderDetailPriceRequestBtn").classList.toggle('hidden', role !== 'buyer' || order.status !== 'accepted' || hasPending || !!order.priceAdjustmentLocked);
   if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', order.status !== 'accepted');
   if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
 }
@@ -1432,7 +1442,20 @@ function updateMyCartBadge(){
 function renderProfileCartPage(){
   const list = $("profileCartList");
   if(!list) return;
-  const currentCart = getCurrentSellerCart();
+  const sellerId = state.currentCartSellerId || state.currentProfileUser?.id || '';
+  const currentCart = getCurrentSellerCart(sellerId);
+
+  // Seller info header
+  const sellerInfo = $("profileCartSellerInfo");
+  if(sellerInfo){
+    const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
+    const sellerName = profile?.displayName || profile?.nickname
+      || (state.buyerOrders || []).find(o => o.sellerId === sellerId)?.sellerName
+      || `商家 ${sellerId.slice(-6)}`;
+    sellerInfo.textContent = sellerName;
+    sellerInfo.classList.toggle('hidden', !sellerId);
+  }
+
   if(!currentCart.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1442,45 +1465,105 @@ function renderProfileCartPage(){
     if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(0);
     return;
   }
+
+  const updateTotals = () => {
+    const count = currentCart.reduce((s, i) => s + (Number(i.quantity)||0), 0);
+    if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = `${count} 件商品`;
+    if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(getProfileCartTotal());
+  };
+
   const frag = document.createDocumentFragment();
-  let count = 0;
-  currentCart.forEach((item, idx) => {
-    count += Number(item.quantity) || 0;
+  currentCart.forEach((item) => {
     const card = document.createElement('div');
-    card.className = 'order-cart-item';
+    card.className = 'order-cart-item checkout-item';
+
+    // Product image + info row
+    const row = document.createElement('div');
+    row.className = 'checkout-item-row';
+    const imgUrl = normalizeMediaUrl(item.image || '');
+    if(imgUrl){
+      const img = document.createElement('img');
+      img.className = 'checkout-item-img';
+      img.src = imgUrl;
+      img.alt = item.title || '';
+      row.appendChild(img);
+    }
+    const info = document.createElement('div');
+    info.className = 'checkout-item-info';
     const title = document.createElement('div');
     title.className = 'order-cart-title';
-    title.textContent = `${item.title} · ${item.spec}`;
-    const sub = document.createElement('div');
-    sub.className = 'order-cart-sub';
-    sub.textContent = `数量 ${item.quantity} · 可直接修改价格`;
+    title.textContent = item.title || '商品';
+    const spec = document.createElement('div');
+    spec.className = 'order-cart-sub';
+    spec.textContent = item.spec || '默认规格';
+    info.append(title, spec);
+    row.appendChild(info);
+    card.appendChild(row);
+
+    // Price + quantity + remove row
     const line = document.createElement('div');
-    line.className = 'order-cart-line';
-    const priceInput = document.createElement('input');
-    priceInput.className = 'order-price-input';
-    priceInput.value = Number(item.unitPrice || 0).toFixed(2);
-    priceInput.addEventListener('change', () => {
-      item.unitPrice = parseMoney(priceInput.value);
+    line.className = 'checkout-item-bottom';
+    const priceWrap = document.createElement('div');
+    priceWrap.className = 'checkout-price-wrap';
+    const priceLabel = document.createElement('span');
+    priceLabel.className = 'checkout-price';
+    priceLabel.textContent = formatMoney(Number(item.unitPrice || 0));
+    priceWrap.appendChild(priceLabel);
+
+    // Quantity controls
+    const qtyWrap = document.createElement('div');
+    qtyWrap.className = 'checkout-qty-wrap';
+    const minusBtn = document.createElement('button');
+    minusBtn.type = 'button';
+    minusBtn.className = 'checkout-qty-btn';
+    minusBtn.textContent = '\u2212';
+    const qtySpan = document.createElement('span');
+    qtySpan.className = 'checkout-qty-val';
+    qtySpan.textContent = String(item.quantity || 1);
+    const plusBtn = document.createElement('button');
+    plusBtn.type = 'button';
+    plusBtn.className = 'checkout-qty-btn';
+    plusBtn.textContent = '+';
+
+    minusBtn.addEventListener('click', () => {
+      const q = Math.max(0, (Number(item.quantity)||1) - 1);
+      if(q === 0){
+        const i = currentCart.indexOf(item);
+        if(i >= 0) currentCart.splice(i, 1);
+        renderProfileCartPage();
+        updateProfileCartBar();
+        return;
+      }
+      item.quantity = q;
+      qtySpan.textContent = String(q);
       updateProfileCartBar();
-      if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(getProfileCartTotal());
+      updateTotals();
     });
+    plusBtn.addEventListener('click', () => {
+      item.quantity = (Number(item.quantity)||1) + 1;
+      qtySpan.textContent = String(item.quantity);
+      updateProfileCartBar();
+      updateTotals();
+    });
+    qtyWrap.append(minusBtn, qtySpan, plusBtn);
+
     const removeBtn = document.createElement('button');
     removeBtn.type = 'button';
-    removeBtn.className = 'secondary-btn';
-    removeBtn.textContent = '移除';
+    removeBtn.className = 'checkout-remove-btn';
+    removeBtn.textContent = '删除';
     removeBtn.addEventListener('click', () => {
       const i = currentCart.indexOf(item);
-      if (i >= 0) currentCart.splice(i, 1);
+      if(i >= 0) currentCart.splice(i, 1);
       renderProfileCartPage();
       updateProfileCartBar();
     });
-    line.append(priceInput, removeBtn);
-    card.append(title, sub, line);
+
+    line.append(priceWrap, qtyWrap, removeBtn);
+    card.appendChild(line);
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
-  if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = `${count} 件商品`;
-  if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(getProfileCartTotal());
+  updateTotals();
 }
 
 
@@ -1536,8 +1619,10 @@ async function submitProfileOrder(){
   if(!sellerId || !currentCart.length) return showModal('请先选择商品');
   showLoading('提交订单中...');
   try{
+    const remark = ($("orderRemarkInput")?.value || '').trim();
     const payload = {
       sellerId,
+      remark: remark || undefined,
       items: currentCart.map(item => ({
         productId: item.productId,
         title: item.title,
@@ -1547,6 +1632,7 @@ async function submitProfileOrder(){
       }))
     };
     await api('/api/orders', { method:'POST', body: JSON.stringify(payload) });
+    if($("orderRemarkInput")) $("orderRemarkInput").value = '';
     state.profileCartBySeller[sellerId] = [];
     updateProfileCartBar();
     renderProfileCartPage();
@@ -5423,6 +5509,19 @@ function bindAllEvents() {
     }catch(e){ showModal(e.message || '接单失败'); }
   });
   on("orderDetailEditPriceBtn", "click", updateSelectedOrderPrice);
+  on("orderDetailPriceRequestBtn", "click", async () => {
+    const order = state.selectedOrderDetail;
+    if(!order?.id) return;
+    const raw = prompt('申请改价金额', String(order.total || ''));
+    if(raw === null) return;
+    try{
+      const data = await api(`/api/orders/${order.id}/price-request`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
+      state.selectedOrderDetail = data.order || order;
+      await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
+      if(state.activeConversation?.id) await reloadActiveConversationMessages();
+      renderOrderDetailPage();
+    }catch(e){ showModal(e.message || '申请失败'); }
+  });
   on("orderDetailCompleteBtn", "click", completeSelectedOrder);
   on("orderDetailChatBtn", "click", async () => {
     const order = state.selectedOrderDetail;

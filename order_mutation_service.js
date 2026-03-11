@@ -125,6 +125,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   });
 
   const total = normalized.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
   const order = {
     id: uid('o'),
@@ -132,6 +133,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     sellerId: seller.id,
     items: normalized,
     total,
+    remark: remark || undefined,
     status: 'pending',
     createdAt: now,
     updatedAt: now,
