@@ -81,14 +81,22 @@ public class NativeBridge {
     @JavascriptInterface
     public void startCallService(String peerName, String mode) {
         Log.i(TAG, "startCallService: " + peerName + ", mode=" + mode);
-        CallService.start(activity, peerName, mode);
+        activity.runOnUiThread(() -> {
+            try {
+                CallService.start(activity, peerName, mode);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to start call service", e);
+            }
+        });
     }
 
     @JavascriptInterface
     public void stopCallService() {
         Log.i(TAG, "stopCallService");
-        CallService.stop(activity);
-        CallNotificationHelper.dismissIncomingCallNotification(activity);
+        activity.runOnUiThread(() -> {
+            CallService.stop(activity);
+            CallNotificationHelper.dismissIncomingCallNotification(activity);
+        });
     }
 
     @JavascriptInterface

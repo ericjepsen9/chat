@@ -20,7 +20,6 @@
 
     <!-- Foreground service for active calls -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
 
@@ -82,7 +81,7 @@
         <service
             android:name=".call.CallService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall|microphone|camera" />
+            android:foregroundServiceType="microphone|camera" />
 
         <!-- EMAS Push Service & Receiver -->
         <service

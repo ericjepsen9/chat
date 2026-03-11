@@ -5,7 +5,10 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.os.Build;
 import android.os.IBinder;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -80,7 +83,19 @@ public class CallService extends Service {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                                | ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (Exception e) {
+            Log.e("CallService", "Failed to start foreground service", e);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         return START_STICKY;
     }
 
