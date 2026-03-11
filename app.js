@@ -4749,6 +4749,8 @@ function bindAllEvents() {
           return;
       }
       state.activeConversation = null;
+      state.chatListSignature = '';
+      renderConversationListFromState();
       if($("chatView")) $("chatView").classList.add("hidden"); if($("composerPanel")) $("composerPanel").classList.add("hidden");
       if($("homeTabbar")) $("homeTabbar").classList.remove("hidden"); if($("backBtn")) $("backBtn").classList.add("hidden"); if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
       const activeTab = document.querySelector('.tab-item.active');
