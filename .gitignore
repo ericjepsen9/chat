@@ -1,3 +1,4 @@
 node_modules/
 *.wal
 uploads/
+data.json
