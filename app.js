@@ -5575,7 +5575,7 @@ function bindAllEvents() {
           </div>
           <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
         </button>`).join('');
-      if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${res.total} 条结果</div>`;
+      if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${escapeHTML(String(res.total))} 条结果</div>`;
       el.querySelectorAll('.msg-search-item').forEach(btn => {
         btn.addEventListener('click', async () => {
           const convId = btn.dataset.convId;
@@ -6527,7 +6527,7 @@ async function connectRealtime() {
   state.eventSource = new EventSource(`/api/events?sse=${encodeURIComponent(sseToken)}`);
   state._sseHandlers = [];
   const _on = (evt, fn) => { state._sseHandlers.push([evt, fn]); state.eventSource.addEventListener(evt, fn); };
-  _on('message_created', async (e) => { 
+  _on('message_created', async (e) => { try {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId && data.message) {
@@ -6552,8 +6552,8 @@ async function connectRealtime() {
     } else {
       loadConversations();
     }
-  });
-  _on('message_recalled', (e) => { 
+  } catch (err) { console.warn('[sse] message_created handler error', err); } });
+  _on('message_recalled', (e) => { try {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
@@ -6566,7 +6566,7 @@ async function connectRealtime() {
     } else {
       loadConversations();
     }
-  });
+  } catch (err) { console.warn('[sse] message_recalled handler error', err); } });
   _on('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
   _on('friends_updated', async () => { await loadFriends(); if (state.activeConversation) applyChatRelationshipState(); });
   _on('friend_request_updated', loadFriendRequests);
@@ -6583,7 +6583,7 @@ async function connectRealtime() {
     }
   });
 
-  _on('webrtc_signal', async (e) => {
+  _on('webrtc_signal', async (e) => { try {
     const payload = safeParseEventData(e);
     if (!payload) return;
     const signal = payload.signal; if (!signal) return;
@@ -6633,9 +6633,9 @@ async function connectRealtime() {
         }
       }
     }
-  });
+  } catch (err) { console.warn('[sse] webrtc_signal handler error', err); } });
 
-  _on('call_event', (e) => {
+  _on('call_event', (e) => { try {
     const payload = safeParseEventData(e);
     if (!payload) return;
     if (payload.event === 'start') {
@@ -6670,7 +6670,7 @@ async function connectRealtime() {
         applyChatRelationshipState();
       }
     }
-  });
+  } catch (err) { console.warn('[sse] call_event handler error', err); } });
   state._sseRetryCount = (state._sseRetryCount || 0);
   state.eventSource.onopen = () => {
     state._sseRetryCount = 0;
@@ -6957,7 +6957,13 @@ function renderSystemMessagesList(){
   state.systemMessagesReadAt = Date.now();
 }
 
+let _loadConversationsPromise = null;
 async function loadConversations() {
+  if (_loadConversationsPromise) return _loadConversationsPromise;
+  _loadConversationsPromise = _loadConversationsImpl();
+  try { return await _loadConversationsPromise; } finally { _loadConversationsPromise = null; }
+}
+async function _loadConversationsImpl() {
   try {
     const data = await api(`/api/conversations?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.conversations = (data.conversations || []).map(normalizeConversation);

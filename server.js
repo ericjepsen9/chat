@@ -1240,7 +1240,7 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthedUser(req, res);
       if (!authUser) return;
       const token = parseAuthToken(req, searchParams);
-      if (token) sessions.delete(token);
+      if (token) { sessions.delete(token); csrfTokens.delete(token); }
       return sendJson(res, 200, { ok: true });
     }
 
@@ -1766,6 +1766,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
         findUserByPhone,
+        getOrCreateDirectConversation,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);

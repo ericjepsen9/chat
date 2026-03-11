@@ -9,6 +9,7 @@ function createFriendRequest({
   schedulePersist,
   broadcastToUser,
   findUserByPhone,
+  getOrCreateDirectConversation,
 }) {
   const keyword = String(reqBody.friendUsername || '').trim();
   const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || (findUserByPhone ? findUserByPhone(keyword) : null);
@@ -41,12 +42,17 @@ function createFriendRequest({
     if (!db.friendships.some(f => f.userId === target.id && f.friendId === authUser.id)) {
       db.friendships.push({ id: uid('f'), userId: target.id, friendId: authUser.id, group: '我的好友', remark: '' });
     }
+    if (typeof getOrCreateDirectConversation === 'function') {
+      getOrCreateDirectConversation(authUser.id, target.id);
+    }
     rebuildIndexes();
     schedulePersist('friend_auto_accept', { requestId: reversePending.id });
     broadcastToUser(authUser.id, 'friends_updated', {});
     broadcastToUser(target.id, 'friends_updated', {});
     broadcastToUser(authUser.id, 'friend_request_updated', {});
     broadcastToUser(target.id, 'friend_request_updated', {});
+    broadcastToUser(authUser.id, 'conversation_updated', {});
+    broadcastToUser(target.id, 'conversation_updated', {});
     return { ok: true, status: 200, payload: { ok: true, autoAccepted: true } };
   }
   const request = {
