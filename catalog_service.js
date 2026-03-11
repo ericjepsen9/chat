@@ -4,7 +4,7 @@ function buildUserStoreItems({ usersById, sellerId }) {
   const items = (seller.products || []).map((product) => ({
     ...product,
     imageUrl: product.image,
-    specs: Array.isArray(product.specs) ? product.specs : ['默认规格', '标准版', '高配版'],
+    specs: Array.isArray(product.specs) && product.specs.length ? product.specs : ['默认规格'],
   }));
   return { ok: true, status: 200, payload: { items } };
 }

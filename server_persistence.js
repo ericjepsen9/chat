@@ -57,7 +57,9 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
       const buf = Buffer.allocUnsafe(keep);
       await fd.read(buf, 0, keep, st.size - keep);
       await fd.close();
-      await fs.promises.writeFile(msgWalFile, buf);
+      const firstNewline = buf.indexOf(0x0a);
+      const clean = firstNewline >= 0 ? buf.slice(firstNewline + 1) : buf;
+      await fs.promises.writeFile(msgWalFile, clean);
     }, 'truncate_wal');
   }
 

@@ -47,7 +47,7 @@ function createConversationMessage({
   if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
 
   const ALLOWED_MESSAGE_TYPES = ['text', 'image', 'audio', 'card', 'order_card', 'broadcast_card', 'system'];
-  if (body.type && !ALLOWED_MESSAGE_TYPES.includes(body.type)) {
+  if (!body.type || !ALLOWED_MESSAGE_TYPES.includes(body.type)) {
     return { ok: false, status: 400, error: 'invalid_message_type' };
   }
 

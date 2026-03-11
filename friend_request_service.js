@@ -18,7 +18,7 @@ function createFriendRequest({
   if (areFriends(authUser.id, target.id)) {
     return { ok: false, status: 409, error: 'already_friends' };
   }
-  const existingPending = (index.requestsByTarget.get(target.id) || []).find((r) => r.userId === authUser.id);
+  const existingPending = (index.requestsByTarget.get(target.id) || []).find((r) => r.userId === authUser.id && r.status === 'pending');
   if (existingPending) {
     return { ok: false, status: 409, error: 'request_pending' };
   }

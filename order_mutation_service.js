@@ -31,9 +31,9 @@ function assertOrderVersion(order, expectedUpdatedAtRaw) {
 
 
 function isUserBlockedByCounterparty(userA, userB) {
-  const aBlacklist = Array.isArray(userA?.blacklist) ? userA.blacklist : [];
-  const bBlacklist = Array.isArray(userB?.blacklist) ? userB.blacklist : [];
   if (!userA || !userB) return false;
+  const aBlacklist = Array.isArray(userA.blacklist) ? userA.blacklist : [];
+  const bBlacklist = Array.isArray(userB.blacklist) ? userB.blacklist : [];
   return aBlacklist.includes(userB.id) || bBlacklist.includes(userA.id);
 }
 
@@ -150,7 +150,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
       role: 'buyer',
     }),
   });
-  conv.updatedAt = new Date().toISOString();
+  conv.updatedAt = Date.now();
   if (typeof rebuildMallIndex === 'function') rebuildMallIndex();
   if (typeof broadcastAll === 'function') broadcastAll('mall_updated', {});
   schedulePersist('order_create', { orderId: order.id, buyerId: authUser.id, sellerId: seller.id });
@@ -183,7 +183,7 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
       role: authUser.id === order.sellerId ? 'seller' : 'buyer',
     }),
   });
-  conv.updatedAt = new Date().toISOString();
+  conv.updatedAt = Date.now();
   schedulePersist('order_update_price', { orderId: order.id });
   return { ok: true, status: 200, payload: { order } };
 }
@@ -214,7 +214,7 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
       role: authUser.id === order.sellerId ? 'seller' : 'buyer',
     }),
   });
-  conv.updatedAt = new Date().toISOString();
+  conv.updatedAt = Date.now();
   schedulePersist('order_update_status', { orderId: order.id, status: order.status });
   return { ok: true, status: 200, payload: { order, deduplicated: false } };
 }
@@ -241,7 +241,7 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
       role: authUser.id === order.sellerId ? 'seller' : 'buyer',
     }),
   });
-  conv.updatedAt = new Date().toISOString();
+  conv.updatedAt = Date.now();
   schedulePersist('order_price_request', { orderId: order.id });
   return { ok: true, status: 200, payload: { order } };
 }
@@ -271,7 +271,7 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
       role: authUser.id === order.sellerId ? 'seller' : 'buyer',
     }),
   });
-  conv.updatedAt = new Date().toISOString();
+  conv.updatedAt = Date.now();
   schedulePersist('order_price_confirm', { orderId: order.id });
   return { ok: true, status: 200, payload: { order } };
 }
