@@ -2860,6 +2860,8 @@ function attachConversationSwipeDelete(wrap, onDelete) {
     closeConversationSwipeRows(wrap);
   };
 
+  const actionWidth = 156;
+
   const move = (x, y, canPreventDefault = false, ev = null) => {
     if (!tracking) return;
     const dx = x - startX;
@@ -2871,20 +2873,32 @@ function attachConversationSwipeDelete(wrap, onDelete) {
       dragDx = dx;
       suppressClick = true;
       if (canPreventDefault && ev && ev.cancelable) ev.preventDefault();
+      const wasRevealed = wrap.classList.contains('revealed');
+      const base = wasRevealed ? -actionWidth : 0;
+      const raw = base + dx;
+      const clamped = Math.max(-actionWidth, Math.min(0, raw));
+      content.style.transition = 'none';
+      content.style.transform = `translateX(${clamped}px)`;
     }
   };
 
   const finish = (x, y) => {
     if (!tracking) return;
     tracking = false;
+    content.style.transition = '';
+    content.style.transform = '';
     const dx = dragDx || (x - startX);
     const dy = y - startY;
-    if (Math.abs(dx) < Math.abs(dy)) {
+    if (axis !== 'x') {
       setTimeout(() => { suppressClick = false; }, 180);
       return;
     }
-    if (dx <= -threshold) wrap.classList.add('revealed');
-    else if (dx >= threshold) wrap.classList.remove('revealed');
+    const wasRevealed = wrap.classList.contains('revealed');
+    if (wasRevealed) {
+      if (dx >= threshold) wrap.classList.remove('revealed');
+    } else {
+      if (dx <= -threshold) wrap.classList.add('revealed');
+    }
     setTimeout(() => { suppressClick = false; }, 180);
   };
 
@@ -3281,7 +3295,7 @@ const SECONDARY_PAGE_IDS = [
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
   'contactCardPickerPage','productCardPickerPage','orderCardPickerPage',
   'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage',
-  'systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
+  'msgSearchPage','mallSearchPage','systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
 ];
 
 window.openSecondaryPage = (page, backTo = 'home') => {
@@ -3335,6 +3349,8 @@ window.openSecondaryPage = (page, backTo = 'home') => {
   else if (page === 'profileCartPage') { if($("chatTitle")) $("chatTitle").textContent = '结算'; renderProfileCartPage(); }
   else if (page === 'profileOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '我的订单'; renderProfileOrders(); }
   else if (page === 'chatOrderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
+  else if (page === 'msgSearchPage') { if($("chatTitle")) $("chatTitle").textContent = '搜索'; setTimeout(() => { if($("msgSearchPageInput")) $("msgSearchPageInput").focus(); }, 100); }
+  else if (page === 'mallSearchPage') { if($("chatTitle")) $("chatTitle").textContent = '搜索'; setTimeout(() => { if($("mallSearchPageInput")) $("mallSearchPageInput").focus(); }, 100); }
   else if (page === 'systemMessagesPage') { if($("chatTitle")) $("chatTitle").textContent = '系统消息'; renderSystemMessagesList(); }
 
 };
@@ -4273,8 +4289,8 @@ function bindAllEvents() {
     }, { passive: true });
   }
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
-  on("mallSearchBtn", "click", () => { if (checkSearchCooldown('mallSearch')) loadMall(); });
-  on("mallSearchInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (checkSearchCooldown('mallSearch')) loadMall(); } });
+  on("mallSearchPageBtn", "click", () => { if (checkSearchCooldown('mallSearch')) doMallSearchPage(); });
+  on("mallSearchPageInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (checkSearchCooldown('mallSearch')) doMallSearchPage(); } });
   // ---- Tag input (still used for adding new items inline) ----
   function initTagInput(wrapperId, inputId, onAdd) {
     const wrap = $(wrapperId); const input = $(inputId);
@@ -5521,24 +5537,22 @@ function bindAllEvents() {
     return true;
   }
 
-  // ── Enhanced message search (conversations + chat content) ──
+  // ── Click search input to open search page ──
+  on("searchInput", "click", () => { window.openSecondaryPage('msgSearchPage', 'home'); });
+  on("mallSearchInput", "click", () => { window.openSecondaryPage('mallSearchPage', 'home'); });
+
+  // ── Message search (on search page) ──
   async function doMsgSearch() {
-    const keyword = ($("searchInput")?.value || '').trim();
-    if (!keyword) {
-      if ($("msgSearchResults")) { $("msgSearchResults").classList.add('hidden'); $("msgSearchResults").innerHTML = ''; }
-      if ($("chatList")) $("chatList").style.display = '';
-      return;
-    }
+    const keyword = ($("msgSearchPageInput")?.value || '').trim();
+    if (!keyword) return;
     if (!checkSearchCooldown('msgSearch')) return;
     loadConversations().catch(() => {});
     try {
       const res = await api(`/api/messages/search?keyword=${encodeURIComponent(keyword)}&limit=20`);
-      const el = $("msgSearchResults");
+      const el = $("msgSearchPageResults");
       if (!el) return;
       if (!res.results || !res.results.length) {
         el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关聊天记录</div>';
-        el.classList.remove('hidden');
-        if ($("chatList")) $("chatList").style.display = 'none';
         return;
       }
       const kw = escapeHTML(keyword);
@@ -5555,30 +5569,16 @@ function bindAllEvents() {
           <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
         </button>`).join('');
       if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${res.total} 条结果</div>`;
-      el.classList.remove('hidden');
-      if ($("chatList")) $("chatList").style.display = 'none';
       el.querySelectorAll('.msg-search-item').forEach(btn => {
         btn.addEventListener('click', () => {
           const convId = btn.dataset.convId;
           if (convId) window.openConversation(convId);
-          if ($("searchInput")) $("searchInput").value = '';
-          el.classList.add('hidden');
-          el.innerHTML = '';
-          if ($("chatList")) $("chatList").style.display = '';
         });
       });
     } catch (_) {}
   }
-  on("searchBtn", "click", doMsgSearch);
-  on("searchInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); doMsgSearch(); } });
-  // Clear results when input is emptied
-  on("searchInput", "input", () => {
-    const keyword = ($("searchInput")?.value || '').trim();
-    if (!keyword) {
-      if ($("msgSearchResults")) { $("msgSearchResults").classList.add('hidden'); $("msgSearchResults").innerHTML = ''; }
-      if ($("chatList")) $("chatList").style.display = '';
-    }
-  });
+  on("msgSearchPageBtn", "click", doMsgSearch);
+  on("msgSearchPageInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); doMsgSearch(); } });
   on("friendSearchInput", "input", () => { loadFriends().catch(() => {}); });
 
   // ── In-chat message search ──
@@ -5812,9 +5812,7 @@ function refreshUserLocation() {
 async function loadMall() {
 
   try {
-    const keyword = ($('mallSearchInput')?.value || '').trim();
     let qs = 'userId=' + state.currentUser.id;
-    if (keyword) qs += '&q=' + encodeURIComponent(keyword);
     if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
     if (state.mallTab === 'price') qs += '&sort=price';
     else if (state.mallTab === 'latest') qs += '&sort=latest';
@@ -5859,6 +5857,30 @@ async function loadMall() {
     state.mallListSignature = nextSignature;
     state.mallItemSignatures = nextItemSignatures;
   } catch(e) { if($("mallList")) { const empty = document.createElement('div'); empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;'; empty.textContent = '加载失败'; $("mallList").replaceChildren(empty); } }
+}
+
+async function doMallSearchPage() {
+  const keyword = ($('mallSearchPageInput')?.value || '').trim();
+  const el = $("mallSearchPageResults");
+  if (!el) return;
+  if (!keyword) { el.innerHTML = ''; return; }
+  try {
+    let qs = 'userId=' + state.currentUser.id + '&q=' + encodeURIComponent(keyword);
+    if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
+    qs += '&sort=nearby';
+    const data = await api('/api/mall?' + qs);
+    const products = data.products || [];
+    if (!products.length) {
+      el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关商品</div>';
+      return;
+    }
+    const grid = document.createElement('div');
+    grid.className = 'mall-grid';
+    products.forEach(p => grid.appendChild(buildMallCard(p)));
+    el.replaceChildren(grid);
+  } catch (_) {
+    el.innerHTML = '<div style="padding:24px; text-align:center; color:#999;">搜索失败</div>';
+  }
 }
 
 async function loadFriendRequests() {
@@ -6776,9 +6798,7 @@ function scheduleRenderConversationList() {
 }
 function renderConversationListFromState() {
   bindConversationSwipeDismiss();
-  const keyword = $("searchInput") ? $("searchInput").value.trim().toLowerCase() : "";
   let filteredConvs = state.conversations || [];
-  if (keyword) filteredConvs = filteredConvs.filter(c => (c.title || '').toLowerCase().includes(keyword));
 
   const tradeOrders = (state.buyerOrders || []).concat(state.sellerOrders || []).filter((o) => o && o.status !== 'completed');
   const tradeConv = tradeOrders.length ? {

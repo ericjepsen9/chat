@@ -204,8 +204,7 @@
 
       <div class="main-content-wrapper">
         <section id="chatListView" class="chat-list-view">
-          <div class="toolbar"><input id="searchInput" placeholder="搜索聊天" /><button id="searchBtn" class="toolbar-search-btn" type="button">搜索</button></div>
-          <div id="msgSearchResults" class="hidden" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
+          <div class="toolbar"><input id="searchInput" placeholder="搜索聊天" readonly /></div>
           <div id="chatList" style="flex:1; overflow-y:auto;"></div>
         </section>
 
@@ -229,7 +228,7 @@
             <button id="mallLocationRefreshBtn" type="button" class="mall-location-refresh">⟳</button>
           </div>
           <div class="toolbar" style="display:flex; gap:10px;">
-             <input id="mallSearchInput" placeholder="搜索附近闲置商品..." style="flex:1;" /><button id="mallSearchBtn" class="toolbar-search-btn" type="button">搜索</button>
+             <input id="mallSearchInput" placeholder="搜索附近闲置商品..." style="flex:1;" readonly />
              <button id="publishProductEntryBtn" class="sp-publish-btn" style="width:auto; padding:0 16px;">发布闲置</button>
           </div>
           <div id="mallTabs" class="mall-tabs">
@@ -1082,6 +1081,16 @@
         <div class="profile-order-actions" style="padding:12px;">
           <button id="sendBroadcastNowBtn" class="primary-btn" type="button">发送到聊天</button>
         </div>
+      </section>
+
+      <section id="msgSearchPage" class="chat-list-view hidden order-flow-page">
+        <div class="toolbar"><input id="msgSearchPageInput" placeholder="搜索聊天" /><button id="msgSearchPageBtn" class="toolbar-search-btn" type="button">搜索</button></div>
+        <div id="msgSearchPageResults" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
+      </section>
+
+      <section id="mallSearchPage" class="chat-list-view hidden order-flow-page">
+        <div class="toolbar"><input id="mallSearchPageInput" placeholder="搜索附近闲置商品..." /><button id="mallSearchPageBtn" class="toolbar-search-btn" type="button">搜索</button></div>
+        <div id="mallSearchPageResults" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
       </section>
 
       <section id="systemMessagesPage" class="chat-list-view hidden order-flow-page">
