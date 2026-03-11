@@ -39,7 +39,6 @@ import com.mychat.app.call.CallService;
  * - copyToClipboard(text)     — copy text to clipboard
  * - getDeviceInfo()           — get device info JSON
  * - openSystemSettings()      — open app settings page
- * - hasOverlayPermission()    — check overlay permission
  * - getPushDeviceId()         — get EMAS device ID
  */
 public class NativeBridge {
@@ -82,10 +81,6 @@ public class NativeBridge {
     @JavascriptInterface
     public void startCallService(String peerName, String mode) {
         Log.i(TAG, "startCallService: " + peerName + ", mode=" + mode);
-        // Ensure overlay permission for incoming call screen (request on demand, not at startup)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(activity)) {
-            activity.requestOverlayPermission();
-        }
         CallService.start(activity, peerName, mode);
     }
 
@@ -140,27 +135,10 @@ public class NativeBridge {
     }
 
     @JavascriptInterface
-    public boolean hasOverlayPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return Settings.canDrawOverlays(activity);
-        }
-        return true;
-    }
-
-    @JavascriptInterface
     public void openSystemSettings() {
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
         intent.setData(Uri.parse("package:" + activity.getPackageName()));
         activity.startActivity(intent);
-    }
-
-    @JavascriptInterface
-    public void openOverlaySettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + activity.getPackageName()));
-            activity.startActivity(intent);
-        }
     }
 
     // ========== Permissions ==========

@@ -279,18 +279,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Request SYSTEM_ALERT_WINDOW for incoming call overlay.
-     * Called on demand when a call starts, not at app launch.
-     */
-    public void requestOverlayPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        }
-    }
-
     private boolean hasPermission(String permission) {
         return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
     }
