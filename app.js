@@ -5024,7 +5024,7 @@ function bindAllEvents() {
   on("blacklistBtn", "click", async () => {
       const peerId = conversationPeerId(state.activeConversation);
       if(!peerId) return showModal('未找到会话对象');
-      if(confirm("确定把他加入黑名单吗？加入后将拒收他的消息。")) { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); showModal("已加入黑名单"); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); showModal(e?.message || '加入黑名单失败'); } finally { hideLoading(); } }
+      if(confirm("确定把他加入黑名单吗？加入后将拒收他的消息。")) { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); showModal("已加入黑名单"); loadFriends().catch(() => {}); loadConversations().catch(() => {}); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); showModal(e?.message || '加入黑名单失败'); } finally { hideLoading(); } }
   });
   on("deleteFriendBtn", "click", async () => {
       if(!confirm("确定删除好友并清空聊天记录?")) return;
@@ -5217,7 +5217,7 @@ function bindAllEvents() {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
       showLoading('处理中...');
-      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); showModal('已加入黑名单'); loadFriends(); } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
+      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); showModal('已加入黑名单'); loadFriends().catch(() => {}); loadConversations().catch(() => {}); } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
   });
   on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); showModal('已收到举报，我们会尽快处理'); });
   on("btnSettingsMoveGroup", "click", () => { const peerId = conversationPeerId(state.activeConversation); if(peerId) window.openGroupSelect(peerId); });
@@ -5416,6 +5416,82 @@ function bindAllEvents() {
     else if (state.rtc.phase === 'outgoing' || state.rtc.phase === 'connecting') finalizeCall({ event: 'cancel', reason: 'caller_cancel' });
     else finalizeCall({ event: 'end', reason: 'hangup' });
   });
+
+  // --- Call minimize / restore ---
+  let _callFloatingTimer = null;
+  function minimizeCall() {
+    if (!hasActiveCallSession()) return;
+    if ($("callPanel")) $("callPanel").classList.add('hidden');
+    const bubble = $("callFloatingBubble");
+    if (bubble) {
+      bubble.classList.remove('hidden');
+      updateFloatingDuration();
+      clearInterval(_callFloatingTimer);
+      _callFloatingTimer = setInterval(updateFloatingDuration, 1000);
+    }
+  }
+  function restoreCall() {
+    const bubble = $("callFloatingBubble");
+    if (bubble) bubble.classList.add('hidden');
+    clearInterval(_callFloatingTimer);
+    if (hasActiveCallSession() && $("callPanel")) $("callPanel").classList.remove('hidden');
+  }
+  function updateFloatingDuration() {
+    if (!callStartTime) return;
+    const diff = Math.floor((Date.now() - callStartTime) / 1000);
+    const m = String(Math.floor(diff / 60)).padStart(2, '0');
+    const s = String(diff % 60).padStart(2, '0');
+    if ($("callFloatingDuration")) $("callFloatingDuration").textContent = `${m}:${s}`;
+  }
+  on("callMinimizeBtn", "click", minimizeCall);
+  if ($("callFloatingBubble")) {
+    $("callFloatingBubble").addEventListener("click", restoreCall);
+    // Drag support for floating bubble
+    let _bubbleDragging = false, _bubbleStartX = 0, _bubbleStartY = 0, _bubbleOrigX = 0, _bubbleOrigY = 0;
+    const bubble = $("callFloatingBubble");
+    bubble.addEventListener("touchstart", (e) => {
+      _bubbleDragging = false;
+      const t = e.touches[0];
+      _bubbleStartX = t.clientX; _bubbleStartY = t.clientY;
+      const rect = bubble.getBoundingClientRect();
+      _bubbleOrigX = rect.left; _bubbleOrigY = rect.top;
+    }, { passive: true });
+    bubble.addEventListener("touchmove", (e) => {
+      const t = e.touches[0];
+      const dx = t.clientX - _bubbleStartX, dy = t.clientY - _bubbleStartY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) _bubbleDragging = true;
+      if (_bubbleDragging) {
+        e.preventDefault();
+        bubble.style.left = (_bubbleOrigX + dx) + 'px';
+        bubble.style.top = (_bubbleOrigY + dy) + 'px';
+        bubble.style.right = 'auto';
+      }
+    }, { passive: false });
+    bubble.addEventListener("touchend", (e) => {
+      if (_bubbleDragging) {
+        // Snap to nearest edge
+        const rect = bubble.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        const screenW = window.innerWidth;
+        if (midX < screenW / 2) { bubble.style.left = '8px'; bubble.style.right = 'auto'; }
+        else { bubble.style.left = 'auto'; bubble.style.right = '8px'; }
+        // Clamp vertical
+        const maxY = window.innerHeight - rect.height - 8;
+        const clampedY = Math.max(8, Math.min(maxY, rect.top));
+        bubble.style.top = clampedY + 'px';
+      } else {
+        restoreCall();
+      }
+      _bubbleDragging = false;
+    });
+  }
+  // Hide floating bubble when call ends
+  const _origStopCall = window.stopCall;
+  window.stopCall = () => {
+    clearInterval(_callFloatingTimer);
+    if ($("callFloatingBubble")) $("callFloatingBubble").classList.add('hidden');
+    _origStopCall();
+  };
 
   on("searchInput", "input", () => { loadConversations().catch(() => {}); });
   on("friendSearchInput", "input", () => { loadFriends().catch(() => {}); });

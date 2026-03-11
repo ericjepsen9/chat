@@ -679,6 +679,16 @@ input, textarea { font-size: var(--font-body); }
 .publish-card button { background: #fff; border-radius: 14px; padding: 16px; font-size: 17px; border:none; cursor:pointer;}
 
 /* 通话面板 */
+/* Call minimize button */
+.call-minimize-btn { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 16px; z-index: 103; background: rgba(255,255,255,0.15); border: none; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(4px); }
+.call-minimize-btn:active { background: rgba(255,255,255,0.3); }
+/* Call floating bubble */
+.call-floating-bubble { position: fixed; top: 100px; left: 8px; z-index: 999; display: flex; align-items: center; gap: 6px; background: #07c160; color: #fff; border-radius: 24px; padding: 8px 14px 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); cursor: pointer; user-select: none; touch-action: none; transition: box-shadow 0.2s; }
+.call-floating-bubble:active { box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.call-floating-bubble.hidden { display: none !important; }
+.call-floating-icon { display: flex; align-items: center; justify-content: center; animation: callPulse 1.5s ease-in-out infinite; }
+.call-floating-duration { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@keyframes callPulse { 0%,100%{ opacity:1; } 50%{ opacity:0.5; } }
 .call-panel { position: absolute; inset: 0; background: #1b1b1b; color: #fff; z-index: 100; display: flex; flex-direction: column; justify-content: space-between; padding: 0; overflow: hidden; }
 .call-info { text-align: center; margin-top: max(60px, env(safe-area-inset-top)); z-index: 101; transition: opacity 0.3s; }
 .video-container { position: absolute; inset: 0; z-index: 100; background: #000; }
