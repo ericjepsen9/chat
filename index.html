@@ -970,6 +970,51 @@
            <button type="button" id="btnSendPaymentCode"><span style="font-size:26px;">💰</span>收款码</button>
         </div>
       </section>
+      <section id="productEditorPage" class="chat-list-view hidden order-flow-page">
+        <div class="order-flow-head"><strong>商品编辑</strong><span>新增 / 编辑商品</span></div>
+        <div class="order-cart-item">
+          <div class="order-cart-title">商品标题</div>
+          <input id="productEditorTitle" class="order-price-input" placeholder="输入商品标题" />
+          <div class="order-cart-sub">价格</div>
+          <input id="productEditorPrice" class="order-price-input" placeholder="输入价格" />
+          <div class="order-cart-sub">描述</div>
+          <textarea id="productEditorDesc" class="ui-input" style="min-height:88px;padding:10px 12px;" placeholder="输入商品描述"></textarea>
+          <div class="profile-order-actions">
+            <button id="saveProductEditorBtn" class="primary-btn" type="button">保存商品</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="chatOrderDetailPage" class="chat-list-view hidden order-flow-page">
+        <div class="order-flow-head"><strong>订单详情</strong><span>聊天中的订单卡片</span></div>
+        <div id="chatOrderDetailCard" class="profile-order-card"></div>
+      </section>
+
+      <section id="broadcastDetailPage" class="chat-list-view hidden order-flow-page">
+        <div class="order-flow-head"><strong>广播详情</strong><span>图文通知</span></div>
+        <div class="profile-order-card">
+          <div id="broadcastDetailTitle" class="profile-order-title">广播标题</div>
+          <div id="broadcastDetailSummary" class="profile-order-sub">广播摘要</div>
+        </div>
+        <div class="profile-order-actions" style="padding:12px;">
+          <button id="sendBroadcastNowBtn" class="primary-btn" type="button">发送到聊天</button>
+        </div>
+      </section>
+
+      <section id="msgSearchPage" class="chat-list-view hidden order-flow-page">
+        <div class="toolbar"><input id="msgSearchPageInput" placeholder="搜索聊天" /><button id="msgSearchPageBtn" class="toolbar-search-btn" type="button">搜索</button></div>
+        <div id="msgSearchPageResults" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
+      </section>
+
+      <section id="mallSearchPage" class="chat-list-view hidden order-flow-page">
+        <div class="toolbar"><input id="mallSearchPageInput" placeholder="搜索附近闲置商品..." /><button id="mallSearchPageBtn" class="toolbar-search-btn" type="button">搜索</button></div>
+        <div id="mallSearchPageResults" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
+      </section>
+
+      <section id="systemMessagesPage" class="chat-list-view hidden order-flow-page">
+        <div id="systemMessagesList" class="profile-orders-list"></div>
+      </section>
+
       <input id="imageInput" type="file" accept="image/*" class="hidden" />
       <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" />
 
@@ -1051,51 +1096,6 @@
     </section>
 
     <script src="app.js?v=38.0"></script>
-
-      <section id="productEditorPage" class="chat-list-view hidden order-flow-page">
-        <div class="order-flow-head"><strong>商品编辑</strong><span>新增 / 编辑商品</span></div>
-        <div class="order-cart-item">
-          <div class="order-cart-title">商品标题</div>
-          <input id="productEditorTitle" class="order-price-input" placeholder="输入商品标题" />
-          <div class="order-cart-sub">价格</div>
-          <input id="productEditorPrice" class="order-price-input" placeholder="输入价格" />
-          <div class="order-cart-sub">描述</div>
-          <textarea id="productEditorDesc" class="ui-input" style="min-height:88px;padding:10px 12px;" placeholder="输入商品描述"></textarea>
-          <div class="profile-order-actions">
-            <button id="saveProductEditorBtn" class="primary-btn" type="button">保存商品</button>
-          </div>
-        </div>
-      </section>
-
-      <section id="chatOrderDetailPage" class="chat-list-view hidden order-flow-page">
-        <div class="order-flow-head"><strong>订单详情</strong><span>聊天中的订单卡片</span></div>
-        <div id="chatOrderDetailCard" class="profile-order-card"></div>
-      </section>
-
-      <section id="broadcastDetailPage"  class="chat-list-view hidden order-flow-page">
-        <div class="order-flow-head"><strong>广播详情</strong><span>图文通知</span></div>
-        <div class="profile-order-card">
-          <div id="broadcastDetailTitle" class="profile-order-title">广播标题</div>
-          <div id="broadcastDetailSummary" class="profile-order-sub">广播摘要</div>
-        </div>
-        <div class="profile-order-actions" style="padding:12px;">
-          <button id="sendBroadcastNowBtn" class="primary-btn" type="button">发送到聊天</button>
-        </div>
-      </section>
-
-      <section id="msgSearchPage" class="chat-list-view hidden order-flow-page">
-        <div class="toolbar"><input id="msgSearchPageInput" placeholder="搜索聊天" /><button id="msgSearchPageBtn" class="toolbar-search-btn" type="button">搜索</button></div>
-        <div id="msgSearchPageResults" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
-      </section>
-
-      <section id="mallSearchPage" class="chat-list-view hidden order-flow-page">
-        <div class="toolbar"><input id="mallSearchPageInput" placeholder="搜索附近闲置商品..." /><button id="mallSearchPageBtn" class="toolbar-search-btn" type="button">搜索</button></div>
-        <div id="mallSearchPageResults" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
-      </section>
-
-      <section id="systemMessagesPage" class="chat-list-view hidden order-flow-page">
-        <div id="systemMessagesList" class="profile-orders-list"></div>
-      </section>
 
     <!-- WeChat-style Date Picker Popup -->
     <div id="datePickerOverlay" class="date-picker-overlay hidden">
