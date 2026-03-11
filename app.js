@@ -1332,7 +1332,8 @@ function renderProfileCartPage(){
     removeBtn.className = 'secondary-btn';
     removeBtn.textContent = '移除';
     removeBtn.addEventListener('click', () => {
-      currentCart.splice(idx, 1);
+      const i = currentCart.indexOf(item);
+      if (i >= 0) currentCart.splice(i, 1);
       renderProfileCartPage();
       updateProfileCartBar();
     });
@@ -2235,7 +2236,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
   if (msg.clientMessageId) node.dataset.clientMessageId = msg.clientMessageId;
   let userObj = state.currentUser; let finalName = '我';
   if (msg.senderId !== state.currentUser.id) {
-    const friend = state.friends.find(f => f.friend.id === msg.senderId);
+    const friend = state.friends.find(f => f.friend?.id === msg.senderId);
     userObj = friend ? friend.friend : { displayName: '用户' };
     finalName = userObj.remark || userObj.displayName;
   }
@@ -5511,12 +5512,10 @@ function bindAllEvents() {
       _bubbleDragging = false;
     });
   }
-  // Hide floating bubble when call ends
-  const _origStopCall = window.stopCall;
-  window.stopCall = () => {
+  // Hide floating bubble when call ends (use lazy reference since window.stopCall is defined later)
+  window._stopCallWithBubble = () => {
     clearInterval(_callFloatingTimer);
     if ($("callFloatingBubble")) $("callFloatingBubble").classList.add('hidden');
-    _origStopCall();
   };
 
   // ── Search cooldown utility ──
@@ -6360,7 +6359,7 @@ function insertCallRecordMessage(ev, meta = {}){
     // only append into current conversation UI
     if(state.activeConversation?.id !== cid) return;
 
-    const msg = { id: 'call_'+Date.now(), senderId: 'system', type:'system', text, createdAt: new Date().toISOString() };
+    const msg = { id: 'call_'+Date.now(), senderId: 'system', type:'system', text, createdAt: Date.now() };
     state.messages = (state.messages || []).concat([msg]);
     appendMessageToView(msg);
     applyLastOutgoingReadState();
@@ -6389,7 +6388,8 @@ function finalizeCall(options = {}) {
   }
   if (alertText) showModal(alertText);
 }
-window.stopCall = () => { 
+window.stopCall = () => {
+  if (typeof window._stopCallWithBubble === 'function') window._stopCallWithBubble();
   const endedCallId = state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || state.rtc.lastEndedCallId || null;
   if (state.rtc.pc) {
     try { state.rtc.pc.onicecandidate = null; state.rtc.pc.ontrack = null; state.rtc.pc.onconnectionstatechange = null; state.rtc.pc.oniceconnectionstatechange = null; } catch(_) {}
@@ -6699,6 +6699,7 @@ async function connectRealtime() {
 }
 
 window.addEventListener('pagehide', () => {
+  if (typeof stopScanCamera === 'function') stopScanCamera();
   if (!hasActiveCallSession()) return;
   const event = state.rtc.phase === 'connected' ? 'end' : (isRingingPhase() ? 'cancel' : 'end');
   const reason = state.rtc.phase === 'connected' ? 'pagehide' : 'pagehide';
