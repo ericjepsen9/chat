@@ -973,7 +973,7 @@ function renderOrderDetailPage(){
   // Counterparty info
   const counterLabel = role === 'buyer' ? '卖家' : '买家';
   const counterId = role === 'buyer' ? order.sellerId : order.buyerId;
-  const counterName = order.sellerName || order.buyerName || '';
+  const counterName = role === 'buyer' ? (order.sellerName || '') : (order.buyerName || '');
   const partyDiv = document.createElement('div');
   partyDiv.className = 'od-section';
   partyDiv.innerHTML = `<div class="od-row"><span class="od-label">${escapeHTML(counterLabel)}</span><span class="od-value od-link" id="odCounterpartyLink">${escapeHTML(counterName || counterId || '-')}</span></div>`;
@@ -1506,8 +1506,17 @@ function renderProfileCartPage(){
     const priceWrap = document.createElement('div');
     priceWrap.className = 'checkout-price-wrap';
     const priceLabel = document.createElement('span');
-    priceLabel.className = 'checkout-price';
+    priceLabel.className = 'checkout-price checkout-price-editable';
     priceLabel.textContent = formatMoney(Number(item.unitPrice || 0));
+    priceLabel.title = '点击修改价格';
+    priceLabel.addEventListener('click', () => {
+      const raw = prompt('请输入新的单价', String(item.unitPrice || 0));
+      if(raw === null) return;
+      const newPrice = Math.max(0, Number(String(raw).replace(/[^\d.]/g, '')) || 0);
+      item.unitPrice = newPrice;
+      priceLabel.textContent = formatMoney(newPrice);
+      updateTotals();
+    });
     priceWrap.appendChild(priceLabel);
 
     // Quantity controls
@@ -2815,12 +2824,18 @@ function buildBroadcastCardMessage(msg){
   return card;
 }
 
-function openChatOrderDetail(order){
+async function openChatOrderDetail(order){
   if(!order || !order.id) return;
   // Try to find full order from local state for richer details
-  const fullOrder = (state.buyerOrders || []).find(o => o.id === order.id)
-    || (state.sellerOrders || []).find(o => o.id === order.id)
-    || order;
+  let fullOrder = (state.buyerOrders || []).find(o => o.id === order.id)
+    || (state.sellerOrders || []).find(o => o.id === order.id);
+  if(!fullOrder){
+    // Reload orders and try again
+    try{ await Promise.all([loadBuyerOrders(), loadSellerOrders()]); }catch(_){}
+    fullOrder = (state.buyerOrders || []).find(o => o.id === order.id)
+      || (state.sellerOrders || []).find(o => o.id === order.id)
+      || order;
+  }
   const currentUserId = state.currentUser?.id || '';
   const role = currentUserId === fullOrder.buyerId ? 'buyer' : (currentUserId === fullOrder.sellerId ? 'seller' : 'buyer');
   openOrderDetail(fullOrder, role);
