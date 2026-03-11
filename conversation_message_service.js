@@ -54,7 +54,7 @@ function createConversationMessage({
   if (conv.type === 'direct') {
     const peerId = conv.members.find((id) => id !== authUser.id);
     const peerUser = index.usersById.get(peerId);
-    if (authUser.blacklist.includes(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
+    if (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
     if (peerUser?.blacklist?.includes(authUser.id)) return { ok: false, status: 403, error: '消息被对方拒收' };
     if (body.type !== 'card' && body.type !== 'system' && body.type !== 'order_card' && !areFriends(peerId, authUser.id)) {
       return { ok: false, status: 403, error: '对方开启了验证，你还不是他(她)的好友。' };

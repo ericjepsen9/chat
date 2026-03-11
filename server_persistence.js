@@ -83,18 +83,23 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
       persistDirty = false;
       const sqliteStore = getStore();
       const db = getDb();
+      let persistOk = false;
       try {
         if (sqliteStore) {
           sqliteStore.persist(db);
         } else {
           await fs.promises.writeFile(dbFile, JSON.stringify(db, null, 2));
         }
+        persistOk = true;
       } catch (error) {
         reportError('flush_persist', error);
       }
       stats.lastFlushAt = Date.now();
-      appendWal('checkpoint', { at: Date.now() });
-      truncateWalIfLarge();
+      // Only checkpoint and truncate WAL if persist succeeded to avoid data loss
+      if (persistOk) {
+        appendWal('checkpoint', { at: Date.now() });
+        truncateWalIfLarge();
+      }
     } while (persistDirty);
     persistInFlight = false;
   }
@@ -127,7 +132,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
   function getStats() {
     return {
       ...stats,
-      hasRecentError: stats.lastErrorAt > 0,
+      hasRecentError: stats.lastErrorAt > 0 && (Date.now() - stats.lastErrorAt) < 300000,
       persistInFlight,
       persistDirty,
     };

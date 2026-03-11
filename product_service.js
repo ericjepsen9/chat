@@ -44,6 +44,7 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
     return { ok: false, status: 400, error: 'invalid_image_url' };
   }
 
+  if (!Array.isArray(authUser.products)) authUser.products = [];
   authUser.products.unshift({
     id: uid('p'),
     title,
@@ -104,6 +105,12 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
     const stock = normalizeStock(body.stock);
     if (stock <= 0) return { ok: false, status: 400, error: 'invalid_stock' };
     product.stock = stock;
+  }
+  if (body.image !== undefined) {
+    const image = String(body.image || '').trim().slice(0, 512);
+    if (!image) return { ok: false, status: 400, error: 'invalid_image_url' };
+    if (!isValidMediaUrl(image)) return { ok: false, status: 400, error: 'invalid_image_url' };
+    product.image = image;
   }
   if (body.specs !== undefined) {
     product.specs = Array.isArray(body.specs)

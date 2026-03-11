@@ -167,7 +167,7 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
 
-  order.total = Math.max(0, Number(body.total || 0));
+  order.total = Math.max(0, Number(body.total ?? 0));
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;
   order.updatedAt = Date.now();
@@ -228,7 +228,9 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'pending_price_request_exists' };
-  const requestedTotal = Math.max(0, Number(body.total || 0));
+  const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
+  if (versionError) return versionError;
+  const requestedTotal = Math.max(0, Number(body.total ?? 0));
   order.pendingPrice = requestedTotal;
   order.pendingPriceRequestedBy = authUser.id;
   order.updatedAt = Date.now();
@@ -255,7 +257,9 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (!order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'no_pending_price_request' };
   if (order.pendingPriceRequestedBy === authUser.id) return { ok: false, status: 409, error: 'cannot_confirm_own_request' };
-  const confirmedTotal = Math.max(0, Number(order.pendingPrice || order.total || 0));
+  const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
+  if (versionError) return versionError;
+  const confirmedTotal = Math.max(0, Number(order.pendingPrice ?? order.total ?? 0));
   order.total = confirmedTotal;
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;

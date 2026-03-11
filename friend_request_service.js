@@ -15,12 +15,39 @@ function createFriendRequest({
   if (!target || target.id === authUser.id) {
     return { ok: false, status: 404, error: '未找到该用户' };
   }
+  // Check blacklist - blocked users cannot send friend requests
+  const targetBlacklist = Array.isArray(target.blacklist) ? target.blacklist : [];
+  const authBlacklist = Array.isArray(authUser.blacklist) ? authUser.blacklist : [];
+  if (targetBlacklist.includes(authUser.id)) {
+    return { ok: false, status: 403, error: '对方已将你拉黑，无法添加好友' };
+  }
+  if (authBlacklist.includes(target.id)) {
+    return { ok: false, status: 403, error: '你已将对方拉黑，请先解除' };
+  }
   if (areFriends(authUser.id, target.id)) {
     return { ok: false, status: 409, error: 'already_friends' };
   }
   const existingPending = (index.requestsByTarget.get(target.id) || []).find((r) => r.userId === authUser.id && r.status === 'pending');
   if (existingPending) {
     return { ok: false, status: 409, error: 'request_pending' };
+  }
+  // Check for reverse pending request — auto-accept if target already sent request to authUser
+  const reversePending = (index.requestsByTarget.get(authUser.id) || []).find((r) => r.userId === target.id && r.status === 'pending');
+  if (reversePending) {
+    reversePending.status = 'accepted';
+    if (!db.friendships.some(f => f.userId === authUser.id && f.friendId === target.id)) {
+      db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: target.id, group: '我的好友', remark: '' });
+    }
+    if (!db.friendships.some(f => f.userId === target.id && f.friendId === authUser.id)) {
+      db.friendships.push({ id: uid('f'), userId: target.id, friendId: authUser.id, group: '我的好友', remark: '' });
+    }
+    rebuildIndexes();
+    schedulePersist('friend_auto_accept', { requestId: reversePending.id });
+    broadcastToUser(authUser.id, 'friends_updated', {});
+    broadcastToUser(target.id, 'friends_updated', {});
+    broadcastToUser(authUser.id, 'friend_request_updated', {});
+    broadcastToUser(target.id, 'friend_request_updated', {});
+    return { ok: true, status: 200, payload: { ok: true, autoAccepted: true } };
   }
   const request = {
     id: uid('fr'),

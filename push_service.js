@@ -101,6 +101,11 @@ async function pushToUser(userId, payload) {
       });
     });
 
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+
     req.on('error', (err) => {
       console.warn('[push] EMAS push error:', err.message);
       resolve(false);
