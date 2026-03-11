@@ -3659,6 +3659,7 @@ async function decodeScanFromImageFile(file){
       if (value && $('scanIdInput')) {
         $('scanIdInput').value = value;
         $('scanManualPanel')?.classList.remove('hidden');
+        setTimeout(() => { $('scanSubmitBtn')?.click(); }, 100);
         return true;
       }
     }
@@ -3721,6 +3722,7 @@ async function startScanCamera(){
               $('scanManualPanel')?.classList.remove('hidden');
               if ($('scanHintText')) $('scanHintText').textContent = '已识别到二维码';
               stopScanCamera(true);
+              setTimeout(() => { $('scanSubmitBtn')?.click(); }, 100);
               return;
             }
           }
@@ -5114,13 +5116,13 @@ function bindAllEvents() {
   });
   const submitScanRequest = async () => {
       const keyword = ($("scanIdInput")?.value || '').trim(); if (!keyword) return showModal('请输入对方 ChatTrade ID');
-      const greeting = `你好，我是${state.currentUser.displayName}`;
       try {
-        await api('/api/friends/request', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendUsername: keyword, greeting }) });
-        showModal('好友请求已发送');
-        refreshFriendRequestState();
+        const res = await api(`/api/users/search?keyword=${encodeURIComponent(keyword)}`);
+        const user = res.user;
+        if (!user || !user.id) return showModal('未找到该用户');
         if($("scanIdInput")) $("scanIdInput").value = '';
         if($("backBtn")) $("backBtn").click();
+        await window.openUserProfile(user.id, user.displayName);
       } catch(e) { showModal(e.message || '未找到该用户'); }
   };
   on("toggleManualScanBtn", "click", () => {
