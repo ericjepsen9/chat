@@ -64,7 +64,7 @@ function buildOrderCardPayload(order, extras = {}) {
   };
 }
 
-function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll }) {
+function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll, ordersById }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
   if (isUserBlockedByCounterparty(authUser, seller)) return { ok: false, status: 403, error: 'trade_blocked' };
@@ -139,6 +139,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     priceAdjustmentLocked: false,
   };
   db.orders.unshift(order);
+  if (ordersById) ordersById.set(order.id, order);
 
   const conv = getOrCreateDirectConversation(authUser.id, seller.id);
   addTradeMessage(conv.id, {
@@ -156,8 +157,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   return { ok: true, status: 201, payload: { order, deduplicated: false } };
 }
 
-function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
-  const order = (db.orders || []).find((item) => item.id === orderId);
+function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
+  const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
   if (!actor.ok) return actor;
@@ -187,8 +188,8 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   return { ok: true, status: 200, payload: { order } };
 }
 
-function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
-  const order = (db.orders || []).find((item) => item.id === orderId);
+function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
+  const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: false });
   if (!actor.ok) return actor;
@@ -219,8 +220,8 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
 }
 
 
-function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
-  const order = (db.orders || []).find((item) => item.id === orderId);
+function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
+  const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: false });
   if (!actor.ok) return actor;
@@ -245,8 +246,8 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   return { ok: true, status: 200, payload: { order } };
 }
 
-function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist }) {
-  const order = (db.orders || []).find((item) => item.id === orderId);
+function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
+  const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
   if (!actor.ok) return actor;
@@ -276,8 +277,8 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
 }
 
 
-function deleteOrder({ authUser, orderId, db, usersById, schedulePersist }) {
-  const order = (db.orders || []).find((item) => item.id === orderId);
+function deleteOrder({ authUser, orderId, db, usersById, schedulePersist, ordersById }) {
+  const order = (ordersById && ordersById.get(orderId)) || (db.orders || []).find((item) => item.id === orderId);
   if (!order) return { ok: false, status: 404, error: 'not_found' };
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: true, allowSeller: true });
   if (!actor.ok) return actor;

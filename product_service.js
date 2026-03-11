@@ -102,7 +102,7 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
   }
   if (body.stock !== undefined) {
     const stock = normalizeStock(body.stock);
-    if (stock < 0) return { ok: false, status: 400, error: 'invalid_stock' };
+    if (stock <= 0) return { ok: false, status: 400, error: 'invalid_stock' };
     product.stock = stock;
   }
   if (body.specs !== undefined) {

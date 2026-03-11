@@ -117,7 +117,7 @@ function withButtonLock(btn, asyncFn, loadingText) {
   const origText = btn.textContent;
   btn.disabled = true;
   if (loadingText) btn.textContent = loadingText;
-  Promise.resolve(asyncFn()).catch(() => {}).finally(() => {
+  Promise.resolve(asyncFn()).catch((e) => { showToast(e?.message || '操作失败'); }).finally(() => {
     btn.disabled = false;
     if (loadingText) btn.textContent = origText;
   });
@@ -2215,7 +2215,8 @@ function upsertMessage(msg) {
   let lo = 0, hi = state.messages.length;
   while (lo < hi) { const mid = (lo + hi) >>> 1; if ((state.messages[mid].createdAt || 0) <= ts) lo = mid + 1; else hi = mid; }
   state.messages.splice(lo, 0, msg);
-  return { action: 'append', index: lo };
+  // Only return 'append' if inserted at the end; otherwise 'insert' triggers full re-render
+  return { action: lo === state.messages.length - 1 ? 'append' : 'insert', index: lo };
 }
 function buildMessageChunk(msg, prevCreatedAt = 0) {
   const fragment = document.createDocumentFragment();
@@ -2563,7 +2564,9 @@ function openChatOrderDetail(order){
 async function reloadActiveConversationMessages(){
   try{
     if(!state.activeConversation?.id) return;
-    const data = await api(`/api/conversations/${state.activeConversation.id}/messages`);
+    const convId = state.activeConversation.id;
+    const data = await api(`/api/conversations/${convId}/messages`);
+    if (state.activeConversation?.id !== convId) return; // conversation changed during fetch
     state.messages = data.messages || [];
     state.peerLastReadAt = Number((data && data.peerLastReadAt) || state.peerLastReadAt || 0);
     renderMessages();
@@ -5324,10 +5327,12 @@ function bindAllEvents() {
           state.mediaRecorder.start();
       } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; showModal("无录音权限"); }
   });
-  on("pttBtn", "touchend", (e) => {
-      e.preventDefault(); if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
+  const stopPttRecording = () => {
+      if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
       if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') { state.mediaRecorder.stop(); state.mediaRecorder.stream.getTracks().forEach(t => t.stop()); }
-  });
+  };
+  on("pttBtn", "touchend", (e) => { e.preventDefault(); stopPttRecording(); });
+  on("pttBtn", "touchcancel", (e) => { e.preventDefault(); stopPttRecording(); });
 
   on("btnTakePhoto", "click", () => { if($("cameraInput")) $("cameraInput").click(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
   on("btnSendImage", "click", () => { if($("imageInput")) $("imageInput").click(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
@@ -6100,8 +6105,10 @@ function renderMessages(preserveScroll = false) {
 async function fetchMessages(before = 0) {
   if (state.isLoadingMessages || !state.activeConversation) return;
   state.isLoadingMessages = true;
+  const convId = state.activeConversation.id;
   try {
-    const data = await api(`/api/conversations/${encodeURIComponent(state.activeConversation.id)}/messages?userId=${encodeURIComponent(state.currentUser.id)}&limit=20&before=${encodeURIComponent(before)}`);
+    const data = await api(`/api/conversations/${encodeURIComponent(convId)}/messages?userId=${encodeURIComponent(state.currentUser.id)}&limit=20&before=${encodeURIComponent(before)}`);
+    if (state.activeConversation?.id !== convId) return; // conversation changed during fetch
     state.hasMoreMessages = data.hasMore;
     if (before === 0) {
       state.messages = data.messages;
@@ -6524,7 +6531,8 @@ async function connectRealtime() {
     if(state.activeConversation && state.activeConversation.id === data.conversationId && data.message) {
       const result = upsertMessage(data.message);
       if (result.action === 'append') appendMessageToView(data.message);
-      else if (!replaceMessageInView(data.message)) renderMessages();
+      else if (result.action === 'replace') { if (!replaceMessageInView(data.message)) renderMessages(); }
+      else renderMessages(); // 'insert' in middle — full re-render needed
   applyLastOutgoingReadState();
       state.oldestMessageTime = state.messages[0]?.createdAt || 0;
       syncActiveConversationListMeta();
@@ -6831,7 +6839,7 @@ function renderConversationListFromState() {
     muted: false,
     pinned: true,
     peerAvatarUrl: '',
-    lastMessageAt: Math.max(...tradeOrders.map((o) => Number(o.updatedAt || o.createdAt || 0)), Date.now()),
+    lastMessageAt: tradeOrders.reduce((max, o) => Math.max(max, Number(o.updatedAt || o.createdAt || 0)), Date.now()),
     synthetic: true,
     syntheticType: 'trade',
   } : null;

@@ -241,6 +241,8 @@ function defaultDb() {
     messages: [
       { id: uid('m'), conversationId: conv, senderId: bob, type: 'text', text: '你好，这是测试消息。', deletedBy: [], createdAt: now },
     ],
+    orders: [],
+    systemMessages: [],
   };
 }
 
@@ -295,6 +297,7 @@ const index = {
   friendshipsByUser: new Map(),
   friendshipByPair: new Map(),
   friendViewsByUser: new Map(),
+  ordersById: new Map(),
   directConvBasesByUser: new Map(),
   requestsByTarget: new Map(),
   requestViewsByTarget: new Map(),
@@ -458,6 +461,7 @@ function rebuildIndexes() {
   index.requestsByTarget.clear();
   index.requestViewsByTarget.clear();
   index.blacklistViewsByUser.clear();
+  index.ordersById.clear();
   index.messageByClientKey.clear();
   index.mallItems = [];
   for (const user of db.users) {
@@ -521,6 +525,7 @@ function rebuildIndexes() {
     if (!('pendingPrice' in order)) order.pendingPrice = null;
     if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
     if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
+    index.ordersById.set(order.id, order);
   }
 
   for (const rel of db.friendships) {
@@ -1461,6 +1466,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         rebuildMallIndex,
         broadcastAll,
+        ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1479,6 +1485,7 @@ const server = http.createServer(async (req, res) => {
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
+        ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1497,6 +1504,7 @@ const server = http.createServer(async (req, res) => {
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
+        ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1515,6 +1523,7 @@ const server = http.createServer(async (req, res) => {
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
+        ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1533,6 +1542,7 @@ const server = http.createServer(async (req, res) => {
         getOrCreateDirectConversation,
         addTradeMessage,
         schedulePersist,
+        ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1548,6 +1558,7 @@ const server = http.createServer(async (req, res) => {
         db,
         usersById: index.usersById,
         schedulePersist,
+        ordersById: index.ordersById,
       });
       if (!result.ok) return sendJson(res, result.status, { error: result.error });
       return sendJson(res, result.status, result.payload);
@@ -1981,7 +1992,7 @@ const server = http.createServer(async (req, res) => {
               senderId: msg.senderId,
               text: msg.text,
               createdAt: msg.createdAt,
-              peerName: peer ? (peer.nickname || peer.username) : (conv.title || ''),
+              peerName: peer ? (peer.displayName || peer.username) : (conv.title || ''),
               peerAvatarUrl: peer ? peer.avatarUrl : '',
               peerId: peerId || '',
             });
