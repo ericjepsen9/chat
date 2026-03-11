@@ -201,7 +201,7 @@ const state = {
   currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], 
   friends: [], friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
   profileStoreItems: [], profileCartBySeller: {}, selectedProfileProduct: null, selectedProfileSpec: '', profileOrders: [], currentCartSellerId: '',
-  profileStoreExpanded: false,
+  profileStoreExpanded: false, profileStoreCategoryFilter: '',
   systemMessages: [],
   adminDashboard: null,
   paymentCodeDraft: { wechat:'', alipay:'', cloudpay:'' },
@@ -933,6 +933,12 @@ function openProductDetail(item, fromSeller = false){
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
   if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller);
   if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller);
+  // Show seller management buttons on detail page
+  if($("productDetailSellerActions")) $("productDetailSellerActions").classList.toggle('hidden', !fromSeller);
+  if(fromSeller && $("productDetailListedBtn")) {
+    $("productDetailListedBtn").textContent = item.listed === false ? '上架' : '下架';
+    $("productDetailListedBtn").className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
+  }
   window.openSecondaryPage('productDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
@@ -1040,6 +1046,7 @@ function saveBroadcastDraft(){
 async function loadProfileStore(userId){
   if(!userId || !state.currentUser) return;
   state.profileStoreExpanded = false;
+  state.profileStoreCategoryFilter = '';
   try{
     const data = await api(`/api/users/${userId}/store`);
     state.profileStoreItems = data.items || [];
@@ -1114,7 +1121,36 @@ function renderProfileStore(){
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
-  const allItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  // Build category tabs
+  const catTabsEl = $("profileStoreCategoryTabs");
+  if (catTabsEl) {
+    const cats = new Set();
+    sortedItems.forEach(item => {
+      if (item.category) item.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
+    });
+    catTabsEl.replaceChildren();
+    if (cats.size > 0) {
+      const allTab = document.createElement('button');
+      allTab.type = 'button';
+      allTab.className = 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : '');
+      allTab.textContent = '全部';
+      allTab.addEventListener('click', () => { state.profileStoreCategoryFilter = ''; renderProfileStore(); });
+      catTabsEl.appendChild(allTab);
+      cats.forEach(cat => {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : '');
+        tab.textContent = cat;
+        tab.addEventListener('click', () => { state.profileStoreCategoryFilter = cat; renderProfileStore(); });
+        catTabsEl.appendChild(tab);
+      });
+    }
+  }
+  // Filter by category
+  const allItems = state.profileStoreCategoryFilter
+    ? sortedItems.filter(item => item.category && item.category.split(/[\/,、]/).map(s => s.trim()).some(c => c === state.profileStoreCategoryFilter))
+    : sortedItems;
   if(title) title.textContent = `在售商品 ${allItems.length}`;
   if(!allItems.length){
     const empty = document.createElement('div');
@@ -4665,9 +4701,14 @@ function bindAllEvents() {
       try {
           const payload = { userId: state.currentUser.id, title, category, desc, stock, specs, price: parsedPrice, image: state.tempProductImage };
           if (state.publishEditingProductId) {
-            await api('/api/products/update', { method: 'POST', body: JSON.stringify({ ...payload, productId: state.publishEditingProductId }) });
-            setPublishProductHint('商品已更新，展示页已同步', 'success');
-            showModal("商品已更新！");
+            const updateResult = await api('/api/products/update', { method: 'POST', body: JSON.stringify({ ...payload, productId: state.publishEditingProductId }) });
+            if (updateResult.autoDelisted) {
+              setPublishProductHint('价格或图片变更，商品已自动下架，请确认后手动上架', 'warning');
+              showModal("商品已更新！因价格或图片变更，商品已自动下架，请在商品管理中重新上架。");
+            } else {
+              setPublishProductHint('商品已更新，展示页已同步', 'success');
+              showModal("商品已更新！");
+            }
           } else {
             await api('/api/products', { method: 'POST', body: JSON.stringify(payload) });
             setPublishProductHint('发布成功，商品已展示在个人主页', 'success');
@@ -4847,6 +4888,37 @@ function bindAllEvents() {
     await loadSellerProductsManage();
     window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
   });
+
+  // Seller action buttons on product detail page
+  on("productDetailEditBtn", "click", () => {
+    const item = state.selectedProductDetail;
+    if (!item) return;
+    openPublishProductPage('productDetailPage', item);
+  });
+  on("productDetailStockBtn", "click", () => {
+    const item = state.selectedProductDetail;
+    if (!item) return;
+    window.updateSellerProductStock(item.id, item.stock || 0);
+  });
+  on("productDetailListedBtn", "click", async () => {
+    const item = state.selectedProductDetail;
+    if (!item) return;
+    const nextListed = item.listed === false;
+    await window.toggleSellerProductListed(item.id, nextListed);
+    // Update the in-memory detail so the button reflects the new state
+    state.selectedProductDetail.listed = nextListed;
+    if ($("productDetailListedBtn")) {
+      $("productDetailListedBtn").textContent = nextListed ? '下架' : '上架';
+      $("productDetailListedBtn").className = 'sp-action-btn' + (!nextListed ? ' accent' : '');
+    }
+  });
+  on("productDetailDeleteBtn", "click", async () => {
+    const item = state.selectedProductDetail;
+    if (!item) return;
+    await window.deleteMyProduct(item.id);
+    if ($("backBtn")) $("backBtn").click();
+  });
+
   function renderSellerPaymentDraft(){
     const draft = state.paymentCodeDraft || { wechat:'', alipay:'', cloudpay:'' };
     setImagePreview($("sellerWxPayPreview"), draft.wechat, '+');
@@ -5847,7 +5919,7 @@ async function loadMall() {
     else if (state.mallTab === 'latest') qs += '&sort=latest';
     else qs += '&sort=nearby';
     const data = await api('/api/mall?' + qs);
-    const products = data.products || [];
+    const products = data.items || data.products || [];
     const list = $("mallList"); if (!list) return;
     const nextSignature = buildMallSignature(products);
     const nextItemSignatures = {};
@@ -5898,7 +5970,7 @@ async function doMallSearchPage() {
     if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
     qs += '&sort=nearby';
     const data = await api('/api/mall?' + qs);
-    const products = data.products || [];
+    const products = data.items || data.products || [];
     if (!products.length) {
       el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关商品</div>';
       return;

@@ -89,6 +89,10 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
   const product = (authUser.products || []).find((p) => p.id === productId);
   if (!product) return { ok: false, status: 404, error: 'not_found' };
 
+  // Track whether significant fields changed (price/image) to auto-delist
+  let significantChange = false;
+  const wasListed = product.listed !== false;
+
   if (body.title !== undefined) {
     const title = normalizeText(body.title, 80);
     if (!title) return { ok: false, status: 400, error: 'invalid_title' };
@@ -99,6 +103,7 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
   if (body.price !== undefined) {
     const price = normalizeText(body.price, 24);
     if (!price) return { ok: false, status: 400, error: 'invalid_price' };
+    if (product.price !== price) significantChange = true;
     product.price = price;
   }
   if (body.stock !== undefined) {
@@ -110,6 +115,7 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
     const image = String(body.image || '').trim().slice(0, 512);
     if (!image) return { ok: false, status: 400, error: 'invalid_image_url' };
     if (!isValidMediaUrl(image)) return { ok: false, status: 400, error: 'invalid_image_url' };
+    if (product.image !== image) significantChange = true;
     product.image = image;
   }
   if (body.specs !== undefined) {
@@ -121,10 +127,17 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
     product.listed = normalizeListed(body.listed, product.listed !== false);
   }
 
+  // Auto-delist on significant changes (price/image) unless listing status was explicitly set
+  let autoDelisted = false;
+  if (significantChange && wasListed && body.listed === undefined) {
+    product.listed = false;
+    autoDelisted = true;
+  }
+
   rebuildMallIndex();
   schedulePersist('product_update', { userId: authUser.id, productId: product.id });
   broadcastAll('mall_updated', {});
-  return { ok: true, status: 200, payload: { ok: true, product } };
+  return { ok: true, status: 200, payload: { ok: true, product, autoDelisted } };
 }
 
 module.exports = {

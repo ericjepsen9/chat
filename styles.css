@@ -1119,6 +1119,32 @@ input, textarea { font-size: var(--font-body); }
   font-weight:600;
 }
 .store-toolbar-link.hidden{ display:none; }
+.profile-store-category-tabs{
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  padding:0 0 10px;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+.profile-store-category-tabs::-webkit-scrollbar{ display:none; }
+.profile-store-category-tabs:empty{ display:none; }
+.profile-store-cat-tab{
+  flex-shrink:0;
+  padding:4px 14px;
+  border-radius:16px;
+  border:1px solid #e0e0e0;
+  background:#fff;
+  font-size:13px;
+  color:#666;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.profile-store-cat-tab.active{
+  background:#07c160;
+  color:#fff;
+  border-color:#07c160;
+}
 .profile-store-list{
   display:flex;
   flex-direction:column;
@@ -1560,6 +1586,18 @@ input, textarea { font-size: var(--font-body); }
   flex:0.6;
 }
 .pd-btn-cart:active,.pd-btn-buy:active,.pd-btn-seller:active{ opacity:.8; }
+
+.pd-seller-actions{
+  display:flex;
+  gap:8px;
+  padding:12px 16px;
+  background:#f7f7f7;
+  border-radius:10px;
+  margin:0 16px 8px;
+}
+.pd-seller-actions .sp-action-btn{
+  flex:1;
+}
 
 /* ===== Picker Pages (picker-*) ===== */
 .picker-page{
