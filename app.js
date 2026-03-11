@@ -3390,7 +3390,7 @@ window.playAudio = (url, el) => {
   }
 };
 
-window.copyText = (enc) => { navigator.clipboard ? navigator.clipboard.writeText(decodeURIComponent(enc)) : showModal('已复制'); };
+window.copyText = (enc) => { if (navigator.clipboard) { navigator.clipboard.writeText(decodeURIComponent(enc)).then(() => showToast('已复制')).catch(() => showToast('复制失败')); } else { showToast('浏览器不支持复制'); } };
 window.deleteLocalMsg = async (id) => {
   if (!state.activeConversation?.id) return;
   const conversationId = state.activeConversation.id;
@@ -3411,6 +3411,7 @@ window.deleteLocalMsg = async (id) => {
   }
 };
 window.recallMsg = async (id) => {
+  if (!state.activeConversation?.id) return;
   try {
     await api(`/api/conversations/${state.activeConversation.id}/messages/${id}/recall`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
     if (!applyRecalledMessageLocally(id, state.currentUser.id)) renderMessages();

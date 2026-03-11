@@ -15,6 +15,7 @@ function updateFriendGroup({ authUser, friendId, groupRaw, friendshipByPair, nor
   const rel = friendshipByPair.get(`${authUser.id}:${friendId}`);
   if (!rel) return { ok: false, status: 404, error: 'not_found' };
   const nextGroup = normalizeSingleGroupName(groupRaw) || defaultGroup;
+  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
   if (!authUser.customGroups.includes(nextGroup)) return { ok: false, status: 400, error: 'invalid_group' };
   rel.group = nextGroup;
   rebuildFriendViewsIndex();

@@ -2,7 +2,8 @@ function createGroup({ authUser, rawName, defaultGroup, normalizeSingleGroupName
   const groupName = normalizeSingleGroupName(rawName);
   if (!groupName) return { ok: false, status: 400, error: 'invalid_group_name' };
   if (groupName === defaultGroup) return { ok: false, status: 400, error: 'reserved_group' };
-  const nextGroups = normalizeUserCustomGroups([...(authUser.customGroups || []), groupName]);
+  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
+  const nextGroups = normalizeUserCustomGroups([...authUser.customGroups, groupName]);
   if (nextGroups.length === authUser.customGroups.length) return { ok: false, status: 400, error: 'group_exists' };
   authUser.customGroups = nextGroups;
   rebuildFriendViewsIndex();
@@ -17,6 +18,7 @@ function renameGroup({ authUser, groupNameRaw, newNameRaw, defaultGroup, normali
   const newName = normalizeSingleGroupName(newNameRaw);
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_rename_default_group' };
   if (!newName || newName === defaultGroup) return { ok: false, status: 400, error: 'invalid_group_name' };
+  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
   if (!authUser.customGroups.includes(groupName)) return { ok: false, status: 404, error: 'not_found' };
   if (authUser.customGroups.includes(newName) && newName !== groupName) return { ok: false, status: 400, error: 'group_exists' };
   authUser.customGroups = normalizeUserCustomGroups((authUser.customGroups || []).map((name) => name === groupName ? newName : name));
@@ -34,6 +36,7 @@ function reorderGroup({ authUser, groupNameRaw, offsetRaw, defaultGroup, normali
   const groupName = normalizeSingleGroupName(groupNameRaw);
   const offset = Number(offsetRaw || 0);
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_move_default_group' };
+  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
   const groups = normalizeUserCustomGroups(authUser.customGroups);
   const fromIndex = groups.indexOf(groupName);
   if (fromIndex < 0) return { ok: false, status: 404, error: 'not_found' };
@@ -51,6 +54,7 @@ function reorderGroup({ authUser, groupNameRaw, offsetRaw, defaultGroup, normali
 function deleteGroup({ authUser, groupNameRaw, defaultGroup, normalizeSingleGroupName, normalizeUserCustomGroups, friendshipsByUser, rebuildFriendViewsIndex, rebuildConversationBaseIndex, schedulePersist, broadcastToUser }) {
   const groupName = normalizeSingleGroupName(groupNameRaw);
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_delete_default_group' };
+  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
   if (!authUser.customGroups.includes(groupName)) return { ok: false, status: 404, error: 'not_found' };
   authUser.customGroups = normalizeUserCustomGroups((authUser.customGroups || []).filter((name) => name !== groupName));
   for (const rel of friendshipsByUser.get(authUser.id) || []) {
