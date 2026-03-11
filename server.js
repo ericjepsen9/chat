@@ -320,10 +320,10 @@ function normalizeUserCustomGroups(groups) {
   const seen = new Set();
   const source = Array.isArray(groups) ? groups : [];
   for (const rawName of source) {
-    const name = String(rawName || '').trim();
+    const name = String(rawName || '').trim().slice(0, MAX_GROUP_NAME_LEN);
     if (!name || seen.has(name)) continue;
     seen.add(name);
-    ordered.push(name.slice(0, MAX_GROUP_NAME_LEN));
+    ordered.push(name);
   }
   if (!seen.has(DEFAULT_GROUP)) ordered.unshift(DEFAULT_GROUP);
   else {
@@ -594,7 +594,7 @@ function sendPushFallback(userId, event, payload) {
     } else if (event === 'message_created' && payload.message) {
       const msg = payload.message;
       if (msg.type !== 'system') {
-        const sender = db.users.find(u => u.id === msg.senderId);
+        const sender = index.usersById.get(msg.senderId);
         const senderName = sender?.displayName || '新消息';
         const content = msg.text || (msg.type === 'image' ? '[图片]' : msg.type === 'audio' ? '[语音]' : '[消息]');
         pushNewMessage(userId, senderName, content, payload.conversationId).catch(() => {});
@@ -1009,17 +1009,18 @@ function safeStaticPath(pathname) {
   return fullPath;
 }
 
+const allowOrigins = new Set([
+  `http://127.0.0.1:${PORT}`,
+  `http://localhost:${PORT}`,
+  'http://127.0.0.1:4173',
+  'http://localhost:4173',
+  'null',
+]);
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   const { pathname, searchParams } = requestUrl;
   const origin = req.headers.origin || '';
-  const allowOrigins = new Set([
-    `http://127.0.0.1:${PORT}`,
-    `http://localhost:${PORT}`,
-    'http://127.0.0.1:4173',
-    'http://localhost:4173',
-    'null',
-  ]);
   if (!origin || allowOrigins.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || `http://127.0.0.1:${PORT}`);
     res.setHeader('Vary', 'Origin');
@@ -1339,7 +1340,6 @@ const server = http.createServer(async (req, res) => {
       sendSse(res, 'ready', {});
       addSseClient(authUser.id, res);
       req.on('close', () => removeSseClient(authUser.id, res));
-      req.on('aborted', () => removeSseClient(authUser.id, res));
       res.on('close', () => removeSseClient(authUser.id, res));
       return;
     }
