@@ -188,13 +188,13 @@
 
     <div id="appScreen" class="mobile-shell hidden">
       <!-- Left sidebar avatar bar -->
-      <aside id="sidebarPanel" class="sidebar-panel sidebar-expanded">
+      <aside id="sidebarPanel" class="sidebar-panel sidebar-expanded sidebar-tab-hidden">
         <div id="sidebarList" class="sidebar-list"></div>
       </aside>
 
       <div class="app-main-col">
       <header class="topbar">
-        <div class="top-left"><button id="backBtn" class="icon-btn hidden"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg></button><button id="sidebarToggleBtn" type="button" class="icon-btn" title="切换侧栏模式"><svg width="20" height="20" viewBox="0 0 16 16"><path fill="currentColor" d="M2 3h12v1.5H2zm0 4.25h12v1.5H2zm0 4.25h12v1.5H2z"/></svg></button></div>
+        <div class="top-left"><button id="backBtn" class="icon-btn hidden"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg></button><button id="sidebarToggleBtn" type="button" class="icon-btn hidden" title="切换侧栏模式"><svg width="20" height="20" viewBox="0 0 16 16"><path fill="currentColor" d="M2 3h12v1.5H2zm0 4.25h12v1.5H2zm0 4.25h12v1.5H2z"/></svg></button></div>
         <div class="topbar-title"><h2 id="chatTitle">微信</h2><p id="chatSubtitle"></p></div>
         <div class="top-right">
           <button id="homeMoreBtn" class="icon-btn"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
@@ -539,8 +539,8 @@
 
         <section id="messageSettingsPage" class="chat-list-view hidden">
           <div id="chatSettingsPeerProfile" class="chat-item" style="padding: 24px 16px; border-bottom: 8px solid #f2f2f6; cursor: pointer;"></div>
-          <button id="muteSettingBtn" class="chat-item" style="justify-content:center;">切换消息免打扰</button>
-          <button id="pinConversationBtn" class="chat-item" style="justify-content:center;">切换置顶聊天</button>
+          <button id="muteSettingBtn" class="chat-item" style="justify-content:center;">消息免打扰</button>
+          <button id="pinConversationBtn" class="chat-item" style="justify-content:center;">置顶聊天</button>
           <button id="btnSettingsMoveGroup" class="chat-item" style="justify-content:center;">移动好友分组</button>
           <button id="blacklistBtn" class="chat-item" style="border-top: 8px solid #f2f2f6; justify-content:center; color:#ff9500;">将此人加入黑名单</button>
           <button id="clearChatBtn" class="chat-item" style="color: #ff3b30; justify-content:center;">清空聊天记录</button>

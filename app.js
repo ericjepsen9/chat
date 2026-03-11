@@ -3025,11 +3025,18 @@ function buildConversationRow(conv) {
   const content = document.createElement('div');
   content.className = 'chat-swipe-content';
   content.appendChild(btn);
+  const actionsWrap = document.createElement('div');
+  actionsWrap.className = 'chat-swipe-actions';
+  const pinBtn = document.createElement('button');
+  pinBtn.type = 'button';
+  pinBtn.className = 'chat-swipe-pin-btn';
+  pinBtn.textContent = isPinned ? '取消置顶' : '置顶';
   const deleteBtn = document.createElement('button');
   deleteBtn.type = 'button';
   deleteBtn.className = 'chat-swipe-delete-btn';
   deleteBtn.textContent = '删除';
-  wrap.append(content, deleteBtn);
+  actionsWrap.append(pinBtn, deleteBtn);
+  wrap.append(content, actionsWrap);
 
   attachConversationSwipeDelete(wrap, async () => {
     try {
@@ -3051,6 +3058,26 @@ function buildConversationRow(conv) {
       showModal(err?.message || '删除失败');
     }
   });
+
+  const swipePinBtn = wrap.querySelector('.chat-swipe-pin-btn');
+  if (swipePinBtn) {
+    swipePinBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      wrap.classList.remove('revealed');
+      try {
+        const res = await api(`/api/conversations/${conv.id}/pin`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
+        const target = state.conversations.find((item) => item.id === conv.id);
+        const nextPinned = Boolean(res?.pinned);
+        if (target) target.pinned = nextPinned;
+        if (state.activeConversation?.id === conv.id) state.activeConversation.pinned = nextPinned;
+        showModal(nextPinned ? '已置顶会话' : '已取消置顶');
+        sortConversationsInPlace();
+        renderConversationListFromState();
+      } catch (err) {
+        showModal(err?.message || '操作失败');
+      }
+    });
+  }
 
   return wrap;
 }
@@ -3272,7 +3299,7 @@ window.openSecondaryPage = (page, backTo = 'home') => {
     refreshFriendRequestState({ forceList: true });
   }
   else if (page === 'profileDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '详细资料'; if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove('hidden'); }
-  else if (page === 'messageSettingsPage') { if($("chatTitle")) $("chatTitle").textContent = '聊天信息'; }
+  else if (page === 'messageSettingsPage') { if($("chatTitle")) $("chatTitle").textContent = '聊天信息'; if($("pinConversationBtn")) $("pinConversationBtn").textContent = (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天'; if($("muteSettingBtn")) $("muteSettingBtn").textContent = (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰'; }
   else if (page === 'addFriendPage') { if($("chatTitle")) $("chatTitle").textContent = '添加朋友'; }
   else if (page === 'scanPage') {
     if($("chatTitle")) $("chatTitle").textContent = '扫一扫';
@@ -4964,6 +4991,7 @@ function bindAllEvents() {
     const res = await toggleAction('mute');
     if (!res) return;
     showModal(res.muted ? '已开启免打扰' : '已关闭免打扰');
+    if($("muteSettingBtn")) $("muteSettingBtn").textContent = res.muted ? '取消免打扰' : '消息免打扰';
     sortConversationsInPlace();
     renderConversationListFromState();
     loadConversations();
@@ -4972,6 +5000,7 @@ function bindAllEvents() {
     const res = await toggleAction('pin');
     if (!res) return;
     showModal(res.pinned ? '已置顶会话' : '已取消置顶');
+    if($("pinConversationBtn")) $("pinConversationBtn").textContent = res.pinned ? '取消置顶' : '置顶聊天';
     sortConversationsInPlace();
     renderConversationListFromState();
     loadConversations();
