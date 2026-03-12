@@ -88,7 +88,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
         if (sqliteStore) {
           sqliteStore.persist(db);
         } else {
-          await fs.promises.writeFile(dbFile, JSON.stringify(db, null, 2));
+          await fs.promises.writeFile(dbFile, JSON.stringify(db));
         }
         persistOk = true;
       } catch (error) {

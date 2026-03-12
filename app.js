@@ -180,8 +180,14 @@ async function syncProductViewsIfVisible(){
   if (tasks.length) await Promise.all(tasks);
 }
 
+let _loadSellerProductsPromise = null;
 async function loadSellerProductsManage(){
   if(!state.currentUser?.id) return;
+  if (_loadSellerProductsPromise) return _loadSellerProductsPromise;
+  _loadSellerProductsPromise = _loadSellerProductsImpl();
+  try { return await _loadSellerProductsPromise; } finally { _loadSellerProductsPromise = null; }
+}
+async function _loadSellerProductsImpl(){
   try {
     const data = await api(`/api/users/${state.currentUser.id}/store`);
     state.sellerProducts = Array.isArray(data.items) ? data.items : [];
@@ -412,11 +418,15 @@ function buildOrderCard(order, role){
   return card;
 }
 
+let _buyerOrdersSig = '';
 function renderBuyerOrdersManage(){
   const list = $("buyerOrdersManageList");
   if(!list) return;
   syncOrderFilterInputs('buyer');
   const rows = (state.buyerOrders || []).filter((o) => orderMatchesFilters(o, 'buyer'));
+  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.buyerOrderSearch + '|' + state.buyerOrderFrom + '|' + state.buyerOrderTo;
+  if (sig === _buyerOrdersSig) return;
+  _buyerOrdersSig = sig;
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
@@ -430,11 +440,15 @@ function renderBuyerOrdersManage(){
 }
 
 
+let _sellerOrdersSig = '';
 function renderSellerOrdersManage(){
   const list = $("sellerOrdersList");
   if(!list) return;
   syncOrderFilterInputs('seller');
   const rows = (state.sellerOrders || []).filter((o) => orderMatchesFilters(o, 'seller'));
+  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.sellerOrderSearch + '|' + state.sellerOrderFrom + '|' + state.sellerOrderTo;
+  if (sig === _sellerOrdersSig) return;
+  _sellerOrdersSig = sig;
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
@@ -509,12 +523,16 @@ function getFilteredSellerProducts(){
   return visible;
 }
 
+let _sellerProductsSig = '';
 function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
   populateSellerCategoryFilter();
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
+  const sig = products.map(p => p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||'')).join(';') + '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
+  if (sig === _sellerProductsSig) return;
+  _sellerProductsSig = sig;
   if(!products.length){
     const empty = document.createElement('div');
     empty.className = 'order-empty-state';
@@ -806,8 +824,14 @@ function saveBroadcastDraft(){
   window.openSecondaryPage('broadcastManagePage', state.secondaryReturn || 'profile');
 }
 
+let _loadProfileStorePromise = null;
 async function loadProfileStore(userId){
   if(!userId || !state.currentUser) return;
+  if (_loadProfileStorePromise) return _loadProfileStorePromise;
+  _loadProfileStorePromise = _loadProfileStoreImpl(userId);
+  try { return await _loadProfileStorePromise; } finally { _loadProfileStorePromise = null; }
+}
+async function _loadProfileStoreImpl(userId){
   state.profileStoreExpanded = false;
   state.profileStoreCategoryFilter = '';
   try{
@@ -2589,7 +2613,7 @@ function refreshMessageReadReceipts() {
 
 function syncActiveConversationListMeta() {
   if (!state.activeConversation) return;
-  const conv = state.conversations.find((item) => item.id === state.activeConversation.id);
+  const conv = state.conversationsById?.get(state.activeConversation.id);
   if (!conv) return;
   const lastMsg = state.messages.length ? state.messages[state.messages.length - 1] : null;
   const preview = summarizeMessagePreview(lastMsg);
@@ -2926,7 +2950,7 @@ function buildConversationRow(conv) {
     try {
       await api(`/api/conversations/${conv.id}/clear`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
       const now = Date.now();
-      const target = state.conversations.find((item) => item.id === conv.id);
+      const target = state.conversationsById?.get(conv.id);
       if (target) {
         target.clearedAt = now;
         target.preview = '';
@@ -2950,7 +2974,7 @@ function buildConversationRow(conv) {
       wrap.classList.remove('revealed');
       try {
         const res = await api(`/api/conversations/${conv.id}/pin`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
-        const target = state.conversations.find((item) => item.id === conv.id);
+        const target = state.conversationsById?.get(conv.id);
         const nextPinned = Boolean(res?.pinned);
         if (target) target.pinned = nextPinned;
         if (state.activeConversation?.id === conv.id) state.activeConversation.pinned = nextPinned;
@@ -3637,7 +3661,7 @@ function stopScanCamera(keepVideoHidden = false){
 
 window.openConversation = async (id, options = {}) => {
   const { skipFetch = false } = options;
-  const conv = state.conversations.find(c => c.id === id);
+  const conv = state.conversationsById?.get(id);
   state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
   state.peerLastReadAt = state.activeConversation.peerLastReadAt; 
   if (conv) {
@@ -4669,7 +4693,7 @@ function bindProfileEvents() {
           if($("backBtn")) $("backBtn").classList.remove('hidden');
           if($("chatView")) $("chatView").classList.remove('hidden');
           if($("composerPanel")) $("composerPanel").classList.remove('hidden');
-          if($("chatTitle")) $("chatTitle").textContent = state.conversations.find((c) => c.id === state.activeConversation.id)?.title || '会话';
+          if($("chatTitle")) $("chatTitle").textContent = state.conversationsById?.get(state.activeConversation.id)?.title || '会话';
           if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
           // restore sidebar when returning to conversation
           if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
@@ -4905,7 +4929,7 @@ function bindSocialEvents() {
         return;
       }
       const friend = state.friendsById ? state.friendsById.get(peerId) : state.friends.find(f => f.friend.id === peerId);
-      const userObj = friend ? friend.friend : { displayName: state.activeConversation?.title || state.conversations.find((c) => c.id === state.activeConversation?.id)?.title || '未知用户', avatarUrl: state.activeConversation?.peerAvatarUrl || null };
+      const userObj = friend ? friend.friend : { displayName: state.activeConversation?.title || state.conversationsById?.get(state.activeConversation?.id)?.title || '未知用户', avatarUrl: state.activeConversation?.peerAvatarUrl || null };
       const finalName = userObj.remark || userObj.displayName || '未知用户';
       profileCard.style.opacity = '';
       profileCard.appendChild(createAvatarNode(userObj, finalName));
@@ -4923,7 +4947,7 @@ function bindSocialEvents() {
     if(!state.activeConversation) return null;
     try {
       const res = await api(`/api/conversations/${state.activeConversation.id}/${action}`, { method:'POST', body: JSON.stringify({userId: state.currentUser.id}) });
-      const conv = state.conversations.find((item) => item.id === state.activeConversation?.id);
+      const conv = state.conversationsById?.get(state.activeConversation?.id);
       if (action === 'mute') {
         const nextMuted = Boolean(res?.muted);
         if (state.activeConversation) state.activeConversation.muted = nextMuted;
@@ -6150,7 +6174,7 @@ async function fetchMessages(before = 0) {
       applyLastOutgoingReadState();
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
-      state.messages = [...data.messages, ...state.messages];
+      state.messages.unshift(...data.messages);
       prependMessagesToView(data.messages, oldFirst);
     }
     state.oldestMessageTime = state.messages[0]?.createdAt || 0;
@@ -6638,8 +6662,10 @@ async function _loadConversationsImpl() {
   try {
     const data = await api(`/api/conversations?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.conversations = (data.conversations || []).map(normalizeConversation);
+    state.conversationsById = new Map();
+    for (const c of state.conversations) state.conversationsById.set(c.id, c);
     if (state.activeConversation) {
-      const next = state.conversations.find((c) => c.id === state.activeConversation.id);
+      const next = state.conversationsById.get(state.activeConversation.id);
       if (next) Object.assign(state.activeConversation, {
         title: next.title || state.activeConversation.title,
         peerAvatarUrl: next.peerAvatarUrl || state.activeConversation.peerAvatarUrl,
