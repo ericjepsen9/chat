@@ -741,6 +741,40 @@ function buildOrderCard(order, role){
 
   const actions = document.createElement('div');
   actions.className = 'order-card-actions';
+  if(role === 'seller' && order.status === 'pending'){
+    const editPriceBtn = document.createElement('button');
+    editPriceBtn.type = 'button';
+    editPriceBtn.className = 'secondary-btn';
+    editPriceBtn.textContent = '修改价格';
+    editPriceBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if(!order.id) return;
+      showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
+        editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
+        try{
+          await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
+          await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+          renderSellerOrdersManage();
+        }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
+      });
+    });
+    actions.appendChild(editPriceBtn);
+    const acceptBtn = document.createElement('button');
+    acceptBtn.type = 'button';
+    acceptBtn.className = 'primary-btn';
+    acceptBtn.textContent = '接单';
+    acceptBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if(!order.id || acceptBtn.disabled) return;
+      acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
+      try{
+        await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
+        await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+        renderSellerOrdersManage();
+      }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
+    });
+    actions.appendChild(acceptBtn);
+  }
   if(order.status === 'accepted'){
     const completeBtn = document.createElement('button');
     completeBtn.type = 'button';
@@ -754,7 +788,7 @@ function buildOrderCard(order, role){
         completeBtn.disabled = true; completeBtn.textContent = '处理中...';
         try{
           await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-          await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
+          await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
           if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage();
         }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成'; }
       });
@@ -2846,7 +2880,7 @@ function buildOrderCardMessage(msg){
         editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
         try{
           await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
+          await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders(), loadProfileOrders()]);
         }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
       });
     });
@@ -2861,7 +2895,7 @@ function buildOrderCardMessage(msg){
       acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
       try{
         await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
+        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders(), loadProfileOrders()]);
       }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
     });
     actions.appendChild(acceptBtn);
@@ -2887,7 +2921,7 @@ function buildOrderCardMessage(msg){
       completeBtn.disabled = true; completeBtn.textContent = '处理中...';
       try{
         await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
+        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders(), loadProfileOrders()]);
       }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成'; }
     });
     actions.appendChild(completeBtn);
