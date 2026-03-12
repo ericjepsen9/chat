@@ -339,8 +339,14 @@ function getSecondaryBackTarget(defaultTarget = 'home'){
 }
 
 
+let _loadBuyerOrdersPromise = null;
 async function loadBuyerOrders(){
   if(!state.currentUser) return;
+  if (_loadBuyerOrdersPromise) return _loadBuyerOrdersPromise;
+  _loadBuyerOrdersPromise = _loadBuyerOrdersImpl();
+  try { return await _loadBuyerOrdersPromise; } finally { _loadBuyerOrdersPromise = null; }
+}
+async function _loadBuyerOrdersImpl(){
   try{
     const data = await api('/api/orders');
     state.buyerOrders = data.orders || [];
@@ -348,11 +354,17 @@ async function loadBuyerOrders(){
     state.buyerOrders = [];
   }
   renderBuyerOrdersManage();
-  renderConversationListFromState();
+  scheduleRenderConversationList();
 }
 
+let _loadSellerOrdersPromise = null;
 async function loadSellerOrders(){
   if(!state.currentUser) return;
+  if (_loadSellerOrdersPromise) return _loadSellerOrdersPromise;
+  _loadSellerOrdersPromise = _loadSellerOrdersImpl();
+  try { return await _loadSellerOrdersPromise; } finally { _loadSellerOrdersPromise = null; }
+}
+async function _loadSellerOrdersImpl(){
   try{
     const data = await api(`/api/orders?sellerId=${encodeURIComponent(state.currentUser.id)}`);
     state.sellerOrders = data.orders || [];
@@ -360,7 +372,7 @@ async function loadSellerOrders(){
     state.sellerOrders = [];
   }
   renderSellerOrdersManage();
-  renderConversationListFromState();
+  scheduleRenderConversationList();
 }
 
 // Unified order data refresh — call after ANY order state change
@@ -371,6 +383,7 @@ async function refreshAllOrderData() {
     loadProfileOrders(),
     state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()
   ]);
+  renderConversationListFromState();
 }
 
 let tradeRefreshTimer = null;
@@ -701,8 +714,7 @@ async function deleteOrderRecord(orderId){
   if(!orderId) return;
   try{
     await api(`/api/orders/${orderId}/delete`, { method:'POST', body: JSON.stringify({}) });
-    await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
-    if (state.currentProfileUser?.id) await loadProfileOrders();
+    await refreshAllOrderData();
     showToast('订单已删除');
   }catch(e){
     showModal(e.message || '删除失败（仅已完成订单可删除）');
@@ -1788,9 +1800,15 @@ async function submitProfileOrder(){
   }
 }
 
+let _loadProfileOrdersPromise = null;
 async function loadProfileOrders(){
   const profileUserId = state.currentProfileUser?.id;
   if(!profileUserId || !state.currentUser) return;
+  if (_loadProfileOrdersPromise) return _loadProfileOrdersPromise;
+  _loadProfileOrdersPromise = _loadProfileOrdersImpl(profileUserId);
+  try { return await _loadProfileOrdersPromise; } finally { _loadProfileOrdersPromise = null; }
+}
+async function _loadProfileOrdersImpl(profileUserId){
   try{
     const data = await api(`/api/orders?sellerId=${profileUserId}`);
     state.profileOrders = data.orders || [];
@@ -6322,7 +6340,13 @@ function renderGroupManageList() {
     });
 }
 
+let _loadMyProductsPromise = null;
 async function loadMyProducts() {
+  if (_loadMyProductsPromise) return _loadMyProductsPromise;
+  _loadMyProductsPromise = _loadMyProductsImpl();
+  try { return await _loadMyProductsPromise; } finally { _loadMyProductsPromise = null; }
+}
+async function _loadMyProductsImpl() {
   try {
     const data = await api(`/api/users/${state.currentUser.id}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
     const list = $("myProductsList"); if(!list) return;
@@ -6393,8 +6417,13 @@ function refreshUserLocation() {
   );
 }
 
+let _loadMallPromise = null;
 async function loadMall() {
-
+  if (_loadMallPromise) return _loadMallPromise;
+  _loadMallPromise = _loadMallImpl();
+  try { return await _loadMallPromise; } finally { _loadMallPromise = null; }
+}
+async function _loadMallImpl() {
   try {
     let qs = 'userId=' + state.currentUser.id;
     if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
@@ -6467,7 +6496,13 @@ async function doMallSearchPage() {
   }
 }
 
+let _loadFriendRequestsPromise = null;
 async function loadFriendRequests() {
+  if (_loadFriendRequestsPromise) return _loadFriendRequestsPromise;
+  _loadFriendRequestsPromise = _loadFriendRequestsImpl();
+  try { return await _loadFriendRequestsPromise; } finally { _loadFriendRequestsPromise = null; }
+}
+async function _loadFriendRequestsImpl() {
   try {
     const data = await api(`/api/friends/requests?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.friendRequests = data.requests || [];
@@ -6546,16 +6581,18 @@ async function loadFriendRequests() {
   }
 }
 
-function refreshFriendRequestState(options = {}) {
-  const { forceList = false } = options || {};
+function refreshFriendRequestState() {
   if (!state.currentUser || !state.currentUser.id) return Promise.resolve();
-  if (!forceList && $("friendRequestsView") && $("friendRequestsView").classList.contains('hidden')) {
-    return loadFriendRequests();
-  }
   return loadFriendRequests();
 }
 
+let _loadFriendsPromise = null;
 async function loadFriends() {
+  if (_loadFriendsPromise) return _loadFriendsPromise;
+  _loadFriendsPromise = _loadFriendsImpl();
+  try { return await _loadFriendsPromise; } finally { _loadFriendsPromise = null; }
+}
+async function _loadFriendsImpl() {
   try {
     const keyword = $("friendSearchInput") ? $("friendSearchInput").value.trim().toLowerCase() : "";
     const data = await api(`/api/friends?userId=${encodeURIComponent(state.currentUser.id)}`);
@@ -7449,15 +7486,21 @@ function renderConversationListFromState() {
   renderSidebar();
 }
 
+let _loadSystemMessagesPromise = null;
 async function loadSystemMessages(){
   if(!state.currentUser) return;
+  if (_loadSystemMessagesPromise) return _loadSystemMessagesPromise;
+  _loadSystemMessagesPromise = _loadSystemMessagesImpl();
+  try { return await _loadSystemMessagesPromise; } finally { _loadSystemMessagesPromise = null; }
+}
+async function _loadSystemMessagesImpl(){
   try{
     const data = await api('/api/system/messages');
     state.systemMessages = data.items || [];
   }catch(_){
     state.systemMessages = [];
   }
-  renderConversationListFromState();
+  scheduleRenderConversationList();
 }
 
 function renderSystemMessagesList(){
