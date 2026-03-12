@@ -912,7 +912,7 @@ function renderSellerProductsManage(){
 function openProductDetail(item, fromSeller = false){
   if(!item) return;
   state.selectedProductDetail = { ...item, fromSeller: !!fromSeller };
-  if($("productDetailImage")) { $("productDetailImage").src = normalizeMediaUrl(item.image || item.imageUrl) || ''; $("productDetailImage").onerror = function() { this.style.display = 'none'; }; }
+  if($("productDetailImage")) { $("productDetailImage").style.display = ''; $("productDetailImage").onerror = function() { this.style.display = 'none'; }; $("productDetailImage").src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
   if($("productDetailTitle")) $("productDetailTitle").textContent = item.title || '商品';
   if($("productDetailDesc")) $("productDetailDesc").textContent = item.desc || '商品详情页为图片、文字、价格与规格';
   if($("productDetailPrice")) $("productDetailPrice").textContent = formatMoney(item.price);
@@ -3497,14 +3497,14 @@ function buildMallCard(product) {
   const card = document.createElement('div');
   card.className = 'product-card';
   card.dataset.productId = product.id;
-  card.addEventListener('click', () => window.openProductChat(product.sellerId, product.title, product.price, product.image));
+  card.addEventListener('click', () => openProductDetail(product, false));
   return patchMallCard(card, product);
 }
 function patchMallCard(card, product) {
   const replacement = card.cloneNode(false);
   replacement.className = 'product-card';
   replacement.dataset.productId = product.id;
-  replacement.addEventListener('click', () => window.openProductChat(product.sellerId, product.title, product.price, product.image));
+  replacement.addEventListener('click', () => openProductDetail(product, false));
   const safeImage = normalizeMediaUrl(product.image);
   if (safeImage) {
     const img = document.createElement('img');
@@ -6769,6 +6769,8 @@ function finalizeCall(options = {}) {
 }
 window.stopCall = () => {
   if (typeof window._stopCallWithBubble === 'function') window._stopCallWithBubble();
+  // Dismiss native call notification before resetting RTC state
+  if (state.rtc.phase !== 'idle') nativeOnCallEnded();
   const endedCallId = state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || state.rtc.lastEndedCallId || null;
   if (state.rtc.pc) {
     try { state.rtc.pc.onicecandidate = null; state.rtc.pc.ontrack = null; state.rtc.pc.onconnectionstatechange = null; state.rtc.pc.oniceconnectionstatechange = null; } catch(_) {}
