@@ -3836,7 +3836,7 @@ window.forwardMsg = (msgId) => {
 };
 window.confirmForward = async (convId) => {
   if($("forwardModal")) $("forwardModal").classList.add('hidden'); if(!msgToForward) return;
-  try { await api(`/api/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, type: msgToForward.type, text: msgToForward.text, imageUrl: msgToForward.imageUrl, audioUrl: msgToForward.audioUrl, card: msgToForward.card }) }); showModal('已转发'); } catch(e) { showModal('转发失败: ' + e.message); }
+  try { await api(`/api/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, type: msgToForward.type, text: msgToForward.text, imageUrl: msgToForward.imageUrl, audioUrl: msgToForward.audioUrl, card: msgToForward.card, order: msgToForward.order, broadcast: msgToForward.broadcast }) }); showModal('已转发'); } catch(e) { showModal('转发失败: ' + e.message); }
 };
 
 window.showContextMenu = function(event, msg) {
@@ -4135,6 +4135,10 @@ window.openConversation = async (id, options = {}) => {
       try {
         if (!state.activeConversation || state.activeConversation.id !== id) return;
         await fetchMessages();
+        if (state.activeConversation?.id === id) {
+          await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
+          refreshMessageReadReceipts();
+        }
       } catch(_) {}
     });
   }
@@ -6487,32 +6491,7 @@ async function loadFriends() {
 
 
 function applyLastOutgoingReadState(){
-  try{
-    const chatView = $("chatView");
-    if(!chatView) return;
-    chatView.querySelectorAll('.message-read-state').forEach(el=> el.remove());
-    const outgoing = [...chatView.querySelectorAll('article.message-row.me[data-id]')];
-    if(!outgoing.length) return;
-    const last = outgoing[outgoing.length - 1];
-    const mid = last.dataset.id || '';
-    if(!mid) return;
-    const msgs = (state.messages || []).filter(Boolean);
-    const lastMsg = [...msgs].reverse().find(m => String(m.id || '') === String(mid) || String(m.clientMessageId || '') === String(mid));
-    if(!lastMsg) return;
-    const peerLastReadAt = Number((state.activeConversation && state.activeConversation.peerLastReadAt) || state.peerLastReadAt || 0);
-    const createdAt = Number(new Date(lastMsg.createdAt || lastMsg.ts || Date.now()));
-    const isRead = !!peerLastReadAt && peerLastReadAt >= createdAt;
-    const status = document.createElement('div');
-    status.className = 'message-read-state ' + (isRead ? 'is-read' : 'is-unread');
-    const dot = document.createElement('span');
-    dot.className = 'message-read-dot';
-    const text = document.createElement('span');
-    text.className = 'message-read-text';
-    text.textContent = isRead ? '已读' : '未读';
-    status.appendChild(dot);
-    status.appendChild(text);
-    last.appendChild(status);
-  }catch(_){}
+  refreshMessageReadReceipts();
 }
 
 function renderMessages(preserveScroll = false) {

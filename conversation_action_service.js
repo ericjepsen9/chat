@@ -114,6 +114,11 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   if (action === 'signal') {
     const targetUserId = body.targetUserId;
     if (!targetUserId) return { ok: false, status: 400, error: 'target_user_required' };
+    if (body.signal?.type === 'typing') {
+      if (!conv.members.includes(targetUserId)) return { ok: false, status: 403, error: 'forbidden' };
+      broadcastToUser(targetUserId, 'typing_indicator', { conversationId, senderId: authUser.id });
+      return { ok: true, status: 200, payload: { ok: true } };
+    }
     if (!body.callId) return { ok: false, status: 400, error: 'call_id_required' };
     if (!conv.members.includes(targetUserId)) return { ok: false, status: 403, error: 'forbidden' };
     broadcastToUser(targetUserId, 'webrtc_signal', {
