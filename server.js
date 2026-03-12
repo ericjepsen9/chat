@@ -435,25 +435,22 @@ function rebuildConversationBaseIndex() {
   index.directConvBasesByUser.clear();
   for (const conv of db.conversations) {
     if (conv.type !== 'direct') continue;
-    for (const memberId of conv.members || []) {
-      const peerId = (conv.members || []).find((id) => id !== memberId);
+    const members = conv.members || [];
+    if (members.length !== 2) continue;
+    const [m1, m2] = members;
+    const buildEntry = (memberId, peerId) => {
       const peer = index.usersById.get(peerId);
       const rel = peerId ? index.friendshipByPair.get(`${memberId}:${peerId}`) : null;
-      addToMapArray(index.directConvBasesByUser, memberId, {
-        id: conv.id,
-        type: conv.type,
-        name: conv.name,
-        ownerId: conv.ownerId,
-        members: conv.members,
-        announcement: conv.announcement,
-        createdAt: conv.createdAt,
+      return {
+        id: conv.id, type: conv.type, name: conv.name, ownerId: conv.ownerId,
+        members, announcement: conv.announcement, createdAt: conv.createdAt,
         lastMessageAt: conv.lastMessageAt,
         title: rel?.remark || peer?.displayName || '未知用户',
-        peerAvatarUrl: peer?.avatarUrl,
-        peerAppNumberId: peer?.appNumberId,
-        peerIsFriend: !!rel,
-      });
-    }
+        peerAvatarUrl: peer?.avatarUrl, peerAppNumberId: peer?.appNumberId, peerIsFriend: !!rel,
+      };
+    };
+    addToMapArray(index.directConvBasesByUser, m1, buildEntry(m1, m2));
+    addToMapArray(index.directConvBasesByUser, m2, buildEntry(m2, m1));
   }
 }
 
@@ -1966,23 +1963,20 @@ const server = http.createServer(async (req, res) => {
       const results = [];
       const userConvs = index.convByUser.get(authUser.id) || [];
       for (const conv of userConvs) {
+        const peerId = (conv.members || []).find((id) => id !== authUser.id);
+        const peer = peerId ? index.usersById.get(peerId) : null;
+        const peerName = peer ? (peer.displayName || peer.username) : (conv.title || '');
+        const peerAvatarUrl = peer ? peer.avatarUrl : '';
         const msgs = index.messagesByConv.get(conv.id) || [];
         for (let i = msgs.length - 1; i >= 0; i--) {
           const msg = msgs[i];
           if (msg.type !== 'text' || !msg.text) continue;
           if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
           if (msg.text.toLowerCase().includes(keyword)) {
-            const peerId = (conv.members || []).find((id) => id !== authUser.id);
-            const peer = peerId ? index.usersById.get(peerId) : null;
             results.push({
-              messageId: msg.id,
-              conversationId: conv.id,
-              senderId: msg.senderId,
-              text: msg.text,
-              createdAt: msg.createdAt,
-              peerName: peer ? (peer.displayName || peer.username) : (conv.title || ''),
-              peerAvatarUrl: peer ? peer.avatarUrl : '',
-              peerId: peerId || '',
+              messageId: msg.id, conversationId: conv.id, senderId: msg.senderId,
+              text: msg.text, createdAt: msg.createdAt,
+              peerName, peerAvatarUrl, peerId: peerId || '',
             });
           }
         }

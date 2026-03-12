@@ -43,11 +43,15 @@ function updateUserProfile({ authUser, body, normalizeUserCustomGroups, normaliz
   if (Array.isArray(body.customGroups)) authUser.customGroups = normalizeUserCustomGroups(body.customGroups);
   if (body.paymentCodes !== undefined) authUser.paymentCodes = normalizePaymentCodes(body.paymentCodes);
 
-  rebuildFriendViewsIndex();
-  rebuildConversationBaseIndex();
-  rebuildRequestViewsIndex();
-  rebuildBlacklistViewsIndex();
-  rebuildMallIndex();
+  // Only rebuild view indexes when fields used by views have changed
+  const viewFieldsChanged = body.displayName !== undefined || body.avatarUrl !== undefined;
+  if (viewFieldsChanged) {
+    rebuildFriendViewsIndex();
+    rebuildConversationBaseIndex();
+    rebuildRequestViewsIndex();
+    rebuildBlacklistViewsIndex();
+    rebuildMallIndex();
+  }
 
   schedulePersist('user_update', { userId: authUser.id });
   broadcastToUser(authUser.id, 'profile_updated', {});

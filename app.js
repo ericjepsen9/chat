@@ -6173,7 +6173,8 @@ function bindAllEvents() {
   }
   on("msgSearchPageBtn", "click", doMsgSearch);
   on("msgSearchPageInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); doMsgSearch(); } });
-  on("friendSearchInput", "input", () => { loadFriends().catch(() => {}); });
+  let _friendSearchTimer = null;
+  on("friendSearchInput", "input", () => { clearTimeout(_friendSearchTimer); _friendSearchTimer = setTimeout(() => loadFriends().catch(() => {}), 300); });
 
   // ── In-chat message search ──
   on("chatSearchMsgBtn", "click", () => {
@@ -6276,6 +6277,16 @@ function bindAllEvents() {
 // ==========================================
 // ★ 3. 核心拉取与渲染 ★
 // ==========================================
+// Tab-switch freshness: skip reload if data was fetched within this window
+const TAB_CACHE_TTL = 15000;
+const _tabLoadTimes = {};
+function tabLoad(key, loadFn) {
+  const now = Date.now();
+  if (_tabLoadTimes[key] && now - _tabLoadTimes[key] < TAB_CACHE_TTL) return;
+  _tabLoadTimes[key] = now;
+  loadFn().catch(() => {});
+}
+
 function setMainTab(tab) {
   // Clear secondary navigation state when switching to a main tab
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
@@ -6283,9 +6294,9 @@ function setMainTab(tab) {
   if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
   ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) { $(id).classList.add('hidden'); } });
 
-  if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; loadConversations().catch(() => {}); loadSystemMessages().catch(() => {}); scheduleTradeReminderRefresh(0); }
-  else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; loadFriends().catch(() => {}); loadFriendRequests().catch(() => {}); }
-  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); loadMall().catch(() => {}); } 
+  if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
+  else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
+  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); tabLoad('mall', loadMall); }
   else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; updateMyCartBadge(); }
   if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
   // sidebar avatar bar only visible inside chat conversation, hide on all tab views
