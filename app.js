@@ -979,6 +979,7 @@ function openProductDetail(item, fromSeller = false){
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
   if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller);
   if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller);
+  if($("productDetailChatBtn")) $("productDetailChatBtn").classList.toggle('hidden', fromSeller);
   // Show seller management buttons on detail page
   if($("productDetailSellerActions")) $("productDetailSellerActions").classList.toggle('hidden', !fromSeller);
   if(fromSeller && $("productDetailListedBtn")) {
@@ -5792,6 +5793,12 @@ function bindAllEvents() {
       renderOrderCardPicker(tab.dataset.tab);
     });
   }
+  // Product detail - send message to seller
+  on("productDetailChatBtn", "click", () => {
+    const item = state.selectedProductDetail;
+    if(!item || !item.sellerId) return;
+    window.openProductChat(item.sellerId, item.title || '商品', item.price || 0, normalizeMediaUrl(item.image || item.imageUrl) || '');
+  });
   // Product detail - add to cart via spec sheet
   on("productDetailAddCartBtn", "click", () => {
     const item = state.selectedProductDetail;

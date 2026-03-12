@@ -1717,7 +1717,7 @@ input, textarea { font-size: var(--font-body); }
   padding-bottom:max(8px, env(safe-area-inset-bottom));
   flex-shrink:0;
 }
-.pd-btn-cart,.pd-btn-buy,.pd-btn-seller{
+.pd-btn-chat,.pd-btn-cart,.pd-btn-buy,.pd-btn-seller{
   flex:1;
   height:44px;
   border:none;
@@ -1725,10 +1725,16 @@ input, textarea { font-size: var(--font-body); }
   font-weight:600;
   cursor:pointer;
 }
+.pd-btn-chat{
+  background:#07c160;
+  color:#fff;
+  border-radius:22px 0 0 22px;
+  flex:0.6;
+}
 .pd-btn-cart{
   background:#ffa000;
   color:#fff;
-  border-radius:22px 0 0 22px;
+  border-radius:0;
 }
 .pd-btn-buy{
   background:#e4393c;
@@ -1743,7 +1749,7 @@ input, textarea { font-size: var(--font-body); }
   margin-left:8px;
   flex:0.6;
 }
-.pd-btn-cart:active,.pd-btn-buy:active,.pd-btn-seller:active{ opacity:.8; }
+.pd-btn-chat:active,.pd-btn-cart:active,.pd-btn-buy:active,.pd-btn-seller:active{ opacity:.8; }
 
 .pd-seller-actions{
   display:flex;
