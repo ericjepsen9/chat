@@ -997,7 +997,7 @@ function openProductDetail(item, fromSeller = false){
     });
     specsEl.replaceChildren(frag);
   }
-  const isOwnProduct = !fromSeller && (item.sellerId === state.currentUser?.id || state.currentProfileUser?.id === state.currentUser?.id);
+  const isOwnProduct = !fromSeller && item.sellerId && item.sellerId === state.currentUser?.id;
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
   if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
   if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
@@ -2318,7 +2318,7 @@ async function renderProductCardPicker(){
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
     card.innerHTML = `<img class="picker-product-img" src="${escapeHTML(imgUrl)}" alt="" /><div class="picker-product-info"><div class="picker-product-name">${escapeHTML(p.title || '商品')}</div><div class="picker-product-price">${escapeHTML(formatMoney(p.price))}</div></div>`;
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: p.image || p.imageUrl || '', sellerId: p.sellerId || '', productId: p.id || '' } });
+      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: p.image || p.imageUrl || '', sellerId: p.sellerId || state.currentUser?.id || '', productId: p.id || '' } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
@@ -2720,20 +2720,25 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         card.classList.add('clickable-card');
         card.addEventListener('click', async (e) => {
           e.stopPropagation();
-          const cardSellerId = c.sellerId || (msg.senderId !== state.currentUser?.id ? msg.senderId : (state.activeConversation?.members || []).find(m => m !== state.currentUser?.id) || '');
-          // Try to fetch real product from seller's store
-          if (cardSellerId && c.productId) {
-            try {
-              const storeData = await api(`/api/users/${cardSellerId}/store`);
-              const realProduct = (storeData.items || []).find(p => String(p.id) === String(c.productId));
-              if (realProduct) {
-                openProductDetail({ ...realProduct, sellerId: cardSellerId }, false);
-                return;
-              }
-            } catch(_) {}
+          const members = state.activeConversation?.members || [];
+          const cardSellerId = c.sellerId || '';
+          // Try to fetch real product from seller's store (or try both members for old cards)
+          if (c.productId) {
+            const candidateIds = cardSellerId ? [cardSellerId] : [msg.senderId, ...members.filter(m => m !== msg.senderId)].filter(Boolean);
+            for (const candidateId of candidateIds) {
+              try {
+                const storeData = await api(`/api/users/${candidateId}/store`);
+                const realProduct = (storeData.items || []).find(p => String(p.id) === String(c.productId));
+                if (realProduct) {
+                  openProductDetail({ ...realProduct, sellerId: candidateId }, false);
+                  return;
+                }
+              } catch(_) {}
+            }
           }
           // Fallback to card data
-          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], stock: 0, sellerId: cardSellerId };
+          const fallbackSellerId = cardSellerId || (msg.senderId !== state.currentUser?.id ? msg.senderId : members.find(m => m !== state.currentUser?.id) || '');
+          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], stock: 0, sellerId: fallbackSellerId };
           openProductDetail(productItem, false);
         });
       }
