@@ -1321,13 +1321,17 @@ function renderProfileStore(){
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
   const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  // Pre-parse categories once for reuse in tabs + filtering
+  const _catRe = /[\/,、]/;
+  const parsedCats = new Map();
+  for (const item of sortedItems) {
+    if (item.category) parsedCats.set(item, item.category.split(_catRe).map(s => s.trim()).filter(Boolean));
+  }
   // Build category tabs
   const catTabsEl = $("profileStoreCategoryTabs");
   if (catTabsEl) {
     const cats = new Set();
-    sortedItems.forEach(item => {
-      if (item.category) item.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
-    });
+    for (const arr of parsedCats.values()) arr.forEach(c => cats.add(c));
     catTabsEl.replaceChildren();
     if (cats.size > 0) {
       const allTab = document.createElement('button');
@@ -1348,7 +1352,7 @@ function renderProfileStore(){
   }
   // Filter by category
   const allItems = state.profileStoreCategoryFilter
-    ? sortedItems.filter(item => item.category && item.category.split(/[\/,、]/).map(s => s.trim()).some(c => c === state.profileStoreCategoryFilter))
+    ? sortedItems.filter(item => { const arr = parsedCats.get(item); return arr && arr.includes(state.profileStoreCategoryFilter); })
     : sortedItems;
   if(title) title.textContent = `在售商品 ${allItems.length}`;
   if(!allItems.length){

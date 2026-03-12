@@ -81,8 +81,8 @@ function acceptFriendRequest({
   schedulePersist,
   broadcastToUser,
 }) {
-  const request = db.friendRequests.find((r) => r.id === requestId && r.targetId === authUser.id && r.status === 'pending');
-  if (!request) return { ok: false, status: 404, error: 'not_found' };
+  const request = index.friendRequestsById.get(requestId);
+  if (!request || request.targetId !== authUser.id || request.status !== 'pending') return { ok: false, status: 404, error: 'not_found' };
   request.status = 'accepted';
   if (!index.friendshipByPair.has(`${authUser.id}:${request.userId}`)) {
     db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: request.userId, group: '我的好友', remark: '' });
@@ -104,9 +104,9 @@ function acceptFriendRequest({
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
-function rejectFriendRequest({ requestId, authUser, db, rebuildIndexes, schedulePersist, broadcastToUser }) {
-  const request = db.friendRequests.find((r) => r.id === requestId && r.targetId === authUser.id && r.status === 'pending');
-  if (!request) return { ok: false, status: 404, error: 'not_found' };
+function rejectFriendRequest({ requestId, authUser, db, index, rebuildIndexes, schedulePersist, broadcastToUser }) {
+  const request = index.friendRequestsById.get(requestId);
+  if (!request || request.targetId !== authUser.id || request.status !== 'pending') return { ok: false, status: 404, error: 'not_found' };
   request.status = 'rejected';
   rebuildIndexes();
   schedulePersist('friend_reject', { requestId: request.id, userId: authUser.id });

@@ -65,7 +65,7 @@ function createConversationMessage({
     if (conv.type !== 'direct') return { ok: false, status: 400, error: 'order_card_only_for_direct_chat' };
     const orderId = String(body.order?.id || '').trim();
     if (!orderId) return { ok: false, status: 400, error: 'invalid_order_card' };
-    const order = (db.orders || []).find((item) => item.id === orderId);
+    const order = index.ordersById.get(orderId);
     if (!order) return { ok: false, status: 404, error: 'order_not_found' };
     const m0 = conv.members[0];
     const m1 = conv.members[1];

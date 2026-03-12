@@ -308,6 +308,7 @@ const index = {
   friendshipByPair: new Map(),
   friendViewsByUser: new Map(),
   ordersById: new Map(),
+  friendRequestsById: new Map(),
   directConvBasesByUser: new Map(),
   requestsByTarget: new Map(),
   requestViewsByTarget: new Map(),
@@ -545,7 +546,11 @@ function rebuildIndexes() {
     addToMapArray(index.friendshipsByUser, rel.userId, rel);
     index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
   }
-  for (const req of db.friendRequests) if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  index.friendRequestsById.clear();
+  for (const req of db.friendRequests) {
+    index.friendRequestsById.set(req.id, req);
+    if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  }
   rebuildFriendViewsIndex();
   rebuildConversationBaseIndex();
   rebuildRequestViewsIndex();
@@ -592,17 +597,23 @@ function rebuildFriendshipIndexes() {
   rebuildConversationBaseIndex();
 }
 
-function rebuildFriendshipAndRequestIndexes() {
-  rebuildFriendshipIndexes();
+function rebuildFriendRequestMaps() {
+  index.friendRequestsById.clear();
   index.requestsByTarget.clear();
-  for (const req of db.friendRequests) if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  for (const req of db.friendRequests) {
+    index.friendRequestsById.set(req.id, req);
+    if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  }
   rebuildRequestViewsIndex();
 }
 
+function rebuildFriendshipAndRequestIndexes() {
+  rebuildFriendshipIndexes();
+  rebuildFriendRequestMaps();
+}
+
 function rebuildRequestIndexesOnly() {
-  index.requestsByTarget.clear();
-  for (const req of db.friendRequests) if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
-  rebuildRequestViewsIndex();
+  rebuildFriendRequestMaps();
 }
 
 function rebuildMessageIndexes() {
@@ -1846,6 +1857,7 @@ const server = http.createServer(async (req, res) => {
         requestId: context.body.requestId,
         authUser: context.authUser,
         db,
+        index,
         rebuildIndexes: rebuildRequestIndexesOnly,
         schedulePersist,
         broadcastToUser,
@@ -2065,16 +2077,21 @@ const server = http.createServer(async (req, res) => {
       const offset = parseInt(searchParams.get('offset') || '0', 10);
       const msgs = index.messagesByConv.get(conversationId) || [];
       const results = [];
+      const maxNeeded = offset + limit;
+      let total = 0;
       for (let i = msgs.length - 1; i >= 0; i--) {
         const msg = msgs[i];
         if (msg.type !== 'text' || !msg.text) continue;
         if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
         if (msg.text.toLowerCase().includes(keyword)) {
-          results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
+          total++;
+          if (results.length < maxNeeded) {
+            results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
+          }
         }
       }
       const paged = results.slice(offset, offset + limit);
-      return sendJson(res, 200, { results: paged, total: results.length, hasMore: offset + limit < results.length });
+      return sendJson(res, 200, { results: paged, total, hasMore: offset + limit < total });
     }
 
     const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
