@@ -738,9 +738,29 @@ function buildOrderCard(order, role){
 
   card.append(header, body, footer);
 
+  const actions = document.createElement('div');
+  actions.className = 'order-card-actions';
+  if(order.status === 'accepted'){
+    const completeBtn = document.createElement('button');
+    completeBtn.type = 'button';
+    completeBtn.className = 'primary-btn';
+    completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成';
+    completeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if(completeBtn.disabled) return;
+      const msg = role === 'buyer' ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？';
+      showConfirm(msg, async () => {
+        completeBtn.disabled = true; completeBtn.textContent = '处理中...';
+        try{
+          await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
+          await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
+          if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage();
+        }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成'; }
+      });
+    });
+    actions.appendChild(completeBtn);
+  }
   if(order.status === 'completed'){
-    const actions = document.createElement('div');
-    actions.className = 'order-card-actions';
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'order-card-del-btn';
@@ -754,8 +774,8 @@ function buildOrderCard(order, role){
       });
     });
     actions.appendChild(delBtn);
-    card.appendChild(actions);
   }
+  if(actions.childElementCount) card.appendChild(actions);
 
   card.addEventListener('click', () => openOrderDetail(order, role));
   return card;
@@ -1997,6 +2017,26 @@ function renderProfileOrders(){
       }
     }
 
+    // Buyer can confirm receipt on accepted orders
+    const isBuyerUser = state.currentUser?.id && state.currentUser.id === order.buyerId;
+    if(isBuyerUser && order.status === 'accepted'){
+      const receiveBtn = document.createElement('button');
+      receiveBtn.type = 'button';
+      receiveBtn.className = 'primary-btn';
+      receiveBtn.textContent = '确认收货';
+      receiveBtn.addEventListener('click', async (e) => { e.stopPropagation();
+        if(!order.id) return;
+        showConfirm('确认已收到商品？订单将标记为已完成。', async () => {
+          try{
+            await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
+            await loadProfileOrders();
+            if(state.activeConversation?.id) await reloadActiveConversationMessages();
+          }catch(e){ showModal(e.message || '确认失败'); }
+        });
+      });
+      actions.appendChild(receiveBtn);
+    }
+
     card.append(title, sub, status);
     if (actions.childElementCount) card.appendChild(actions);
     const detailRole = (state.currentUser?.id && state.currentUser.id === order.buyerId) ? 'buyer' : 'seller';
@@ -2826,54 +2866,22 @@ function buildOrderCardMessage(msg){
     actions.appendChild(waitHint);
   }
 
-  // Price change request disabled — accepted orders have locked price
-  const canRequest = false;
-  if(canRequest){
-    const reqBtn = document.createElement('button');
-    reqBtn.type = 'button';
-    reqBtn.className = 'secondary-btn';
-    reqBtn.textContent = '申请改价';
-    reqBtn.addEventListener('click', (e) => {
+  // Confirm receipt / mark complete for accepted orders
+  if(isParticipant && order.status === 'accepted'){
+    const completeBtn = document.createElement('button');
+    completeBtn.type = 'button';
+    completeBtn.className = 'primary-btn';
+    completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成';
+    completeBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if(!order.id || reqBtn.disabled) return;
-      showPrompt('申请改价金额', String(order.total || ''), async (raw) => {
-        reqBtn.disabled = true; reqBtn.textContent = '提交中...';
-        try{
-          await api(`/api/orders/${order.id}/price-request`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
-        }catch(err){ showModal(err.message || '申请失败'); } finally { reqBtn.disabled = false; reqBtn.textContent = '申请改价'; }
-      });
-    });
-    actions.appendChild(reqBtn);
-  }
-
-  const canConfirm = isParticipant && hasPendingPrice && pendingRequester !== currentUserId && order.status !== 'completed';
-  if(canConfirm){
-    const confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.className = 'primary-btn';
-    confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`;
-    confirmBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if(!order.id || confirmBtn.disabled) return;
-      confirmBtn.disabled = true; confirmBtn.textContent = '确认中...';
+      if(!order.id || completeBtn.disabled) return;
+      completeBtn.disabled = true; completeBtn.textContent = '处理中...';
       try{
-        await api(`/api/orders/${order.id}/price-confirm`, { method:'POST', body: JSON.stringify({ total: Number(order.pendingPrice || order.total || 0) }) });
+        await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
         await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
-      }catch(err){ showModal(err.message || '确认失败'); } finally { confirmBtn.disabled = false; confirmBtn.textContent = `确认改价 ${formatMoney(order.pendingPrice || order.total || 0)}`; }
+      }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成'; }
     });
-    actions.appendChild(confirmBtn);
-  }else if(isParticipant && hasPendingPrice && pendingRequester === currentUserId){
-    const waiting = document.createElement('span');
-    waiting.className = 'trade-card-sub';
-    waiting.textContent = `改价申请中，等待对方确认：${formatMoney(order.pendingPrice || order.total || 0)}`;
-    actions.appendChild(waiting);
-  }
-  if(isParticipant && isPriceLocked && !hasPendingPrice && order.status !== 'completed'){
-    const locked = document.createElement('span');
-    locked.className = 'trade-card-sub';
-    locked.textContent = '本订单已完成一次改价，如需再次改价请回到购物车重新下单';
-    actions.appendChild(locked);
+    actions.appendChild(completeBtn);
   }
   wrap.appendChild(actions);
   return wrap;
