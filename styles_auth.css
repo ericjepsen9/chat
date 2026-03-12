@@ -1,0 +1,92 @@
+/* styles_auth.css — Authentication & login screens */
+/* 登录置顶 */
+.auth-screen { position: fixed; inset: 0; background: #fff; z-index: 9999; }
+.auth-step { position: absolute; inset: 0; display: flex; flex-direction: column; transition: opacity 0.25s, transform 0.25s; }
+.auth-step.hidden { display: none; }
+.auth-step.auth-slide-out { opacity: 0; transform: translateX(-30px); pointer-events: none; }
+.auth-step.auth-slide-in { opacity: 0; transform: translateX(30px); }
+
+/* Welcome screen */
+.auth-welcome-top { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.auth-logo { margin-bottom: 24px; }
+.auth-app-name { font-size: 32px; font-weight: 700; color: #111; letter-spacing: 1px; margin: 0; }
+.auth-welcome-bottom { padding: 20px 32px max(24px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.auth-btn-primary { width: 100%; height: 50px; background: var(--brand); color: #fff; border: none; border-radius: 8px; font-size: 17px; font-weight: 600; cursor: pointer; letter-spacing: 1px; transition: opacity 0.2s; }
+.auth-btn-primary:active { opacity: 0.85; }
+.auth-btn-primary:disabled { background: #85d6a8; cursor: not-allowed; }
+.auth-btn-outline { width: 100%; height: 50px; background: transparent; color: var(--brand); border: 1.5px solid var(--brand); border-radius: 8px; font-size: 17px; font-weight: 600; cursor: pointer; letter-spacing: 1px; transition: opacity 0.2s; }
+.auth-btn-outline:active { opacity: 0.7; }
+.auth-agreement { font-size: var(--font-micro); color: #b0b0b0; margin: 4px 0 0; text-align: center; }
+.auth-agreement a { color: #576b95; text-decoration: none; }
+
+/* Auth page layout */
+.auth-page { flex: 1; display: flex; flex-direction: column; padding: 0 32px; padding-top: max(60px, env(safe-area-inset-top)); }
+.auth-back-btn { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 12px; background: none; border: none; color: #111; cursor: pointer; padding: 8px; z-index: 2; }
+.auth-page-title { font-size: 24px; font-weight: 700; color: #111; margin: 20px 0 8px; }
+.auth-page-desc { font-size: 15px; color: #888; margin: 0 0 28px; line-height: 1.5; }
+.auth-page-hint { font-size: var(--font-caption); color: var(--brand); margin: -20px 0 24px; }
+
+/* Fields */
+.auth-field { display: flex; align-items: center; border-bottom: 1px solid #e8e8e8; padding: 14px 0; }
+.auth-field-prefix { font-size: 17px; color: #111; margin-right: 12px; font-weight: 500; white-space: nowrap; }
+.auth-field input { flex: 1; border: none; outline: none; font-size: 17px; color: #111; background: transparent; padding: 0; }
+.auth-field input::placeholder { color: #c8c8c8; }
+.auth-field-group { display: flex; flex-direction: column; }
+.auth-field-group .auth-field { border-bottom: 1px solid #e8e8e8; }
+
+/* Checkbox */
+.auth-check-row { margin: 20px 0 24px; }
+.auth-checkbox { display: flex; align-items: flex-start; gap: 8px; font-size: var(--font-caption); color: #888; cursor: pointer; line-height: 1.5; }
+.auth-checkbox input { display: none; }
+.auth-checkmark { width: 16px; height: 16px; border: 1.5px solid #d0d0d0; border-radius: 50%; flex-shrink: 0; margin-top: 1px; position: relative; transition: all 0.15s; }
+.auth-checkbox input:checked + .auth-checkmark { border-color: var(--brand); background: var(--brand); }
+.auth-checkbox input:checked + .auth-checkmark::after { content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.auth-checkbox a { color: #576b95; text-decoration: none; }
+
+/* SMS code boxes */
+.auth-code-inputs { display: flex; gap: 12px; margin: 8px 0 24px; justify-content: center; }
+.auth-code-box { width: 52px; height: 56px; border: none; border-bottom: 2.5px solid #e0e0e0; text-align: center; font-size: 28px; font-weight: 700; color: #111; outline: none; background: transparent; caret-color: var(--brand); transition: border-color 0.2s; }
+.auth-code-box:focus { border-color: var(--brand); }
+
+/* Links & actions */
+.auth-alt-actions { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 24px; }
+.auth-link-btn { background: none; border: none; color: #576b95; font-size: var(--font-body-sm); cursor: pointer; padding: 4px 0; }
+.auth-alt-sep { color: #d0d0d0; font-size: var(--font-micro); }
+.auth-resend-btn { margin: 0 auto; display: block; font-size: 15px; color: #888; }
+.auth-resend-btn:disabled { color: #c8c8c8; cursor: not-allowed; }
+.primary-btn { background: var(--brand); color: #fff; border: none; padding: 14px 16px; border-radius: var(--radius-card); font-size: var(--font-body); font-weight: 600; cursor: pointer; text-align: center; min-height: 44px; }
+
+/* V63 auth/password pages wechat style */
+/* Forgot password page styling */
+#forgotPasswordPage>div,
+#changePasswordPage>div{
+  margin:10px;
+  border-radius: var(--radius-card);
+  border:1px solid #ebedf0;
+}
+#forgotPasswordPage input,
+#changePasswordPage input{
+  border:1px solid #e6e6e6;
+  border-radius: var(--radius-md);
+  padding:11px 12px;
+  background:#fff;
+}
+#sendForgotCodeBtn{
+  border-color:#dfe3e8;
+  color:#57606a;
+  background:#fff;
+}
+#submitForgotPasswordBtn,
+#submitChangePasswordBtn{
+  background:var(--brand);
+}
+#changePasswordBtn{
+  color:#111;
+}
+
+
+.contact-card-message{cursor:pointer;}
+.contact-card-message-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.contact-card-message-avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#e9e9ee;}
+.contact-card-message-avatar-fallback{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#cfe1ff;color:#fff;font-weight:700;}
+.contact-card-label{font-size: var(--font-micro);color:var(--text-muted);margin-top:2px;}
