@@ -61,9 +61,8 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   if (!Array.isArray(authUser.categoryPresets)) authUser.categoryPresets = [];
   if (!Array.isArray(authUser.specPresets)) authUser.specPresets = [];
   if (category) {
-    category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => {
-      if (!authUser.categoryPresets.includes(c)) authUser.categoryPresets.push(c);
-    });
+    const parts = category.split(/[\/,、]/);
+    for (let i = 0; i < parts.length; i++) { const c = parts[i].trim(); if (c && !authUser.categoryPresets.includes(c)) authUser.categoryPresets.push(c); }
   }
   specs.forEach(s => { if (s && !authUser.specPresets.includes(s)) authUser.specPresets.push(s); });
 

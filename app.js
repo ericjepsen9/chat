@@ -510,8 +510,10 @@ function getFilteredSellerProducts(){
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
     if (catFilter) {
-      const itemCats = (item.category || '').split(CATEGORY_SPLIT_RE).map(s => s.trim());
-      if (!itemCats.includes(catFilter)) return false;
+      const parts = (item.category || '').split(CATEGORY_SPLIT_RE);
+      let catMatch = false;
+      for (let j = 0; j < parts.length; j++) { if (parts[j].trim() === catFilter) { catMatch = true; break; } }
+      if (!catMatch) return false;
     }
     if (keyword) {
       const hay = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase();
@@ -3168,7 +3170,6 @@ function buildMallCard(product) {
   const card = document.createElement('div');
   card.className = 'product-card';
   card.dataset.productId = product.id;
-  card.addEventListener('click', () => openProductDetail(product, false));
   return patchMallCard(card, product);
 }
 function patchMallCard(card, product) {
@@ -5705,17 +5706,18 @@ function bindSearchAndEmojiEvents() {
         </button>`).join('');
       if (res.total > 20) searchHtml += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${escapeHTML(String(res.total))} 条结果</div>`;
       el.innerHTML = searchHtml;
-      el.querySelectorAll('.msg-search-item').forEach(btn => {
-        btn.addEventListener('click', async () => {
+      if (!el._msgSearchDelegate) {
+        el._msgSearchDelegate = true;
+        el.addEventListener('click', async (e) => {
+          const btn = e.target.closest('.msg-search-item');
+          if (!btn) return;
           const convId = btn.dataset.convId;
           const msgId = btn.dataset.msgId;
           if (!convId) return;
-          // Close search page and navigate to conversation
           if ($("msgSearchPageInput")) $("msgSearchPageInput").value = '';
           if ($("msgSearchPageResults")) $("msgSearchPageResults").innerHTML = '';
           state.secondaryPage = null;
           await window.openConversation(convId);
-          // Scroll to the target message after messages are loaded
           if (msgId) {
             setTimeout(() => {
               const chatView = $("chatView");
@@ -5723,7 +5725,6 @@ function bindSearchAndEmojiEvents() {
               const target = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(msgId))}"]`);
               if (target) {
                 target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Briefly highlight the target message
                 target.style.transition = 'background 0.3s';
                 target.style.background = '#fff3cd';
                 setTimeout(() => { target.style.background = ''; }, 2000);
@@ -5731,7 +5732,7 @@ function bindSearchAndEmojiEvents() {
             }, 300);
           }
         });
-      });
+      }
     } catch (_) {}
   }
   on("msgSearchPageBtn", "click", doMsgSearch);

@@ -182,8 +182,8 @@ function rebuildIndexes() {
       const cats = needCats ? new Set() : null;
       const specs = needSpecs ? new Set() : null;
       for (const p of user.products) {
-        if (cats && p.category) p.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
-        if (specs && Array.isArray(p.specs)) p.specs.filter(Boolean).forEach(s => specs.add(s));
+        if (cats && p.category) { const parts = p.category.split(/[\/,、]/); for (let j = 0; j < parts.length; j++) { const c = parts[j].trim(); if (c) cats.add(c); } }
+        if (specs && Array.isArray(p.specs)) { for (let j = 0; j < p.specs.length; j++) { if (p.specs[j]) specs.add(p.specs[j]); } }
       }
       if (cats) user.categoryPresets = [...cats];
       if (specs) user.specPresets = [...specs];
