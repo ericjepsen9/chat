@@ -1562,6 +1562,7 @@ function renderProfileCartPage(){
         item.unitPrice = newPrice;
         priceLabel.textContent = formatMoney(newPrice);
         updateTotals();
+        saveCartToStorage();
       });
     });
     priceWrap.appendChild(priceLabel);
@@ -4155,15 +4156,13 @@ window.openUserProfile = async (userId, fallbackName) => {
   try {
     const data = await api(`/api/users/${userId}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
     if (data.profile) {
+      data.profile.isFriend = !!data.profile.isFriend;
       state.currentProfileUser = data.profile;
       state.currentCartSellerId = data.profile.id || '';
       setAvatarContainer($("profileAvatar"), data.profile, fallbackName);
-      
+
       const finalName = data.profile.remarkName || data.profile.nickname || fallbackName || '未知用户';
-      const nickname = data.profile.nickname || finalName;
-      data.profile.isFriend = !!data.profile.isFriend;
-      state.currentProfileUser = data.profile;
-      if($("profileRemarkName")) $("profileRemarkName").textContent = nickname;
+      if($("profileRemarkName")) $("profileRemarkName").textContent = finalName;
       if($("profileNickName")) $("profileNickName").textContent = data.profile.nickname || '-'; 
       if($("profileAppId")) $("profileAppId").textContent = `ID：${data.profile.appNumberId}`;
       if($("profileSignature")) $("profileSignature").textContent = data.profile.signature || '这个人很神秘，还没有填写签名';
@@ -6987,7 +6986,7 @@ async function connectRealtime() {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
-      if (!applyRecalledMessageLocally(data.messageId, data.senderId)) { fetchMessages(); }
+      if (!applyRecalledMessageLocally(data.messageId, data.message?.senderId)) { fetchMessages(); }
       syncActiveConversationListMeta();
       scheduleRenderConversationList();
     } else if (data.message) {
