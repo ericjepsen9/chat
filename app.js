@@ -2653,7 +2653,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
   if (msg.clientMessageId) node.dataset.clientMessageId = msg.clientMessageId;
   let userObj = state.currentUser; let finalName = '我';
   if (msg.senderId !== state.currentUser?.id) {
-    const friend = state.friends.find(f => f.friend?.id === msg.senderId);
+    const friend = state.friendsById ? state.friendsById.get(msg.senderId) : state.friends.find(f => f.friend?.id === msg.senderId);
     userObj = friend ? friend.friend : { displayName: '用户' };
     finalName = userObj.remark || userObj.displayName;
   }
@@ -5440,7 +5440,7 @@ function bindAllEvents() {
         profileCard.appendChild(hint);
         return;
       }
-      const friend = state.friends.find(f => f.friend.id === peerId);
+      const friend = state.friendsById ? state.friendsById.get(peerId) : state.friends.find(f => f.friend.id === peerId);
       const userObj = friend ? friend.friend : { displayName: state.activeConversation?.title || state.conversations.find((c) => c.id === state.activeConversation?.id)?.title || '未知用户', avatarUrl: state.activeConversation?.peerAvatarUrl || null };
       const finalName = userObj.remark || userObj.displayName || '未知用户';
       profileCard.style.opacity = '';
@@ -5534,6 +5534,7 @@ function bindAllEvents() {
         try {
           await api('/api/friends/delete', { method:'POST', body: JSON.stringify({userId: state.currentUser.id, friendId: peerId}) });
           state.friends = (state.friends || []).filter((item) => item.friend?.id !== peerId);
+          if (state.friendsById) state.friendsById.delete(peerId);
           showModal('好友已删除');
           await Promise.all([loadFriends(), loadConversations()]);
           $("backBtn")?.click();
@@ -6578,6 +6579,8 @@ async function _loadFriendsImpl() {
     let filteredFriends = data.friends;
     if (keyword) filteredFriends = filteredFriends.filter(f => f.friend && ((f.friend.displayName || '').toLowerCase().includes(keyword) || (f.friend.username || '').toLowerCase().includes(keyword)));
     state.friends = data.friends;
+    state.friendsById = new Map();
+    for (const f of data.friends) if (f.friend?.id) state.friendsById.set(f.friend.id, f);
     const grouped = new Map();
     grouped.set('我的好友', filteredFriends.slice());
     filteredFriends.forEach((f) => {
@@ -7143,7 +7146,7 @@ async function connectRealtime() {
       state.rtc.earlyCandidates = state.rtc.earlyCandidates || []; state.rtc.callId = payload.callId || state.rtc.callId || null; state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; state.rtc.pendingOffer = payload; setRtcPhase('incoming');
       
       let peerName = payload.senderName || payload.senderId;
-      const f = state.friends.find(x=>x.friend.id === payload.senderId);
+      const f = state.friendsById ? state.friendsById.get(payload.senderId) : state.friends.find(x=>x.friend.id === payload.senderId);
       if(f) peerName = f.friend.remark || f.friend.displayName;
       
       if (shouldPresentIncomingUI(payload)) {
@@ -7166,7 +7169,7 @@ async function connectRealtime() {
       await flushQueuedRemoteCandidates();
 
       let peerName = payload.senderName || state.rtc.peerId;
-      const f = state.friends.find(x=>x.friend.id === state.rtc.peerId);
+      const f = state.friendsById ? state.friendsById.get(state.rtc.peerId) : state.friends.find(x=>x.friend.id === state.rtc.peerId);
       if(f) peerName = f.friend.remark || f.friend.displayName;
 
       markCallConnecting(state.rtc.peerId, state.rtc.mode, '对方已接听，建立连接中...');
@@ -7291,7 +7294,9 @@ function renderSidebar() {
     return !(clearedAt && (c.lastMessageAt || 0) <= clearedAt && !(c.unread > 0));
   });
 
-  const sig = JSON.stringify(visible.map(c => c.id + ':' + (c.unread||0) + ':' + (c.preview||'') + ':' + (c.peerAvatarUrl||'') + ':' + (c.title||''))) + ':' + (state.activeConversation?.id || '') + ':' + state.sidebarMode;
+  let sig = '';
+  for (const c of visible) sig += c.id + ':' + (c.unread||0) + ':' + (c.preview||'') + ':' + (c.peerAvatarUrl||'') + ':' + (c.title||'') + ';';
+  sig += (state.activeConversation?.id || '') + ':' + state.sidebarMode;
   if (sig === _sidebarSignature) return;
   _sidebarSignature = sig;
 

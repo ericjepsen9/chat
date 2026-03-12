@@ -670,10 +670,11 @@ function broadcastToUser(userId, event, payload) {
     sendPushFallback(userId, event, payload);
     return;
   }
-  for (const client of [...clients]) {
-    const ok = sendSse(client, event, payload);
-    if (!ok) removeSseClient(userId, client);
+  const toRemove = [];
+  for (const client of clients) {
+    if (!sendSse(client, event, payload)) toRemove.push(client);
   }
+  for (const client of toRemove) removeSseClient(userId, client);
 }
 /**
  * Push fallback: when user has no active SSE connection, send via EMAS push.
