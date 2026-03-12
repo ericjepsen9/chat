@@ -3113,12 +3113,20 @@ function summarizeMessagePreview(msg) {
   return String(msg.text || '');
 }
 
+let _lastReceiptKey = '';
 function refreshMessageReadReceipts() {
   const chatView = $('chatView');
   if (!chatView) return;
-  chatView.querySelectorAll('.message-read-receipt').forEach((el) => el.remove());
-  if (!state.activeConversation || state.activeConversation.type !== 'direct') return;
+  if (!state.activeConversation || state.activeConversation.type !== 'direct') {
+    if (_lastReceiptKey) { chatView.querySelectorAll('.message-read-receipt').forEach((el) => el.remove()); _lastReceiptKey = ''; }
+    return;
+  }
   const peerLastReadAt = Number(state.activeConversation.peerLastReadAt || 0);
+  const lastMsg = state.messages.length ? state.messages[state.messages.length - 1] : null;
+  const receiptKey = state.activeConversation.id + ':' + peerLastReadAt + ':' + (lastMsg?.id || '');
+  if (receiptKey === _lastReceiptKey) return;
+  _lastReceiptKey = receiptKey;
+  chatView.querySelectorAll('.message-read-receipt').forEach((el) => el.remove());
   let target = null;
   for (let i = state.messages.length - 1; i >= 0; i -= 1) {
     const msg = state.messages[i];
@@ -6912,7 +6920,8 @@ function insertCallRecordMessage(ev, meta = {}){
     if(state.activeConversation?.id !== cid) return;
 
     const msg = { id: 'call_'+Date.now(), senderId: 'system', type:'system', text, createdAt: Date.now() };
-    state.messages = (state.messages || []).concat([msg]);
+    if (!state.messages) state.messages = [];
+    state.messages.push(msg);
     appendMessageToView(msg);
     applyLastOutgoingReadState();
   }catch(_){}
@@ -7389,9 +7398,15 @@ function renderConversationListFromState() {
   bindConversationSwipeDismiss();
   let filteredConvs = state.conversations || [];
 
-  const tradeOrders = (state.buyerOrders || []).concat(state.sellerOrders || []).filter((o) => o && o.status !== 'completed');
   const tradeReadAt = state.tradeAlertReadAt || 0;
-  const tradeUnread = tradeOrders.filter((o) => Number(o.updatedAt || o.createdAt || 0) > tradeReadAt).length;
+  let tradeUnread = 0;
+  const tradeOrders = [];
+  for (const o of (state.buyerOrders || [])) {
+    if (o && o.status !== 'completed') { tradeOrders.push(o); if (Number(o.updatedAt || o.createdAt || 0) > tradeReadAt) tradeUnread++; }
+  }
+  for (const o of (state.sellerOrders || [])) {
+    if (o && o.status !== 'completed') { tradeOrders.push(o); if (Number(o.updatedAt || o.createdAt || 0) > tradeReadAt) tradeUnread++; }
+  }
   const tradeConv = tradeOrders.length ? {
     id: '__trade_alert__',
     title: '交易提醒',
