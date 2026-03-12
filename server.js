@@ -46,6 +46,28 @@ const createOrderRoutes = require('./server_routes_orders');
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
 const STATIC_ROOT = ROOT;
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json; charset=utf-8',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.webm': 'audio/webm',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'video/mp4',
+};
+
+const FILE_EXT_MAP = new Map([
+  ['image/jpeg', '.jpg'], ['image/png', '.png'], ['image/webp', '.webp'],
+  ['audio/webm', '.webm'], ['audio/ogg', '.ogg'], ['audio/mp4', '.m4a'],
+  ['video/mp4', '.mp4'],
+]);
 const DB_FILE = path.join(ROOT, 'data.json');
 const USE_SQLITE = process.env.USE_SQLITE === '1';
 const SQLITE_FILE = path.join(ROOT, 'data.sqlite');
@@ -217,11 +239,11 @@ function broadcastToUser(userId, event, payload, _prebuilt) {
   }
   // Pre-serialize once for multiple clients
   const chunk = _prebuilt || `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-  const toRemove = [];
-  for (const client of clients) {
-    if (!sendSseRaw(client, chunk)) toRemove.push(client);
+  // Snapshot to array to allow safe removal during iteration
+  const snapshot = Array.from(clients);
+  for (let i = 0; i < snapshot.length; i++) {
+    if (!sendSseRaw(snapshot[i], chunk)) removeSseClient(userId, snapshot[i]);
   }
-  for (const client of toRemove) removeSseClient(userId, client);
 }
 /**
  * Push fallback: when user has no active SSE connection, send via EMAS push.
@@ -335,13 +357,9 @@ function safeUploadFileName(name) {
 
 function fileExtFromType(contentType, originalName = '') {
   const lowered = String(contentType || '').toLowerCase();
-  if (lowered.includes('image/jpeg')) return '.jpg';
-  if (lowered.includes('image/png')) return '.png';
-  if (lowered.includes('image/webp')) return '.webp';
-  if (lowered.includes('audio/webm')) return '.webm';
-  if (lowered.includes('audio/ogg')) return '.ogg';
-  if (lowered.includes('audio/mp4')) return '.m4a';
-  if (lowered.includes('video/mp4')) return '.mp4';
+  for (const [mime, ext] of FILE_EXT_MAP) {
+    if (lowered.includes(mime)) return ext;
+  }
   const ext = path.extname(originalName || '');
   return ext && ext.length <= 8 ? ext : '.bin';
 }
@@ -354,19 +372,19 @@ function isMessageVisibleToUser(msg, conv, userId) {
 
 function getVisibleMessagesSlice(conv, userId, before = 0, limit = 30) {
   const list = index.messagesByConv.get(conv.id) || [];
-  const out = [];
+  const out = new Array(limit);
+  let count = 0;
   let hasMore = false;
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const msg = list[i];
     if (before > 0 && msg.createdAt >= before) continue;
     if (!isMessageVisibleToUser(msg, conv, userId)) continue;
-    if (out.length < limit) out.push(msg);
-    else {
-      hasMore = true;
-      break;
-    }
+    if (count < limit) { out[count++] = msg; }
+    else { hasMore = true; break; }
   }
-  out.reverse();
+  // Reverse in-place without allocation: items are in out[0..count-1] in reverse order
+  for (let l = 0, r = count - 1; l < r; l++, r--) { const t = out[l]; out[l] = out[r]; out[r] = t; }
+  out.length = count;
   return { messages: out, hasMore };
 }
 
@@ -962,21 +980,7 @@ const server = http.createServer(async (req, res) => {
       fs.readFile(filePath, (err, data) => {
         if (err) return res.writeHead(404).end();
         const ext = path.extname(filePath);
-        const contentType = {
-          '.html': 'text/html; charset=utf-8',
-          '.css': 'text/css; charset=utf-8',
-          '.js': 'application/javascript; charset=utf-8',
-          '.svg': 'image/svg+xml',
-          '.json': 'application/json; charset=utf-8',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.png': 'image/png',
-          '.webp': 'image/webp',
-          '.webm': 'audio/webm',
-          '.ogg': 'audio/ogg',
-          '.m4a': 'audio/mp4',
-          '.mp4': 'video/mp4',
-        }[ext] || 'application/octet-stream';
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
         res.writeHead(200, { 'Content-Type': contentType });
         res.end(data);
       });

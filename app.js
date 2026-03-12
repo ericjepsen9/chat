@@ -1150,7 +1150,7 @@ function renderProfileCartPage(){
   if(sellerInfo){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
     const sellerName = profile?.displayName || profile?.nickname
-      || (state.buyerOrders || []).find(o => o.sellerId === sellerId)?.sellerName
+      || ((state.buyerOrders || []).find(o => o.sellerId === sellerId) || (state.sellerOrders || []).find(o => o.sellerId === sellerId))?.sellerName
       || `商家 ${sellerId.slice(-6)}`;
     sellerInfo.textContent = sellerName;
     sellerInfo.classList.toggle('hidden', !sellerId);
@@ -1301,11 +1301,14 @@ function renderCartHubPage(){
     list.replaceChildren(empty);
     return;
   }
+  // Build sellerName cache from orders for O(1) lookup
+  const _sellerNameCache = new Map();
+  for (const o of (state.sellerOrders || [])) if (o.sellerId && o.sellerName) _sellerNameCache.set(o.sellerId, o.sellerName);
+  for (const o of (state.buyerOrders || [])) if (o.sellerId && o.sellerName && !_sellerNameCache.has(o.sellerId)) _sellerNameCache.set(o.sellerId, o.sellerName);
   const frag = document.createDocumentFragment();
   groups.forEach(([sellerId, arr]) => {
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    const knownSeller = (state.sellerOrders || []).find((o) => o.sellerId === sellerId)?.sellerName
-      || (state.buyerOrders || []).find((o) => o.sellerId === sellerId)?.sellerName;
+    const knownSeller = _sellerNameCache.get(sellerId);
     const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
     const count = arr.reduce((s, item) => s + (Number(item.quantity)||0), 0);
     const total = arr.reduce((s, item) => s + (Number(item.unitPrice)||0)*(Number(item.quantity)||0), 0);
@@ -4243,14 +4246,14 @@ function bindProductEvents() {
     const specWrap = $('specPresetChips');
     if (catWrap) {
       catWrap.innerHTML = '';
-      const selectedCats = categoryTags.getTags();
+      const selectedCats = new Set(categoryTags.getTags());
       _categoryPresets.forEach(cat => {
         const chip = document.createElement('button');
         chip.type = 'button';
-        chip.className = 'preset-chip' + (selectedCats.includes(cat) ? ' selected' : '');
+        chip.className = 'preset-chip' + (selectedCats.has(cat) ? ' selected' : '');
         chip.textContent = cat;
         chip.addEventListener('click', () => {
-          if (selectedCats.includes(cat)) categoryTags.removeTag(cat);
+          if (selectedCats.has(cat)) categoryTags.removeTag(cat);
           else categoryTags.addTag(cat);
           renderPresetChips();
         });
@@ -4259,14 +4262,14 @@ function bindProductEvents() {
     }
     if (specWrap) {
       specWrap.innerHTML = '';
-      const selectedSpecs = specsTags.getTags();
+      const selectedSpecs = new Set(specsTags.getTags());
       _specPresets.forEach(spec => {
         const chip = document.createElement('button');
         chip.type = 'button';
-        chip.className = 'preset-chip' + (selectedSpecs.includes(spec) ? ' selected' : '');
+        chip.className = 'preset-chip' + (selectedSpecs.has(spec) ? ' selected' : '');
         chip.textContent = spec;
         chip.addEventListener('click', () => {
-          if (selectedSpecs.includes(spec)) specsTags.removeTag(spec);
+          if (selectedSpecs.has(spec)) specsTags.removeTag(spec);
           else specsTags.addTag(spec);
           renderPresetChips();
         });
@@ -5665,8 +5668,8 @@ function bindSearchAndEmojiEvents() {
       const bubbles = chatView.querySelectorAll('.message-row:not(.system-msg) .bubble:not(.audio-bubble):not(.image-bubble)');
       const matches = [];
       bubbles.forEach(bubble => {
-        const text = bubble.textContent || '';
-        if (text.toLowerCase().includes(keyword)) {
+        const text = (bubble.textContent || '').toLowerCase();
+        if (text.includes(keyword)) {
           // Highlight occurrences in this bubble
           const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
           const textNodes = [];
