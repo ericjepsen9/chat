@@ -3170,45 +3170,34 @@ function applyIncomingConversationMeta(conversationId, message) {
   sortConversationsInPlace();
 }
 function buildConversationSignature(visible, totalUnread) {
-  return JSON.stringify({
-    totalUnread,
-    items: visible.map((conv) => ({
-      id: conv.id,
-      title: conv.title,
-      preview: conv.preview || '',
-      unread: conv.unread || 0,
-      muted: isConversationMuted(conv),
-      pinned: isConversationPinned(conv),
-      avatar: conv.peerAvatarUrl || '',
-      clearedAt: getConversationClearedAt(conv),
-      lastMessageAt: conv.lastMessageAt || 0
-    }))
-  });
+  let s = totalUnread + ':';
+  for (const conv of visible) {
+    s += conv.id + '|' + (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
+      + '|' + (isConversationMuted(conv) ? 1 : 0) + '|' + (isConversationPinned(conv) ? 1 : 0)
+      + '|' + (conv.peerAvatarUrl || '') + '|' + (getConversationClearedAt(conv))
+      + '|' + (conv.lastMessageAt || 0) + ';';
+  }
+  return s;
 }
 function buildFriendListSignature(customGroups, grouped) {
-  return JSON.stringify(customGroups.map((groupName) => ({
-    groupName,
-    members: (grouped.get(groupName) || []).map((item) => ({
-      id: item.friend.id,
-      name: item.friend.displayName || '',
-      remark: item.friend.remark || '',
-      avatar: item.friend.avatarUrl || ''
-    }))
-  })));
+  let s = '';
+  for (const groupName of customGroups) {
+    s += groupName + ':';
+    for (const item of (grouped.get(groupName) || [])) {
+      s += item.friend.id + '|' + (item.friend.displayName || '') + '|' + (item.friend.remark || '') + '|' + (item.friend.avatarUrl || '') + ',';
+    }
+    s += ';';
+  }
+  return s;
 }
 function buildMallSignature(products) {
-  return JSON.stringify(products.map((p) => ({
-    id: p.id,
-    title: p.title || '',
-    desc: p.desc || '',
-    price: p.price,
-    image: p.image || '',
-    sellerId: p.sellerId || '',
-    sellerName: p.sellerName || '',
-    sellerAvatarUrl: p.sellerAvatarUrl || p.sellerAvatar || '',
-    location: p.location || '',
-    distance: p.distance ?? null
-  })));
+  let s = '';
+  for (const p of products) {
+    s += p.id + '|' + (p.title || '') + '|' + p.price + '|' + (p.image || '')
+      + '|' + (p.sellerId || '') + '|' + (p.sellerName || '')
+      + '|' + (p.location || '') + '|' + (p.distance ?? '') + ';';
+  }
+  return s;
 }
 function isConversationMuted(conv) {
   if (!conv) return false;
@@ -3236,17 +3225,11 @@ function normalizeConversation(conv) {
   };
 }
 function buildConversationItemSignature(conv) {
-  return JSON.stringify({
-    title: conv.title || '',
-    preview: conv.preview || '',
-    unread: conv.unread || 0,
-    muted: isConversationMuted(conv),
-    pinned: isConversationPinned(conv),
-    avatar: conv.peerAvatarUrl || '',
-    clearedAt: getConversationClearedAt(conv),
-    lastMessageAt: conv.lastMessageAt || 0,
-    isActive: !!(state.activeConversation && state.activeConversation.id === conv.id)
-  });
+  return (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
+    + '|' + (isConversationMuted(conv) ? 1 : 0) + '|' + (isConversationPinned(conv) ? 1 : 0)
+    + '|' + (conv.peerAvatarUrl || '') + '|' + getConversationClearedAt(conv)
+    + '|' + (conv.lastMessageAt || 0)
+    + '|' + (state.activeConversation && state.activeConversation.id === conv.id ? 1 : 0);
 }
 function createEmptyChatListNode() {
   const empty = document.createElement('div');
@@ -3544,21 +3527,16 @@ function patchConversationRow(row, conv) {
   return replacement;
 }
 function buildFriendItemSignature(item, groupName = '') {
-  return JSON.stringify({
-    key: `${groupName}::${item.friend.id}`,
-    id: item.friend.id,
-    name: item.friend.displayName || '',
-    username: item.friend.username || '',
-    remark: item.friend.remark || '',
-    avatar: item.friend.avatarUrl || ''
-  });
+  return groupName + '::' + item.friend.id + '|' + (item.friend.displayName || '')
+    + '|' + (item.friend.username || '') + '|' + (item.friend.remark || '')
+    + '|' + (item.friend.avatarUrl || '');
 }
 function buildFriendGroupSignature(groupName, members) {
-  return JSON.stringify({
-    groupName,
-    count: members.length,
-    items: members.map((item) => buildFriendItemSignature(item, groupName))
-  });
+  let s = groupName + ':' + members.length + ':';
+  for (const item of members) {
+    s += buildFriendItemSignature(item, groupName) + ',';
+  }
+  return s;
 }
 function buildFriendRow(item, groupName = '') {
   const btn = document.createElement('button');
@@ -3639,19 +3617,11 @@ function patchFriendGroupSection(section, groupName, members) {
   return section;
 }
 function buildMallItemSignature(product) {
-  return JSON.stringify({
-    id: product.id,
-    title: product.title || '',
-    desc: product.desc || '',
-    price: product.price,
-    stock: product.stock,
-    image: product.image || '',
-    sellerId: product.sellerId || '',
-    sellerName: product.sellerName || '',
-    sellerAvatarUrl: product.sellerAvatarUrl || product.sellerAvatar || '',
-    location: product.location || '',
-    distance: product.distance ?? null
-  });
+  return product.id + '|' + (product.title || '') + '|' + (product.desc || '')
+    + '|' + product.price + '|' + product.stock + '|' + (product.image || '')
+    + '|' + (product.sellerId || '') + '|' + (product.sellerName || '')
+    + '|' + (product.sellerAvatarUrl || product.sellerAvatar || '')
+    + '|' + (product.location || '') + '|' + (product.distance ?? '');
 }
 function buildMallCard(product) {
   const card = document.createElement('div');
