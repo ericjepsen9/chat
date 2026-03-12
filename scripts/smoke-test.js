@@ -4,7 +4,9 @@ const path = require('path');
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:4173';
 let authToken = null;
+let authCsrf = null;
 let adminToken = null;
+let adminCsrf = null;
 let serverProc = null;
 
 function sleep(ms) {
@@ -45,6 +47,20 @@ async function shutdownOwnedServer() {
 async function j(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (authToken && !('Authorization' in headers)) headers.Authorization = `Bearer ${authToken}`;
+  if (authCsrf && !('X-CSRF-Token' in headers)) headers['X-CSRF-Token'] = authCsrf;
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`${path} -> ${res.status} ${JSON.stringify(data)}`);
+  return data;
+}
+
+async function jAdmin(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+  if (adminCsrf) headers['X-CSRF-Token'] = adminCsrf;
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers,
@@ -58,6 +74,7 @@ async function j(path, options = {}) {
 async function expectHttpError(path, options = {}, expectedStatus = 400) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (authToken && !('Authorization' in headers)) headers.Authorization = `Bearer ${authToken}`;
+  if (authCsrf && !('X-CSRF-Token' in headers)) headers['X-CSRF-Token'] = authCsrf;
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
   const data = await res.json();
   if (res.status !== expectedStatus) {
@@ -69,23 +86,32 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
 (async () => {
   await ensureServerReady();
   const now = Date.now();
-  const username = `u_${now}`;
   const phone = `139${String(now).slice(-8)}`;
+  const password = 'smoke12345';
+
+  // Request phone verification code before registration
+  await j('/api/auth/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone, scene: 'register' }),
+  });
+
   const register = await j('/api/register', {
     method: 'POST',
-    body: JSON.stringify({ displayName: 'SmokeUser', username, password: '1234', phone }),
+    body: JSON.stringify({ displayName: 'SmokeUser', password, phone, code: '1234' }),
   });
-  assert(register.user && register.user.username === username);
+  assert(register.user && register.user.username === phone);
   assert(register.token);
   authToken = register.token;
+  authCsrf = register.csrfToken;
 
   const login = await j('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password: '1234' }),
+    body: JSON.stringify({ username: phone, password }),
   });
   assert(login.user && login.user.id);
   assert(login.token);
   authToken = login.token;
+  authCsrf = login.csrfToken;
 
 
   const adminLoginRes = await fetch(`${BASE}/api/login`, {
@@ -96,6 +122,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   const adminLogin = await adminLoginRes.json();
   if (!adminLoginRes.ok) throw new Error(`admin login failed ${adminLoginRes.status}`);
   adminToken = adminLogin.token;
+  adminCsrf = adminLogin.csrfToken;
 
   const users = await j(`/api/users?currentUserId=${encodeURIComponent(login.user.id)}`);
   assert(Array.isArray(users.users) && users.users.length > 0);
@@ -113,13 +140,10 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   if (!requestsRes.ok) throw new Error(`fetch friend requests failed ${requestsRes.status} ${JSON.stringify(requestsData)}`);
   const pendingRequest = (requestsData.requests || []).find((r) => r.status === 'pending' && (r.fromUserId === login.user.id || r.sender?.id === login.user.id));
   if (pendingRequest) {
-    const acceptRes = await fetch(`${BASE}/api/friends/accept`, {
+    await jAdmin(`/api/friends/accept`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
       body: JSON.stringify({ userId: target.id, requestId: pendingRequest.id }),
     });
-    const acceptData = await acceptRes.json();
-    if (!acceptRes.ok) throw new Error(`accept friend request failed ${acceptRes.status} ${JSON.stringify(acceptData)}`);
   }
 
   const conv = await j('/api/conversations', {
@@ -142,13 +166,10 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   const messages = await j(`/api/conversations/${conv.conversation.id}/messages?userId=${encodeURIComponent(login.user.id)}`);
   assert(Array.isArray(messages.messages) && messages.messages.length > 0);
 
-  const incomingRes = await fetch(`${BASE}/api/conversations/${conv.conversation.id}/messages`, {
+  const incomingData = await jAdmin(`/api/conversations/${conv.conversation.id}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ senderId: target.id, type: 'text', text: 'smoke-unread-check' }),
   });
-  const incomingData = await incomingRes.json();
-  if (!incomingRes.ok) throw new Error(`incoming message failed ${incomingRes.status} ${JSON.stringify(incomingData)}`);
   assert(incomingData.message && incomingData.message.senderId === target.id);
 
   const convListWithUnread = await j(`/api/conversations?userId=${encodeURIComponent(login.user.id)}`);
@@ -182,9 +203,8 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
     body: JSON.stringify({ senderId: login.user.id, type: 'card', card: { cardType: '收款码', title: '微信收款码', imageUrl: '/uploads/fake.png' } }),
   }, 400);
 
-  const sellerProductRes = await fetch(`${BASE}/api/products`, {
+  const sellerProductData = await jAdmin('/api/products', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({
       userId: target.id,
       title: 'smoke item',
@@ -196,8 +216,6 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
       image: '/uploads/smoke-product.png',
     }),
   });
-  const sellerProductData = await sellerProductRes.json();
-  if (!sellerProductRes.ok) throw new Error(`create seller product failed ${sellerProductRes.status} ${JSON.stringify(sellerProductData)}`);
   const sellerStore = await j(`/api/users/${encodeURIComponent(target.id)}/store`);
   const smokeProduct = (sellerStore.items || []).find((item) => item.title === 'smoke item');
   assert(smokeProduct && smokeProduct.id, 'smoke seller product should exist');
@@ -210,10 +228,17 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   const orderFirst = await j('/api/orders', { method: 'POST', body: JSON.stringify(orderPayload) });
   const orderSecond = await j('/api/orders', { method: 'POST', body: JSON.stringify(orderPayload) });
   assert(orderFirst.order && orderFirst.order.id);
-  assert(orderFirst.order.status === 'accepted');
+  assert(orderFirst.order.status === 'pending');
   assert(orderFirst.order.items && Number(orderFirst.order.items[0].price) === 9.9, 'order item price should come from seller product');
   assert(orderSecond.order && orderSecond.order.id === orderFirst.order.id);
   assert(orderSecond.deduplicated === true);
+
+  // Seller accepts the order
+  const acceptRes = await jAdmin(`/api/orders/${orderFirst.order.id}/accept`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  assert(acceptRes.order && acceptRes.order.status === 'accepted');
 
   const orderCardMsg = await j(`/api/conversations/${conv.conversation.id}/messages`, {
     method: 'POST',
@@ -225,7 +250,7 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
 
   const convListAfterOrderCard = await j(`/api/conversations?userId=${encodeURIComponent(login.user.id)}`);
   const convMetaAfterOrderCard = (convListAfterOrderCard.conversations || []).find((c) => c.id === conv.conversation.id);
-  assert(convMetaAfterOrderCard && convMetaAfterOrderCard.preview === '[交易提醒]');
+  assert(convMetaAfterOrderCard && convMetaAfterOrderCard.preview === '[订单]');
 
   const clearRes = await j(`/api/conversations/${conv.conversation.id}/clear`, {
     method: 'POST',
@@ -263,13 +288,10 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
     body: JSON.stringify({ total: 8.6 }),
   }, 409);
 
-  const confirmBySellerRes = await fetch(`${BASE}/api/orders/${orderFirst.order.id}/price-confirm`, {
+  const confirmBySeller = await jAdmin(`/api/orders/${orderFirst.order.id}/price-confirm`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ total: 8.8 }),
   });
-  const confirmBySeller = await confirmBySellerRes.json();
-  if (!confirmBySellerRes.ok) throw new Error(`price-confirm failed ${confirmBySellerRes.status} ${JSON.stringify(confirmBySeller)}`);
   assert(confirmBySeller.order && Number(confirmBySeller.order.total) === 8.8);
   assert(confirmBySeller.order.status === 'accepted');
 
@@ -303,34 +325,20 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   const buyerOrdersAfterDelete = await j('/api/orders');
   assert(!(buyerOrdersAfterDelete.orders || []).some((o) => o.id === orderFirst.order.id), 'deleted order should be hidden for buyer');
 
-  const sellerOrdersAfterDeleteRes = await fetch(`${BASE}/api/orders?sellerId=${encodeURIComponent(target.id)}`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-  const sellerOrdersAfterDelete = await sellerOrdersAfterDeleteRes.json();
-  if (!sellerOrdersAfterDeleteRes.ok) throw new Error(`seller orders fetch failed ${sellerOrdersAfterDeleteRes.status}`);
+  const sellerOrdersAfterDelete = await jAdmin(`/api/orders?sellerId=${encodeURIComponent(target.id)}`);
   assert((sellerOrdersAfterDelete.orders || []).some((o) => o.id === orderFirst.order.id), 'order should still be visible for seller before seller deletes');
 
-  const delBySellerRes = await fetch(`${BASE}/api/orders/${orderFirst.order.id}/delete`, {
+  const delBySeller = await jAdmin(`/api/orders/${orderFirst.order.id}/delete`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({}),
   });
-  const delBySeller = await delBySellerRes.json();
-  if (!delBySellerRes.ok) throw new Error(`seller delete failed ${delBySellerRes.status} ${JSON.stringify(delBySeller)}`);
-  const sellerOrdersAfterSelfDeleteRes = await fetch(`${BASE}/api/orders?sellerId=${encodeURIComponent(target.id)}`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-  const sellerOrdersAfterSelfDelete = await sellerOrdersAfterSelfDeleteRes.json();
-  if (!sellerOrdersAfterSelfDeleteRes.ok) throw new Error(`seller orders fetch 2 failed ${sellerOrdersAfterSelfDeleteRes.status}`);
+  const sellerOrdersAfterSelfDelete = await jAdmin(`/api/orders?sellerId=${encodeURIComponent(target.id)}`);
   assert(!(sellerOrdersAfterSelfDelete.orders || []).some((o) => o.id === orderFirst.order.id), 'deleted order should be hidden for seller too');
 
-  const sysRes = await fetch(`${BASE}/api/admin/system/messages`, {
+  const sysData = await jAdmin('/api/admin/system/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ title: 'Smoke系统消息', summary: '测试发布' }),
   });
-  const sysData = await sysRes.json();
-  if (!sysRes.ok) throw new Error(`system message publish failed ${sysRes.status} ${JSON.stringify(sysData)}`);
   assert(sysData.item && sysData.item.id);
 
   const systemList = await j('/api/system/messages');
