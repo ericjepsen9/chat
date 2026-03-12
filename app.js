@@ -1,7 +1,7 @@
 // Session, API, UI utilities moved to app_utils.js
 
-const state = { 
-  currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], 
+const state = {
+  currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], messagesById: new Map(),
   friends: [], friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
   profileStoreItems: [], profileCartBySeller: {}, selectedProfileProduct: null, selectedProfileSpec: '', profileOrders: [], currentCartSellerId: '',
   profileStoreExpanded: false, profileStoreCategoryFilter: '',
@@ -1319,10 +1319,14 @@ function renderProfileCartPage(){
 }
 
 
+let _cartHubSig = '';
 function renderCartHubPage(){
   const list = $("cartHubList");
   if(!list) return;
   const groups = Object.entries(state.profileCartBySeller || {}).filter(([,arr]) => Array.isArray(arr) && arr.length);
+  const sig = groups.map(([sid, arr]) => sid + ':' + arr.map(i => i.productId + ',' + (i.quantity||0)).join('|')).join(';');
+  if (sig === _cartHubSig) return;
+  _cartHubSig = sig;
   if(!groups.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1443,10 +1447,14 @@ async function loadAdminDashboard(){
   renderAdminReports();
 }
 
+let _adminCenterSig = '';
 function renderAdminCenter(){
   const grid = $("adminDashboardGrid");
   if(!grid) return;
   const stats = state.adminDashboard?.stats || {};
+  const sig = (stats.users||0)+','+(stats.products||0)+','+(stats.orders||0)+','+(stats.broadcasts||0)+','+(stats.blacklistLinks||0)+','+(stats.pendingOrders||0);
+  if (sig === _adminCenterSig) return;
+  _adminCenterSig = sig;
   const items = [
     ['用户总数', stats.users || 0],
     ['商品总数', stats.products || 0],
@@ -1605,9 +1613,13 @@ function openBroadcastDetail(title, summary){
   window.openSecondaryPage('broadcastDetailPage', state.secondaryReturn || 'home');
 }
 
+let _profileOrdersSig = '';
 function renderProfileOrders(){
   const list = $("profileOrdersList");
   if(!list) return;
+  const sig = state.profileOrders.map(o => o.id + '|' + o.status + '|' + (o.total||0)).join(';');
+  if (sig === _profileOrdersSig) return;
+  _profileOrdersSig = sig;
   if(!state.profileOrders.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -2070,12 +2082,23 @@ function syncSessionGroups(groups) {
 
 // Media/time utilities moved to app_utils.js
 
+function rebuildMessagesById() {
+  state.messagesById = new Map();
+  for (let i = 0; i < state.messages.length; i++) state.messagesById.set(state.messages[i].id, i);
+}
 function findMessageIndex(msg) {
   if (!msg) return -1;
-  const byId = state.messages.findIndex((m) => m.id === msg.id);
-  if (byId >= 0) return byId;
+  const byId = state.messagesById.get(msg.id);
+  if (byId !== undefined && byId < state.messages.length && state.messages[byId]?.id === msg.id) return byId;
+  // Fallback: linear scan (handles index drift after splice)
+  for (let i = 0; i < state.messages.length; i++) {
+    if (state.messages[i].id === msg.id) { state.messagesById.set(msg.id, i); return i; }
+  }
   if (msg.clientMessageId) {
-    return state.messages.findIndex((m) => m.clientMessageId && m.clientMessageId === msg.clientMessageId && m.senderId === msg.senderId);
+    for (let i = 0; i < state.messages.length; i++) {
+      const m = state.messages[i];
+      if (m.clientMessageId && m.clientMessageId === msg.clientMessageId && m.senderId === msg.senderId) return i;
+    }
   }
   return -1;
 }
@@ -2083,12 +2106,15 @@ function upsertMessage(msg) {
   const idx = findMessageIndex(msg);
   if (idx >= 0) {
     state.messages[idx] = { ...state.messages[idx], ...msg };
+    state.messagesById.set(msg.id, idx);
     return { action: 'replace', index: idx };
   }
   const ts = msg.createdAt || 0;
   let lo = 0, hi = state.messages.length;
   while (lo < hi) { const mid = (lo + hi) >>> 1; if ((state.messages[mid].createdAt || 0) <= ts) lo = mid + 1; else hi = mid; }
   state.messages.splice(lo, 0, msg);
+  // Rebuild index after splice shifts indices
+  rebuildMessagesById();
   // Only return 'append' if inserted at the end; otherwise 'insert' triggers full re-render
   return { action: lo === state.messages.length - 1 ? 'append' : 'insert', index: lo };
 }
@@ -2466,6 +2492,7 @@ async function reloadActiveConversationMessages(){
     const data = await api(`/api/conversations/${convId}/messages`);
     if (state.activeConversation?.id !== convId) return; // conversation changed during fetch
     state.messages = data.messages || [];
+    rebuildMessagesById();
     state.peerLastReadAt = Number((data && data.peerLastReadAt) || state.peerLastReadAt || 0);
     renderMessages();
     applyLastOutgoingReadState();
@@ -2509,7 +2536,7 @@ function replaceMessageInView(msg) {
   const existing = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(msg.id || ''))}"]`)
     || (msg.clientMessageId ? chatView.querySelector(`article.message-row[data-client-message-id="${CSS.escape(String(msg.clientMessageId))}"]`) : null);
   if (!existing) return false;
-  const index = state.messages.findIndex((m) => m.id === msg.id || (msg.clientMessageId && m.clientMessageId === msg.clientMessageId));
+  const index = findMessageIndex(msg);
   const prev = index > 0 ? state.messages[index - 1] : null;
   existing.replaceWith(buildMessageChunk(msg, prev?.createdAt || 0));
   refreshMessageReadReceipts();
@@ -2531,8 +2558,9 @@ function removeMessageFromView(messageId) {
   }
   existing.remove();
   if (hadPrevStamp && nextIsMessage && !nextIsTimestamp) {
-    const idx = state.messages.findIndex((m) => m.id === (next.dataset.id || ''));
-    const nextMsg = idx >= 0 ? state.messages[idx] : null;
+    const nextId = next.dataset.id || '';
+    const nextIdx = state.messagesById.get(nextId);
+    const nextMsg = nextIdx !== undefined ? state.messages[nextIdx] : null;
     if (nextMsg) {
       const stamp = document.createElement('div');
       stamp.className = 'time-stamp';
@@ -2546,7 +2574,8 @@ function removeMessageFromView(messageId) {
   return true;
 }
 function applyRecalledMessageLocally(messageId, senderId) {
-  const msg = state.messages.find((m) => m.id === messageId);
+  const msgIdx = state.messagesById.get(messageId);
+  const msg = msgIdx !== undefined ? state.messages[msgIdx] : undefined;
   if (!msg) return false;
   msg.type = 'system';
   msg.text = senderId === state.currentUser.id ? '你撤回了一条消息' : '对方撤回了一条消息';
@@ -3283,6 +3312,7 @@ window.deleteLocalMsg = async (id) => {
   const conversationId = state.activeConversation.id;
   const prevMessages = [...state.messages];
   state.messages = state.messages.filter(m => m.id !== id);
+  rebuildMessagesById();
   if (!removeMessageFromView(id)) renderMessages();
   applyLastOutgoingReadState();
   try {
@@ -3292,6 +3322,7 @@ window.deleteLocalMsg = async (id) => {
     loadConversations();
   } catch(e) {
     state.messages = prevMessages;
+    rebuildMessagesById();
     renderMessages();
     applyLastOutgoingReadState();
     showModal(e.message || '删除失败');
@@ -3371,7 +3402,7 @@ function bindMessageContextMenu(node, msg) {
   });
 }
 window.forwardMsg = (msgId) => {
-  msgToForward = state.messages.find(m => m.id === msgId); if(!msgToForward) return;
+  const _fwdIdx = state.messagesById.get(msgId); msgToForward = _fwdIdx !== undefined ? state.messages[_fwdIdx] : undefined; if(!msgToForward) return;
   if($("contextMenu")) $("contextMenu").classList.add('hidden');
   const list = $("forwardList");
   if(list) {
@@ -3748,6 +3779,7 @@ window.sendMessage = async (payload) => {
   const clientMessageId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const tempMsg = { id: 'temp_'+Date.now(), senderId: state.currentUser.id, createdAt: Date.now(), clientMessageId, ...payload };
   state.messages.push(tempMsg);
+  state.messagesById.set(tempMsg.id, state.messages.length - 1);
   appendMessageToView(tempMsg);
   const cv = $("chatView"); if (cv) setTimeout(() => { cv.scrollTop = cv.scrollHeight; }, 10);
   syncActiveConversationListMeta();
@@ -3770,6 +3802,7 @@ window.sendMessage = async (payload) => {
     loadSystemMessages();
   } catch (err) {
     state.messages = state.messages.filter(m => m.id !== tempMsg.id);
+    rebuildMessagesById();
     if (!removeMessageFromView(tempMsg.id)) renderMessages();
     applyLastOutgoingReadState();
     syncActiveConversationListMeta();
@@ -5000,6 +5033,7 @@ function bindSocialEvents() {
       if (!res) return;
       showModal('聊天记录已清空');
       state.messages = [];
+      state.messagesById = new Map();
       state.messageBefore = null;
       renderMessages();
       applyLastOutgoingReadState();
@@ -6168,6 +6202,7 @@ async function fetchMessages(before = 0) {
     state.hasMoreMessages = data.hasMore;
     if (before === 0) {
       state.messages = data.messages;
+      rebuildMessagesById();
       if (state.activeConversation) state.activeConversation.peerLastReadAt = Number(data.peerLastReadAt || state.activeConversation.peerLastReadAt || 0);
       state.peerLastReadAt = Number(data.peerLastReadAt || state.peerLastReadAt || 0);
       renderMessages();
@@ -6175,6 +6210,7 @@ async function fetchMessages(before = 0) {
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
       state.messages.unshift(...data.messages);
+      rebuildMessagesById();
       prependMessagesToView(data.messages, oldFirst);
     }
     state.oldestMessageTime = state.messages[0]?.createdAt || 0;
