@@ -1701,7 +1701,7 @@ async function submitProfileOrder(){
     hideLoading();
     showToast('订单已提交');
     const backTo = state.secondaryReturn || (state.activeConversation ? 'chat' : 'home');
-    window.openSecondaryPage('profileOrdersPage', backTo);
+    window.openSecondaryPage('buyerOrdersManagePage', backTo);
   }catch(e){
     hideLoading();
     showModal(e.message || '提交订单失败');
@@ -4109,7 +4109,7 @@ window.openConversation = async (id, options = {}) => {
     conv.unread = 0;
     renderConversationListFromState();
   }
-  ["profileDetailPage","messageSettingsPage","friendRequestsView","addFriendPage","scanPage","privacyPage","qrCodePage","editProfilePage","publishProductPage","myProductsPage","settingsPage","groupManagePage","profileCartPage","profileOrdersPage","cartHubPage","contactCardPickerPage","productCardPickerPage","orderCardPickerPage","productEditorPage","broadcastDetailPage","forgotPasswordPage","changePasswordPage","changePhonePage","msgSearchPage","mallSearchPage"].forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
+  SECONDARY_PAGE_IDS.forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
   if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
   if($("chatListView")) $("chatListView").classList.add("hidden"); 
   if($("friendListView")) $("friendListView").classList.add("hidden");
@@ -5122,8 +5122,8 @@ function bindAllEvents() {
   on("clearCacheBtn", "click", () => { showConfirm("确定清理本地缓存吗？", () => { localStorage.clear(); location.reload(); }); });
   on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
   on("globalNotifyBtn", "click", () => { showModal("新消息通知目前跟随系统默认设置开启"); });
-  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
-  on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage'); loadMyProducts(); });
+  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
+  on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage', 'profile'); loadMyProducts(); });
   on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
     await Promise.all([loadSellerOrders(), loadBuyerOrders()]);

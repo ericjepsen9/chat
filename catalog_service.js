@@ -1,7 +1,7 @@
 function buildUserStoreItems({ usersById, sellerId }) {
   const seller = usersById.get(sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
-  const items = (seller.products || []).map((product) => ({
+  const items = (seller.products || []).filter((product) => product.listed !== false).map((product) => ({
     ...product,
     imageUrl: product.image,
     specs: Array.isArray(product.specs) && product.specs.length ? product.specs : ['默认规格'],
