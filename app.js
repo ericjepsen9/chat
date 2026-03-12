@@ -6991,13 +6991,15 @@ async function connectRealtime() {
       if (state.rtc.pendingAccept && $("acceptCallBtn")) $("acceptCallBtn").click();
     } else if (signal.type === 'answer' && state.rtc.pc) {
       if (!isCurrentCallPayload(payload)) return;
-      clearTimeout(outgoingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; setRtcPhase('connecting'); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)); 
-      
+      clearTimeout(outgoingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; setRtcPhase('connecting'); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+      scheduleConnectTimeout();
+      await flushQueuedRemoteCandidates();
+
       let peerName = payload.senderName || state.rtc.peerId;
       const f = state.friends.find(x=>x.friend.id === state.rtc.peerId);
       if(f) peerName = f.friend.remark || f.friend.displayName;
 
-      markCallConnecting(state.rtc.peerId, state.rtc.mode, '对方已接听，建立连接中...'); 
+      markCallConnecting(state.rtc.peerId, state.rtc.mode, '对方已接听，建立连接中...');
       if($("callName")) $("callName").textContent = peerName;
     } else if (signal.type === 'candidate') {
       if (!isCurrentCallPayload(payload)) return;
