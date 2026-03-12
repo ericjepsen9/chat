@@ -122,30 +122,28 @@ function normalizePhone(phone) {
 function findUserByPhone(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
-  return db.users.find((u) => String(u.phone || '') === normalized) || null;
+  return index.usersByPhone?.get(normalized) || null;
+}
+
+// Shared cleanup helpers
+function cleanupExpiredMap(map, isExpired) {
+  const now = Date.now();
+  for (const [key, val] of map.entries()) {
+    if (isExpired(key, val, now)) map.delete(key);
+  }
+}
+function isRateLimitEntryStale(_key, state, now) {
+  const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
+  const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
+  return expiredBlock && staleWindow;
 }
 
 function cleanupExpiredPhoneCodeState() {
-  const now = Date.now();
-  for (const [key, record] of phoneCodeStore.entries()) {
-    if (!record || record.expiresAt < now) phoneCodeStore.delete(key);
-  }
-  for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
-    if (!cooldownUntil || cooldownUntil < now) phoneCodeCooldownStore.delete(key);
-  }
-  for (const [key, cooldownUntil] of phoneCodeIpCooldownStore.entries()) {
-    if (!cooldownUntil || cooldownUntil < now) phoneCodeIpCooldownStore.delete(key);
-  }
-  for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
-    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
-    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
-    if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
-  }
-  for (const [ip, state] of phoneCodeVerifyIpAttempts.entries()) {
-    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
-    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
-    if (expiredBlock && staleWindow) phoneCodeVerifyIpAttempts.delete(ip);
-  }
+  cleanupExpiredMap(phoneCodeStore, (_k, r, n) => !r || r.expiresAt < n);
+  cleanupExpiredMap(phoneCodeCooldownStore, (_k, v, n) => !v || v < n);
+  cleanupExpiredMap(phoneCodeIpCooldownStore, (_k, v, n) => !v || v < n);
+  cleanupExpiredMap(phoneCodeVerifyAttempts, isRateLimitEntryStale);
+  cleanupExpiredMap(phoneCodeVerifyIpAttempts, isRateLimitEntryStale);
 }
 
 function issuePhoneCode(phone, scene = 'login') {
@@ -301,6 +299,7 @@ const loginAttempts = new Map();
 const index = {
   usersById: new Map(),
   usersByName: new Map(),
+  usersByPhone: new Map(),
   usersByAppNumber: new Map(),
   convById: new Map(),
   convByUser: new Map(),
@@ -461,6 +460,7 @@ function rebuildConversationBaseIndex() {
 function rebuildIndexes() {
   index.usersById.clear();
   index.usersByName.clear();
+  index.usersByPhone.clear();
   index.usersByAppNumber.clear();
   index.convById.clear();
   index.convByUser.clear();
@@ -517,6 +517,7 @@ function rebuildIndexes() {
     }
     index.usersById.set(user.id, user);
     index.usersByName.set(user.username, user);
+    if (user.phone) index.usersByPhone.set(user.phone, user);
     index.usersByAppNumber.set(user.appNumberId, user);
   }
   for (const conv of db.conversations) {
@@ -644,6 +645,11 @@ function broadcastAll(event, payload) {
 function sendJson(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
+}
+
+function sendResult(res, result) {
+  if (!result.ok) return sendJson(res, result.status, { error: result.error });
+  return sendJson(res, result.status, result.payload);
 }
 
 function parseBody(req) {
@@ -826,67 +832,38 @@ function getClientIp(req) {
   return forwarded || remoteIp;
 }
 
-function getLoginAttemptState(key) {
+// Shared rate-limit state helpers (parameterized by map + thresholds)
+function getRateLimitState(map, key) {
   const now = Date.now();
-  const existing = loginAttempts.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
+  if (!key) return { count: 0, windowStart: now, blockedUntil: 0 };
+  const existing = map.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
   if (existing.blockedUntil && existing.blockedUntil > now) return existing;
-  if (now - existing.windowStart > 10 * 60 * 1000) {
+  if (now - Number(existing.windowStart || now) > 10 * 60 * 1000) {
     const reset = { count: 0, windowStart: now, blockedUntil: 0 };
-    loginAttempts.set(key, reset);
+    map.set(key, reset);
     return reset;
   }
   return existing;
 }
 
-function recordLoginAttempt(key, success) {
+function recordRateLimitAttempt(map, key, success, maxAttempts, blockDurationMs) {
+  if (!key) return;
   const now = Date.now();
-  const state = getLoginAttemptState(key);
-  if (success) {
-    loginAttempts.delete(key);
-    return;
-  }
+  const state = getRateLimitState(map, key);
+  if (success) { map.delete(key); return; }
   const next = {
     count: (state.count || 0) + 1,
     windowStart: state.windowStart || now,
     blockedUntil: state.blockedUntil || 0,
   };
-  if (next.count >= 8) {
-    next.blockedUntil = now + 5 * 60 * 1000;
-  }
-  loginAttempts.set(key, next);
+  if (next.count >= maxAttempts) next.blockedUntil = now + blockDurationMs;
+  map.set(key, next);
 }
 
-
-
-function getPhoneCodeIpAttemptState(ip) {
-  const now = Date.now();
-  if (!ip) return { count: 0, windowStart: now, blockedUntil: 0 };
-  const existing = phoneCodeVerifyIpAttempts.get(ip) || { count: 0, windowStart: now, blockedUntil: 0 };
-  if (existing.blockedUntil && existing.blockedUntil > now) return existing;
-  if (now - Number(existing.windowStart || now) > 10 * 60 * 1000) {
-    const reset = { count: 0, windowStart: now, blockedUntil: 0 };
-    phoneCodeVerifyIpAttempts.set(ip, reset);
-    return reset;
-  }
-  return existing;
-}
-
-function recordPhoneCodeIpAttempt(ip, success) {
-  if (!ip) return;
-  const now = Date.now();
-  const state = getPhoneCodeIpAttemptState(ip);
-  if (success) {
-    phoneCodeVerifyIpAttempts.delete(ip);
-    return;
-  }
-  const next = {
-    count: Number(state.count || 0) + 1,
-    windowStart: state.windowStart || now,
-    blockedUntil: state.blockedUntil || 0,
-  };
-  if (next.count >= 20) next.blockedUntil = now + 10 * 60 * 1000;
-  phoneCodeVerifyIpAttempts.set(ip, next);
-}
+function getLoginAttemptState(key) { return getRateLimitState(loginAttempts, key); }
+function recordLoginAttempt(key, success) { recordRateLimitAttempt(loginAttempts, key, success, 8, 5 * 60 * 1000); }
+function getPhoneCodeIpAttemptState(ip) { return getRateLimitState(phoneCodeVerifyIpAttempts, ip); }
+function recordPhoneCodeIpAttempt(ip, success) { recordRateLimitAttempt(phoneCodeVerifyIpAttempts, ip, success, 20, 10 * 60 * 1000); }
 
 function cleanupAuthState() {
   const now = Date.now();
@@ -896,33 +873,9 @@ function cleanupAuthState() {
       csrfTokens.delete(token);
     }
   }
-  for (const [token, entry] of sseSessionTokens.entries()) {
-    if (!entry?.expiresAt || Number(entry.expiresAt) < now) sseSessionTokens.delete(token);
-  }
-  for (const [key, state] of loginAttempts.entries()) {
-    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
-    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
-    if (expiredBlock && staleWindow) loginAttempts.delete(key);
-  }
-  for (const [key, record] of phoneCodeStore.entries()) {
-    if (!record?.expiresAt || Number(record.expiresAt) < now) phoneCodeStore.delete(key);
-  }
-  for (const [key, cooldownUntil] of phoneCodeCooldownStore.entries()) {
-    if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeCooldownStore.delete(key);
-  }
-  for (const [key, cooldownUntil] of phoneCodeIpCooldownStore.entries()) {
-    if (!cooldownUntil || Number(cooldownUntil) < now) phoneCodeIpCooldownStore.delete(key);
-  }
-  for (const [key, state] of phoneCodeVerifyAttempts.entries()) {
-    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
-    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
-    if (expiredBlock && staleWindow) phoneCodeVerifyAttempts.delete(key);
-  }
-  for (const [ip, state] of phoneCodeVerifyIpAttempts.entries()) {
-    const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
-    const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
-    if (expiredBlock && staleWindow) phoneCodeVerifyIpAttempts.delete(ip);
-  }
+  cleanupExpiredMap(sseSessionTokens, (_k, e, n) => !e?.expiresAt || Number(e.expiresAt) < n);
+  cleanupExpiredMap(loginAttempts, isRateLimitEntryStale);
+  cleanupExpiredPhoneCodeState();
 }
 
 function ensureActingUser(body, authUser, ...candidateKeys) {
@@ -1407,8 +1360,7 @@ const server = http.createServer(async (req, res) => {
         broadcastAll,
         sanitizePublicUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/users/change-phone') && req.method === 'POST') {
@@ -1441,8 +1393,7 @@ const server = http.createServer(async (req, res) => {
         broadcastAll,
         sanitizePublicUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const profileMatch = pathname.match(/(?:\/api)?\/users\/([^/]+)\/profile$/);
@@ -1460,8 +1411,7 @@ const server = http.createServer(async (req, res) => {
         usersById: index.usersById,
         friendshipByPair: index.friendshipByPair,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
 
@@ -1476,8 +1426,7 @@ const server = http.createServer(async (req, res) => {
         usersById: index.usersById,
         sellerId,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/orders') && req.method === 'GET') {
@@ -1510,8 +1459,7 @@ const server = http.createServer(async (req, res) => {
         broadcastAll,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const orderAcceptMatch = pathname.match(/^\/api\/orders\/([^/]+)\/accept$/);
@@ -1529,8 +1477,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const orderPriceMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price$/);
@@ -1548,8 +1495,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const orderPriceRequestMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-request$/);
@@ -1567,8 +1513,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const orderPriceConfirmMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-confirm$/);
@@ -1586,8 +1531,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const orderStatusMatch = pathname.match(/^\/api\/orders\/([^/]+)\/status$/);
@@ -1605,8 +1549,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const orderDeleteMatch = pathname.match(/^\/api\/orders\/([^/]+)\/delete$/);
@@ -1621,8 +1564,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         ordersById: index.ordersById,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (pathname === '/api/system/messages' && req.method === 'GET') {
@@ -1667,8 +1609,7 @@ const server = http.createServer(async (req, res) => {
         addTradeMessage,
         touchConversation,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
@@ -1682,8 +1623,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastAll,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/products/delete') && req.method === 'POST') {
@@ -1696,8 +1636,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastAll,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/products/update') && req.method === 'POST') {
@@ -1710,8 +1649,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastAll,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     // ---- Product Presets (categories & specs) ----
@@ -1771,8 +1709,7 @@ const server = http.createServer(async (req, res) => {
         rebuildBlacklistViewsIndex,
         schedulePersist,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     // Search user by username, appNumberId, or phone (for add-friend preview)
@@ -1800,8 +1737,7 @@ const server = http.createServer(async (req, res) => {
         findUserByPhone,
         getOrCreateDirectConversation,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     };
 
     if (matchRoute(pathname, '/api/friends/request') && req.method === 'POST') {
@@ -1839,8 +1775,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/friends/reject') && req.method === 'POST') {
@@ -1854,8 +1789,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/friends/remark') && req.method === 'POST') {
@@ -1873,8 +1807,7 @@ const server = http.createServer(async (req, res) => {
         broadcastToUser,
         defaultGroup: DEFAULT_GROUP,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/groups/create') && req.method === 'POST') {
@@ -1891,8 +1824,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/groups/rename') && req.method === 'POST') {
@@ -1911,8 +1843,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/groups/reorder') && req.method === 'POST') {
@@ -1928,8 +1859,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/groups/delete') && req.method === 'POST') {
@@ -1947,8 +1877,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/friends/group') && req.method === 'POST') {
@@ -1966,8 +1895,7 @@ const server = http.createServer(async (req, res) => {
         rebuildConversationBaseIndex,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/friends/delete') && req.method === 'POST') {
@@ -1983,8 +1911,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (matchRoute(pathname, '/api/friends') && req.method === 'GET') {
@@ -2025,8 +1952,7 @@ const server = http.createServer(async (req, res) => {
         schedulePersist,
         broadcastToUser,
       });
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     // Global message search across all conversations
@@ -2108,8 +2034,7 @@ const server = http.createServer(async (req, res) => {
           searchParams,
           getVisibleMessagesSlice,
         });
-        if (!result.ok) return sendJson(res, result.status, { error: result.error });
-        return sendJson(res, result.status, result.payload);
+        return sendResult(res, result);
       }
 
       if (req.method === 'POST') {
@@ -2129,8 +2054,7 @@ const server = http.createServer(async (req, res) => {
           schedulePersist,
           broadcastToConversation,
         });
-        if (!result.ok) return sendJson(res, result.status, { error: result.error });
-        return sendJson(res, result.status, result.payload);
+        return sendResult(res, result);
       }
     }
 
@@ -2163,8 +2087,7 @@ const server = http.createServer(async (req, res) => {
           persistEvent: 'message_recall',
         });
 
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     const convActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/);
@@ -2193,8 +2116,7 @@ const server = http.createServer(async (req, res) => {
         broadcastToConversation,
       });
 
-      if (!result.ok) return sendJson(res, result.status, { error: result.error });
-      return sendJson(res, result.status, result.payload);
+      return sendResult(res, result);
     }
 
     if (!pathname.startsWith('/api/')) {
