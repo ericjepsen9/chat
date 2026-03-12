@@ -17,8 +17,9 @@ const state = {
   secondaryStack: []
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
+const CATEGORY_SPLIT_RE = /[\/,、]/;
 
-const isFriendUser = (userId) => !!(userId && (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId));
+const isFriendUser = (userId) => !!(userId && (state.friendsById ? state.friendsById.has(userId) : (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId)));
 
 function getPendingFriendRequest(userId) {
   return state.friendRequests.find(r => r.status === 'pending' && (r.sender?.id === userId || r.fromUser?.id === userId));
@@ -60,17 +61,20 @@ function getCurrentSellerCart(sellerId = ''){
   return state.profileCartBySeller[id];
 }
 
-function getGroupedCartTotal(){
-  return Object.values(state.profileCartBySeller || {}).reduce((sum, arr) => {
-    return sum + (Array.isArray(arr) ? arr.reduce((s, item) => s + (Number(item.unitPrice)||0)*(Number(item.quantity)||0), 0) : 0);
-  }, 0);
+function getCartSummary() {
+  let count = 0, total = 0;
+  for (const arr of Object.values(state.profileCartBySeller || {})) {
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      const qty = Number(item.quantity) || 0;
+      count += qty;
+      total += (Number(item.unitPrice) || 0) * qty;
+    }
+  }
+  return { count, total };
 }
-
-function getGroupedCartCount(){
-  return Object.values(state.profileCartBySeller || {}).reduce((sum, arr) => {
-    return sum + (Array.isArray(arr) ? arr.reduce((s, item) => s + (Number(item.quantity)||0), 0) : 0);
-  }, 0);
-}
+function getGroupedCartTotal(){ return getCartSummary().total; }
+function getGroupedCartCount(){ return getCartSummary().count; }
 const CART_STORAGE_KEY = 'chattrade_cart';
 function saveCartToStorage() {
   try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.profileCartBySeller || {})); } catch(_) {}
@@ -456,7 +460,7 @@ function populateSellerCategoryFilter(){
   // Collect categories from seller's own products + presets
   const cats = new Set();
   (state.sellerProducts || []).forEach(p => {
-    if (p.category) p.category.split(/[\/,、]/).forEach(c => { const t = c.trim(); if (t) cats.add(t); });
+    if (p.category) p.category.split(CATEGORY_SPLIT_RE).forEach(c => { const t = c.trim(); if (t) cats.add(t); });
   });
   // Also merge from presets if loaded
   (state._sellerCategoryPresets || []).forEach(c => cats.add(c));
@@ -480,7 +484,7 @@ function getFilteredSellerProducts(){
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
     if (catFilter) {
-      const itemCats = (item.category || '').split(/[\/,、]/).map(s => s.trim());
+      const itemCats = (item.category || '').split(CATEGORY_SPLIT_RE).map(s => s.trim());
       if (!itemCats.includes(catFilter)) return false;
     }
     if (keyword) {
@@ -490,12 +494,14 @@ function getFilteredSellerProducts(){
     return true;
   });
   const sortBy = state.sellerProductSort || 'newest';
-  visible.sort((a, b) => {
-    if (sortBy === 'price_asc') return parseMoney(a.price) - parseMoney(b.price);
-    if (sortBy === 'price_desc') return parseMoney(b.price) - parseMoney(a.price);
-    if (sortBy === 'stock_desc') return (Number(b.stock)||0) - (Number(a.stock)||0);
-    return (b.createdAt || 0) - (a.createdAt || 0);
-  });
+  if (sortBy === 'price_asc' || sortBy === 'price_desc') {
+    for (const p of visible) p._sortPrice = parseMoney(p.price);
+    visible.sort((a, b) => sortBy === 'price_asc' ? a._sortPrice - b._sortPrice : b._sortPrice - a._sortPrice);
+  } else if (sortBy === 'stock_desc') {
+    visible.sort((a, b) => (Number(b.stock)||0) - (Number(a.stock)||0));
+  } else {
+    visible.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
   return visible;
 }
 
@@ -698,13 +704,14 @@ function renderOrderDetailPage(){
   // Total
   const totalDiv = document.createElement('div');
   totalDiv.className = 'od-section od-total-section';
-  totalDiv.innerHTML = `<div class="od-row"><span class="od-label">合计</span><span class="od-value od-total">${escapeHTML(formatMoney(order.total))}</span></div>`;
+  let totalHtml = `<div class="od-row"><span class="od-label">合计</span><span class="od-value od-total">${escapeHTML(formatMoney(order.total))}</span></div>`;
   if(order.pendingPrice != null && order.pendingPriceRequestedBy){
-    totalDiv.innerHTML += `<div class="od-row"><span class="od-label">改价申请中</span><span class="od-value" style="color:#ff9500;">${escapeHTML(formatMoney(order.pendingPrice))}</span></div>`;
+    totalHtml += `<div class="od-row"><span class="od-label">改价申请中</span><span class="od-value" style="color:#ff9500;">${escapeHTML(formatMoney(order.pendingPrice))}</span></div>`;
   }
   if(order.priceAdjustmentLocked){
-    totalDiv.innerHTML += `<div class="od-row"><span class="od-label" style="color:#999;">价格已锁定</span></div>`;
+    totalHtml += `<div class="od-row"><span class="od-label" style="color:#999;">价格已锁定</span></div>`;
   }
+  totalDiv.innerHTML = totalHtml;
   box.appendChild(totalDiv);
 
   // Remark
@@ -874,10 +881,9 @@ function renderProfileStore(){
   if(!list) return;
   const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Pre-parse categories once for reuse in tabs + filtering
-  const _catRe = /[\/,、]/;
   const parsedCats = new Map();
   for (const item of sortedItems) {
-    if (item.category) parsedCats.set(item, item.category.split(_catRe).map(s => s.trim()).filter(Boolean));
+    if (item.category) parsedCats.set(item, item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean));
   }
   // Build category tabs
   const catTabsEl = $("profileStoreCategoryTabs");
@@ -4455,7 +4461,7 @@ function bindProductEvents() {
     window.openSecondaryPage('publishProductPage', backTo);
     await loadProductPresets();
     if($("productTitleInput")) $("productTitleInput").value = presetProduct?.title || "";
-    categoryTags.setTags(presetProduct?.category ? presetProduct.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean) : []);
+    categoryTags.setTags(presetProduct?.category ? presetProduct.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean) : []);
     if($("productDescInput")) {
       const baseDesc = String(presetProduct?.desc || '');
       $("productDescInput").value = baseDesc.replace(/\n?\[预计出餐\]\s*\d+分钟/g, "").trim();
@@ -5568,11 +5574,12 @@ function bindSearchAndEmojiEvents() {
         return;
       }
       const kw = escapeHTML(keyword);
+      const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
       const highlightText = (text) => {
         const escaped = escapeHTML(text.length > 80 ? text.slice(0, 80) + '...' : text);
-        return escaped.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
+        return escaped.replace(kwRe, '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
       };
-      el.innerHTML = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
+      let searchHtml = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
         res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${escapeHTML(r.conversationId)}" data-msg-id="${escapeHTML(r.messageId)}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
           <div style="flex:1;min-width:0;">
             <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
@@ -5580,7 +5587,8 @@ function bindSearchAndEmojiEvents() {
           </div>
           <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
         </button>`).join('');
-      if (res.total > 20) el.innerHTML += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${escapeHTML(String(res.total))} 条结果</div>`;
+      if (res.total > 20) searchHtml += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${escapeHTML(String(res.total))} 条结果</div>`;
+      el.innerHTML = searchHtml;
       el.querySelectorAll('.msg-search-item').forEach(btn => {
         btn.addEventListener('click', async () => {
           const convId = btn.dataset.convId;
@@ -6208,7 +6216,7 @@ async function connectRealtime() {
   _on('friends_updated', async () => { await loadFriends(); if (state.activeConversation) applyChatRelationshipState(); });
   _on('friend_request_updated', loadFriendRequests);
   _on('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
-  _on('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; state.systemMessages = [data.message, ...(state.systemMessages || []).filter((m)=>m.id!==data.message.id)].slice(0,30); scheduleRenderConversationList(); });
+  _on('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; const sysArr = state.systemMessages || []; const dupIdx = sysArr.findIndex(m => m.id === data.message.id); if (dupIdx !== -1) sysArr.splice(dupIdx, 1); sysArr.unshift(data.message); if (sysArr.length > 30) sysArr.length = 30; state.systemMessages = sysArr; scheduleRenderConversationList(); });
   _on('order_updated', () => { scheduleTradeReminderRefresh(120); });
   _on('typing_indicator', (e) => {
     const data = safeParseEventData(e);
