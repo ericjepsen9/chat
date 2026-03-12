@@ -2274,7 +2274,7 @@ async function renderProductCardPicker(){
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
     card.innerHTML = `<img class="picker-product-img" src="${escapeHTML(imgUrl)}" alt="" /><div class="picker-product-info"><div class="picker-product-name">${escapeHTML(p.title || '商品')}</div><div class="picker-product-price">${escapeHTML(formatMoney(p.price))}</div></div>`;
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: p.desc || '', meta:`售价：${formatMoney(p.price)}`, imageUrl: p.image || p.imageUrl || '' } });
+      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: p.image || p.imageUrl || '', sellerId: p.sellerId || '', productId: p.id || '' } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
@@ -2674,9 +2674,21 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         });
       } else if (!isContactCard) {
         card.classList.add('clickable-card');
-        card.addEventListener('click', (e) => {
+        card.addEventListener('click', async (e) => {
           e.stopPropagation();
           const cardSellerId = c.sellerId || (msg.senderId !== state.currentUser?.id ? msg.senderId : (state.activeConversation?.members || []).find(m => m !== state.currentUser?.id) || '');
+          // Try to fetch real product from seller's store
+          if (cardSellerId && c.productId) {
+            try {
+              const storeData = await api(`/api/users/${cardSellerId}/store`);
+              const realProduct = (storeData.items || []).find(p => String(p.id) === String(c.productId));
+              if (realProduct) {
+                openProductDetail({ ...realProduct, sellerId: cardSellerId }, false);
+                return;
+              }
+            } catch(_) {}
+          }
+          // Fallback to card data
           const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], sellerId: cardSellerId };
           openProductDetail(productItem, false);
         });
@@ -3894,13 +3906,13 @@ window.showContextMenu = function(event, msg) {
   setTimeout(() => { document.addEventListener('click', closeMenu, true); document.addEventListener('touchstart', closeMenu, true); }, 0);
 };
 
-window.openProductChat = async (sellerId, title, price, image) => {
+window.openProductChat = async (sellerId, title, price, image, productId) => {
   if(sellerId === state.currentUser.id) return showModal("这是你自己发布的商品哦！");
   try {
     const data = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ creatorId: state.currentUser.id, memberIds: [sellerId] }) });
     await window.openConversation(data.conversation.id);
     $("messageInput").value = `你好，我想买你的【${title}】`; $("messageInput").dispatchEvent(new Event("input"));
-    window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: '来自ChatTrade商城', imageUrl: image, sellerId } }).catch(() => {});
+    window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: String(price), imageUrl: image, sellerId, productId: productId || '' } }).catch(() => {});
   } catch(e) { showModal("发起交易沟通失败"); }
 };
 
@@ -5842,7 +5854,7 @@ function bindAllEvents() {
   on("productDetailChatBtn", "click", () => {
     const item = state.selectedProductDetail;
     if(!item || !item.sellerId) return;
-    window.openProductChat(item.sellerId, item.title || '商品', item.price || 0, normalizeMediaUrl(item.image || item.imageUrl) || '');
+    window.openProductChat(item.sellerId, item.title || '商品', item.price || 0, normalizeMediaUrl(item.image || item.imageUrl) || '', item.id || item.productId || '');
   });
   // Product detail - add to cart via spec sheet
   on("productDetailAddCartBtn", "click", () => {
