@@ -1,0 +1,329 @@
+module.exports = function createIndexManager({ db, index, normalizeUserRole, normalizePhone }) {
+function addToMapArray(map, key, value) {
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
+}
+
+const DEFAULT_GROUP = '我的好友';
+const MAX_GROUPS = 20;
+const MAX_GROUP_NAME_LEN = 20;
+
+function normalizeUserCustomGroups(groups) {
+  const ordered = [];
+  const seen = new Set();
+  const source = Array.isArray(groups) ? groups : [];
+  for (const rawName of source) {
+    const name = String(rawName || '').trim().slice(0, MAX_GROUP_NAME_LEN);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    ordered.push(name);
+  }
+  if (!seen.has(DEFAULT_GROUP)) ordered.unshift(DEFAULT_GROUP);
+  else {
+    const idx = ordered.indexOf(DEFAULT_GROUP);
+    if (idx > 0) {
+      ordered.splice(idx, 1);
+      ordered.unshift(DEFAULT_GROUP);
+    }
+  }
+  return ordered.slice(0, MAX_GROUPS);
+}
+
+function normalizeSingleGroupName(name) {
+  const trimmed = String(name || '').trim();
+  return trimmed ? trimmed.slice(0, MAX_GROUP_NAME_LEN) : '';
+}
+
+function rebuildMallIndex() {
+  const items = [];
+  for (const user of db.users) {
+    const sellerName = user.displayName;
+    const sellerAvatarUrl = user.avatarUrl;
+    const sellerAppNumberId = user.appNumberId;
+    for (const product of user.products || []) {
+      if (product?.listed === false) continue;
+      items.push({
+        ...product,
+        sellerId: user.id,
+        sellerName,
+        sellerAvatarUrl,
+        sellerAppNumberId,
+        _searchText: `${product.title || ''} ${product.desc || ''} ${sellerName || ''}`.toLowerCase(),
+      });
+    }
+  }
+  items.sort((a, b) => b.createdAt - a.createdAt);
+  index.mallItems = items;
+}
+
+function rebuildRequestViewsIndex() {
+  index.requestViewsByTarget.clear();
+  for (const [targetId, requests] of index.requestsByTarget.entries()) {
+    const views = [];
+    for (const req of requests) {
+      const fromUser = index.usersById.get(req.userId);
+      if (!fromUser) continue;
+      views.push({
+        ...req,
+        sender: {
+          id: fromUser.id,
+          displayName: fromUser.displayName,
+          avatarUrl: fromUser.avatarUrl,
+          username: fromUser.username,
+        },
+      });
+    }
+    index.requestViewsByTarget.set(targetId, views);
+  }
+}
+
+function rebuildBlacklistViewsIndex() {
+  index.blacklistViewsByUser.clear();
+  for (const user of db.users) {
+    const views = [];
+    for (const id of user.blacklist || []) {
+      const target = index.usersById.get(id);
+      if (!target) continue;
+      views.push({ id: target.id, displayName: target.displayName, avatarUrl: target.avatarUrl });
+    }
+    index.blacklistViewsByUser.set(user.id, views);
+  }
+}
+
+
+function rebuildFriendViewsIndex() {
+  index.friendViewsByUser.clear();
+  for (const [userId, rels] of index.friendshipsByUser.entries()) {
+    const views = [];
+    for (const rel of rels) {
+      const u = index.usersById.get(rel.friendId);
+      if (!u) continue;
+      views.push({
+        ...rel,
+        friend: {
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          avatarUrl: u.avatarUrl,
+          appNumberId: u.appNumberId,
+          remark: rel.remark,
+        },
+      });
+    }
+    index.friendViewsByUser.set(userId, views);
+  }
+}
+
+function rebuildConversationBaseIndex() {
+  index.directConvBasesByUser.clear();
+  for (const conv of db.conversations) {
+    if (conv.type !== 'direct') continue;
+    const members = conv.members || [];
+    if (members.length !== 2) continue;
+    const [m1, m2] = members;
+    const buildEntry = (memberId, peerId) => {
+      const peer = index.usersById.get(peerId);
+      const rel = peerId ? index.friendshipByPair.get(`${memberId}:${peerId}`) : null;
+      return {
+        id: conv.id, type: conv.type, name: conv.name, ownerId: conv.ownerId,
+        members, announcement: conv.announcement, createdAt: conv.createdAt,
+        lastMessageAt: conv.lastMessageAt,
+        title: rel?.remark || peer?.displayName || '未知用户',
+        peerAvatarUrl: peer?.avatarUrl, peerAppNumberId: peer?.appNumberId, peerIsFriend: !!rel,
+      };
+    };
+    addToMapArray(index.directConvBasesByUser, m1, buildEntry(m1, m2));
+    addToMapArray(index.directConvBasesByUser, m2, buildEntry(m2, m1));
+  }
+}
+
+function rebuildIndexes() {
+  index.usersById.clear();
+  index.usersByName.clear();
+  index.usersByPhone.clear();
+  index.usersByAppNumber.clear();
+  index.convById.clear();
+  index.convByUser.clear();
+  index.messagesByConv.clear();
+  index.friendshipsByUser.clear();
+  index.friendshipByPair.clear();
+  index.friendViewsByUser.clear();
+  index.directConvBasesByUser.clear();
+  index.requestsByTarget.clear();
+  index.requestViewsByTarget.clear();
+  index.blacklistViewsByUser.clear();
+  index.ordersById.clear();
+  index.messageByClientKey.clear();
+  index.mallItems = [];
+  for (const user of db.users) {
+    if (!Array.isArray(user.blacklist)) user.blacklist = [];
+    if (!Array.isArray(user.products)) user.products = [];
+    user.products = user.products.map((p) => {
+      const next = p && typeof p === 'object' ? p : {};
+      const rawStock = Number(next.stock);
+      next.stock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 99;
+      next.listed = next.listed !== false;
+      return next;
+    });
+    if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
+    user.paymentCodes = {
+      wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
+      alipay: String(user.paymentCodes.alipay || '').slice(0, 512),
+      cloudpay: String(user.paymentCodes.cloudpay || '').slice(0, 512),
+    };
+    user.role = normalizeUserRole(user);
+    if (!user.status) user.status = 'active';
+    user.customGroups = normalizeUserCustomGroups(user.customGroups);
+    user.phone = normalizePhone(user.phone || '');
+    // Ensure product presets exist; auto-collect from existing products if empty
+    if (!Array.isArray(user.categoryPresets)) {
+      const cats = new Set();
+      for (const p of user.products) {
+        if (p.category) p.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
+      }
+      user.categoryPresets = [...cats];
+    }
+    if (!Array.isArray(user.specPresets)) {
+      const specs = new Set();
+      for (const p of user.products) {
+        if (Array.isArray(p.specs)) p.specs.filter(Boolean).forEach(s => specs.add(s));
+      }
+      user.specPresets = [...specs];
+    }
+    if (!user.appNumberId) {
+      let appNum;
+      do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber.has(appNum));
+      user.appNumberId = appNum;
+    }
+    index.usersById.set(user.id, user);
+    index.usersByName.set(user.username, user);
+    if (user.phone) index.usersByPhone.set(user.phone, user);
+    index.usersByAppNumber.set(user.appNumberId, user);
+  }
+  for (const conv of db.conversations) {
+    if (!conv.clearedAt) conv.clearedAt = {};
+    if (!conv.lastRead) conv.lastRead = {};
+    if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
+    if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
+    if (!Array.isArray(conv.members)) conv.members = [];
+    index.convById.set(conv.id, conv);
+    for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
+    if (conv.type === 'direct' && conv.members.length === 2) {
+      index.directConvByPair.set(`${conv.members[0]}:${conv.members[1]}`, conv);
+      index.directConvByPair.set(`${conv.members[1]}:${conv.members[0]}`, conv);
+    }
+  }
+  for (const msg of db.messages) {
+    if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
+    addToMapArray(index.messagesByConv, msg.conversationId, msg);
+    if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
+  }
+  for (const order of db.orders || []) {
+    if (!Array.isArray(order.items)) order.items = [];
+    if (!order.status) order.status = 'accepted';
+    if (typeof order.priceAdjustmentLocked !== 'boolean') order.priceAdjustmentLocked = false;
+    if (!('pendingPrice' in order)) order.pendingPrice = null;
+    if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
+    if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
+    index.ordersById.set(order.id, order);
+  }
+
+  for (const rel of db.friendships) {
+    addToMapArray(index.friendshipsByUser, rel.userId, rel);
+    index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
+  }
+  index.friendRequestsById.clear();
+  for (const req of db.friendRequests) {
+    index.friendRequestsById.set(req.id, req);
+    if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  }
+  rebuildFriendViewsIndex();
+  rebuildConversationBaseIndex();
+  rebuildRequestViewsIndex();
+  rebuildBlacklistViewsIndex();
+  rebuildMallIndex();
+}
+
+// Targeted index helpers — avoid full rebuildIndexes() for single-entity mutations
+function indexNewUser(user) {
+  user.role = normalizeUserRole(user);
+  if (!user.status) user.status = 'active';
+  if (!Array.isArray(user.blacklist)) user.blacklist = [];
+  if (!Array.isArray(user.products)) user.products = [];
+  if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
+  user.customGroups = normalizeUserCustomGroups(user.customGroups);
+  user.phone = normalizePhone(user.phone || '');
+  if (!Array.isArray(user.categoryPresets)) user.categoryPresets = [];
+  if (!Array.isArray(user.specPresets)) user.specPresets = [];
+  index.usersById.set(user.id, user);
+  if (user.username) index.usersByName.set(user.username, user);
+  if (user.phone) index.usersByPhone.set(user.phone, user);
+  if (user.appNumberId) index.usersByAppNumber.set(user.appNumberId, user);
+}
+
+function indexNewConversation(conv) {
+  if (!conv.clearedAt) conv.clearedAt = {};
+  if (!conv.lastRead) conv.lastRead = {};
+  if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
+  if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
+  if (!Array.isArray(conv.members)) conv.members = [];
+  index.convById.set(conv.id, conv);
+  for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
+  if (conv.type === 'direct' && conv.members.length === 2) {
+    index.directConvByPair.set(`${conv.members[0]}:${conv.members[1]}`, conv);
+    index.directConvByPair.set(`${conv.members[1]}:${conv.members[0]}`, conv);
+  }
+  rebuildConversationBaseIndex();
+}
+
+function rebuildFriendshipIndexes() {
+  index.friendshipsByUser.clear();
+  index.friendshipByPair.clear();
+  for (const rel of db.friendships) {
+    addToMapArray(index.friendshipsByUser, rel.userId, rel);
+    index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
+  }
+  rebuildFriendViewsIndex();
+  rebuildConversationBaseIndex();
+}
+
+function rebuildFriendRequestMaps() {
+  index.friendRequestsById.clear();
+  index.requestsByTarget.clear();
+  for (const req of db.friendRequests) {
+    index.friendRequestsById.set(req.id, req);
+    if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  }
+  rebuildRequestViewsIndex();
+}
+
+function rebuildFriendshipAndRequestIndexes() {
+  rebuildFriendshipIndexes();
+  rebuildFriendRequestMaps();
+}
+
+function rebuildRequestIndexesOnly() {
+  rebuildFriendRequestMaps();
+}
+
+function rebuildMessageIndexes() {
+  index.messagesByConv.clear();
+  index.messageByClientKey.clear();
+  for (const msg of db.messages) {
+    if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
+    addToMapArray(index.messagesByConv, msg.conversationId, msg);
+    if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
+  }
+}
+
+  return {
+    addToMapArray, DEFAULT_GROUP, MAX_GROUPS, MAX_GROUP_NAME_LEN,
+    normalizeUserCustomGroups, normalizeSingleGroupName,
+    rebuildMallIndex, rebuildRequestViewsIndex, rebuildBlacklistViewsIndex,
+    rebuildFriendViewsIndex, rebuildConversationBaseIndex,
+    rebuildIndexes, indexNewUser, indexNewConversation,
+    rebuildFriendshipIndexes, rebuildFriendRequestMaps,
+    rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
+    rebuildMessageIndexes,
+  };
+};

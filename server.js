@@ -3,8 +3,22 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
-const { promisify } = require('util');
 const { isAdmin, normalizeUserRole, canAccessConversation } = require('./server_roles');
+const {
+  uid, hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync,
+  normalizePhone, maskPhone, sanitizePublicUser, ensureUserActiveForAuth,
+  issuePhoneCode, consumePhoneCode, cleanupExpiredPhoneCodeState,
+  issueCsrfToken, validateCsrf, csrfTokens,
+  cleanupExpiredMap, isRateLimitEntryStale,
+  normalizeIpForThrottle, getClientIp,
+  getRateLimitState, recordRateLimitAttempt,
+  loginAttempts, getLoginAttemptState, recordLoginAttempt,
+  getPhoneCodeIpAttemptState, recordPhoneCodeIpAttempt,
+  cleanupAuthState,
+  EXPOSE_MOCK_PHONE_CODE, TRUST_PROXY,
+} = require('./server_crypto');
+const createIndexManager = require('./server_index');
+const { searchMessagesGlobal, searchMessagesInConversation } = require('./message_search_service');
 const { parseAuthToken, requireAuth, requireAdmin } = require('./server_auth');
 const { createFriendRequest, acceptFriendRequest, rejectFriendRequest } = require('./friend_request_service');
 const { queryOrders } = require('./order_query_service');
@@ -37,196 +51,16 @@ const UPLOAD_LIMIT = 8 * 1024 * 1024;
 const UPLOAD_ROOT = path.join(ROOT, 'uploads');
 const serverStartedAt = Date.now();
 
-function uid(prefix) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function generateUniqueAppNumberId() {
   let appNum;
   do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber && index.usersByAppNumber.has(appNum));
   return appNum;
 }
 
-function makeSalt() {
-  return crypto.randomBytes(16).toString('hex');
-}
-
-const scryptAsync = promisify(crypto.scrypt);
-
-function hashPassword(password, salt = makeSalt()) {
-  const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  if (typeof stored !== 'string' || !stored) return false;
-  if (!stored.includes(':')) return String(password) === stored;
-  const [salt, hash] = stored.split(':');
-  const actual = crypto.scryptSync(String(password), salt, 64).toString('hex');
-  const a = Buffer.from(hash, 'hex');
-  const b = Buffer.from(actual, 'hex');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-async function hashPasswordAsync(password, salt = makeSalt()) {
-  const hash = (await scryptAsync(String(password), salt, 64)).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-async function verifyPasswordAsync(password, stored) {
-  if (typeof stored !== 'string' || !stored) return false;
-  if (!stored.includes(':')) return String(password) === stored;
-  const [salt, hash] = stored.split(':');
-  const actual = (await scryptAsync(String(password), salt, 64)).toString('hex');
-  const a = Buffer.from(hash, 'hex');
-  const b = Buffer.from(actual, 'hex');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-const phoneCodeStore = new Map();
-const phoneCodeCooldownStore = new Map();
-const phoneCodeIpCooldownStore = new Map();
-const phoneCodeVerifyAttempts = new Map();
-const phoneCodeVerifyIpAttempts = new Map();
-const PHONE_CODE_COOLDOWN_MS = 60 * 1000;
-const PHONE_CODE_IP_COOLDOWN_MS = 3 * 1000;
-const PHONE_CODE_MAX_VERIFY_ATTEMPTS = 6;
-const PHONE_CODE_VERIFY_BLOCK_MS = 10 * 60 * 1000;
-const EXPOSE_MOCK_PHONE_CODE = process.env.EXPOSE_MOCK_PHONE_CODE === '1';
-const csrfTokens = new Map(); // token -> csrfSecret
-function issueCsrfToken(sessionToken) {
-  const secret = crypto.randomBytes(24).toString('hex');
-  csrfTokens.set(sessionToken, secret);
-  return secret;
-}
-function validateCsrf(req, sessionToken) {
-  if (!sessionToken) return false;
-  const expected = csrfTokens.get(sessionToken);
-  if (!expected) return false;
-  const provided = req.headers['x-csrf-token'] || '';
-  return provided === expected;
-}
-const TRUST_PROXY = process.env.TRUST_PROXY === '1';
-
-function normalizePhone(phone) {
-  const raw = String(phone || '').trim();
-  const digits = raw.replace(/\D+/g, '');
-  let normalized = digits;
-  if (normalized.startsWith('86') && normalized.length === 13 && normalized[2] === '1') {
-    normalized = normalized.slice(2);
-  }
-  if (!/^1\d{10}$/.test(normalized)) return '';
-  return normalized;
-}
-
 function findUserByPhone(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
   return index.usersByPhone?.get(normalized) || null;
-}
-
-// Shared cleanup helpers
-function cleanupExpiredMap(map, isExpired) {
-  const now = Date.now();
-  for (const [key, val] of map.entries()) {
-    if (isExpired(key, val, now)) map.delete(key);
-  }
-}
-function isRateLimitEntryStale(_key, state, now) {
-  const expiredBlock = !state?.blockedUntil || Number(state.blockedUntil) < now;
-  const staleWindow = !state?.windowStart || now - Number(state.windowStart) > 60 * 60 * 1000;
-  return expiredBlock && staleWindow;
-}
-
-function cleanupExpiredPhoneCodeState() {
-  cleanupExpiredMap(phoneCodeStore, (_k, r, n) => !r || r.expiresAt < n);
-  cleanupExpiredMap(phoneCodeCooldownStore, (_k, v, n) => !v || v < n);
-  cleanupExpiredMap(phoneCodeIpCooldownStore, (_k, v, n) => !v || v < n);
-  cleanupExpiredMap(phoneCodeVerifyAttempts, isRateLimitEntryStale);
-  cleanupExpiredMap(phoneCodeVerifyIpAttempts, isRateLimitEntryStale);
-}
-
-function issuePhoneCode(phone, scene = 'login') {
-  cleanupExpiredPhoneCodeState();
-  const normalized = normalizePhone(phone);
-  if (!normalized) return { ok: false, error: '手机号格式错误' };
-  const key = `${scene}:${normalized}`;
-  const now = Date.now();
-  const cooldownUntil = phoneCodeCooldownStore.get(key) || 0;
-  if (cooldownUntil > now) {
-    // If a valid code already exists, return success (user can re-use it)
-    const existing = phoneCodeStore.get(key);
-    if (existing && existing.expiresAt > now) {
-      return { ok: true, code: existing.code, expiresInSec: Math.ceil((existing.expiresAt - now) / 1000) };
-    }
-    // No valid code exists but still in cooldown — issue a new code anyway
-    // (previous code was consumed or expired, user needs a fresh one)
-  }
-  const code = '1234'; // Mock code for testing (SMS service not configured)
-  phoneCodeStore.set(key, { code, expiresAt: now + 5 * 60 * 1000 });
-  phoneCodeCooldownStore.set(key, now + PHONE_CODE_COOLDOWN_MS);
-  phoneCodeVerifyAttempts.delete(key);
-  return { ok: true, code, expiresInSec: 300 };
-}
-
-function ensureUserActiveForAuth(user) {
-  return String(user?.status || 'active') === 'active';
-}
-
-function consumePhoneCode(phone, code, scene = 'login') {
-  cleanupExpiredPhoneCodeState();
-  const normalized = normalizePhone(phone);
-  if (!normalized) return { ok: false, error: '验证码错误或已过期' };
-  const key = `${scene}:${normalized}`;
-  const now = Date.now();
-  const attemptState = phoneCodeVerifyAttempts.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
-  if (attemptState.blockedUntil && attemptState.blockedUntil > now) {
-    return { ok: false, error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((attemptState.blockedUntil - now) / 1000) };
-  }
-  if (now - Number(attemptState.windowStart || now) > 10 * 60 * 1000) {
-    attemptState.count = 0;
-    attemptState.windowStart = now;
-    attemptState.blockedUntil = 0;
-  }
-  const record = phoneCodeStore.get(key);
-  if (!record || record.expiresAt < now) {
-    phoneCodeStore.delete(key);
-    return { ok: false, error: '验证码错误或已过期' };
-  }
-  if (String(record.code) !== String(code || '').trim()) {
-    const nextCount = Number(attemptState.count || 0) + 1;
-    const next = { ...attemptState, count: nextCount, windowStart: attemptState.windowStart || now };
-    if (nextCount >= PHONE_CODE_MAX_VERIFY_ATTEMPTS) {
-      next.blockedUntil = now + PHONE_CODE_VERIFY_BLOCK_MS;
-      phoneCodeStore.delete(key);
-    }
-    phoneCodeVerifyAttempts.set(key, next);
-    return { ok: false, error: '验证码错误或已过期' };
-  }
-  phoneCodeStore.delete(key);
-  phoneCodeVerifyAttempts.delete(key);
-  return { ok: true };
-}
-
-function maskPhone(phone) {
-  const p = String(phone || '');
-  if (p.length < 7) return p ? p.replace(/.(?=.{2})/g, '*') : '';
-  return p.slice(0, 3) + '****' + p.slice(-4);
-}
-function sanitizePublicUser(user, { includePhone = false } = {}) {
-  return {
-    id: user.id,
-    username: user.username,
-    displayName: user.displayName,
-    signature: user.signature,
-    avatarUrl: user.avatarUrl,
-    appNumberId: user.appNumberId,
-    customGroups: user.customGroups,
-    role: normalizeUserRole(user),
-    status: user.status || 'active',
-    paymentCodes: user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' },
-    phone: includePhone ? (user.phone || '') : maskPhone(user.phone),
-  };
 }
 
 function defaultDb() {
@@ -295,7 +129,6 @@ function loadDb() {
 
 db = loadDb();
 const sessions = new Map();
-const loginAttempts = new Map();
 const index = {
   usersById: new Map(),
   usersByName: new Map(),
@@ -318,322 +151,18 @@ const index = {
   mallItems: [],
 };
 
-function addToMapArray(map, key, value) {
-  if (!map.has(key)) map.set(key, []);
-  map.get(key).push(value);
-}
+// Index manager — all index rebuild/management functions
+const {
+  addToMapArray, DEFAULT_GROUP, MAX_GROUPS, MAX_GROUP_NAME_LEN,
+  normalizeUserCustomGroups, normalizeSingleGroupName,
+  rebuildMallIndex, rebuildRequestViewsIndex, rebuildBlacklistViewsIndex,
+  rebuildFriendViewsIndex, rebuildConversationBaseIndex,
+  rebuildIndexes, indexNewUser, indexNewConversation,
+  rebuildFriendshipIndexes, rebuildFriendRequestMaps,
+  rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
+  rebuildMessageIndexes,
+} = createIndexManager({ db, index, normalizeUserRole, normalizePhone });
 
-const DEFAULT_GROUP = '我的好友';
-const MAX_GROUPS = 20;
-const MAX_GROUP_NAME_LEN = 20;
-
-function normalizeUserCustomGroups(groups) {
-  const ordered = [];
-  const seen = new Set();
-  const source = Array.isArray(groups) ? groups : [];
-  for (const rawName of source) {
-    const name = String(rawName || '').trim().slice(0, MAX_GROUP_NAME_LEN);
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    ordered.push(name);
-  }
-  if (!seen.has(DEFAULT_GROUP)) ordered.unshift(DEFAULT_GROUP);
-  else {
-    const idx = ordered.indexOf(DEFAULT_GROUP);
-    if (idx > 0) {
-      ordered.splice(idx, 1);
-      ordered.unshift(DEFAULT_GROUP);
-    }
-  }
-  return ordered.slice(0, MAX_GROUPS);
-}
-
-function normalizeSingleGroupName(name) {
-  const trimmed = String(name || '').trim();
-  return trimmed ? trimmed.slice(0, MAX_GROUP_NAME_LEN) : '';
-}
-
-function rebuildMallIndex() {
-  const items = [];
-  for (const user of db.users) {
-    const sellerName = user.displayName;
-    const sellerAvatarUrl = user.avatarUrl;
-    const sellerAppNumberId = user.appNumberId;
-    for (const product of user.products || []) {
-      if (product?.listed === false) continue;
-      items.push({
-        ...product,
-        sellerId: user.id,
-        sellerName,
-        sellerAvatarUrl,
-        sellerAppNumberId,
-        _searchText: `${product.title || ''} ${product.desc || ''} ${sellerName || ''}`.toLowerCase(),
-      });
-    }
-  }
-  items.sort((a, b) => b.createdAt - a.createdAt);
-  index.mallItems = items;
-}
-
-function rebuildRequestViewsIndex() {
-  index.requestViewsByTarget.clear();
-  for (const [targetId, requests] of index.requestsByTarget.entries()) {
-    const views = [];
-    for (const req of requests) {
-      const fromUser = index.usersById.get(req.userId);
-      if (!fromUser) continue;
-      views.push({
-        ...req,
-        sender: {
-          id: fromUser.id,
-          displayName: fromUser.displayName,
-          avatarUrl: fromUser.avatarUrl,
-          username: fromUser.username,
-        },
-      });
-    }
-    index.requestViewsByTarget.set(targetId, views);
-  }
-}
-
-function rebuildBlacklistViewsIndex() {
-  index.blacklistViewsByUser.clear();
-  for (const user of db.users) {
-    const views = [];
-    for (const id of user.blacklist || []) {
-      const target = index.usersById.get(id);
-      if (!target) continue;
-      views.push({ id: target.id, displayName: target.displayName, avatarUrl: target.avatarUrl });
-    }
-    index.blacklistViewsByUser.set(user.id, views);
-  }
-}
-
-
-function rebuildFriendViewsIndex() {
-  index.friendViewsByUser.clear();
-  for (const [userId, rels] of index.friendshipsByUser.entries()) {
-    const views = [];
-    for (const rel of rels) {
-      const u = index.usersById.get(rel.friendId);
-      if (!u) continue;
-      views.push({
-        ...rel,
-        friend: {
-          id: u.id,
-          username: u.username,
-          displayName: u.displayName,
-          avatarUrl: u.avatarUrl,
-          appNumberId: u.appNumberId,
-          remark: rel.remark,
-        },
-      });
-    }
-    index.friendViewsByUser.set(userId, views);
-  }
-}
-
-function rebuildConversationBaseIndex() {
-  index.directConvBasesByUser.clear();
-  for (const conv of db.conversations) {
-    if (conv.type !== 'direct') continue;
-    const members = conv.members || [];
-    if (members.length !== 2) continue;
-    const [m1, m2] = members;
-    const buildEntry = (memberId, peerId) => {
-      const peer = index.usersById.get(peerId);
-      const rel = peerId ? index.friendshipByPair.get(`${memberId}:${peerId}`) : null;
-      return {
-        id: conv.id, type: conv.type, name: conv.name, ownerId: conv.ownerId,
-        members, announcement: conv.announcement, createdAt: conv.createdAt,
-        lastMessageAt: conv.lastMessageAt,
-        title: rel?.remark || peer?.displayName || '未知用户',
-        peerAvatarUrl: peer?.avatarUrl, peerAppNumberId: peer?.appNumberId, peerIsFriend: !!rel,
-      };
-    };
-    addToMapArray(index.directConvBasesByUser, m1, buildEntry(m1, m2));
-    addToMapArray(index.directConvBasesByUser, m2, buildEntry(m2, m1));
-  }
-}
-
-function rebuildIndexes() {
-  index.usersById.clear();
-  index.usersByName.clear();
-  index.usersByPhone.clear();
-  index.usersByAppNumber.clear();
-  index.convById.clear();
-  index.convByUser.clear();
-  index.messagesByConv.clear();
-  index.friendshipsByUser.clear();
-  index.friendshipByPair.clear();
-  index.friendViewsByUser.clear();
-  index.directConvBasesByUser.clear();
-  index.requestsByTarget.clear();
-  index.requestViewsByTarget.clear();
-  index.blacklistViewsByUser.clear();
-  index.ordersById.clear();
-  index.messageByClientKey.clear();
-  index.mallItems = [];
-  for (const user of db.users) {
-    if (!Array.isArray(user.blacklist)) user.blacklist = [];
-    if (!Array.isArray(user.products)) user.products = [];
-    user.products = user.products.map((p) => {
-      const next = p && typeof p === 'object' ? p : {};
-      const rawStock = Number(next.stock);
-      next.stock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 99;
-      next.listed = next.listed !== false;
-      return next;
-    });
-    if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
-    user.paymentCodes = {
-      wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
-      alipay: String(user.paymentCodes.alipay || '').slice(0, 512),
-      cloudpay: String(user.paymentCodes.cloudpay || '').slice(0, 512),
-    };
-    user.role = normalizeUserRole(user);
-    if (!user.status) user.status = 'active';
-    user.customGroups = normalizeUserCustomGroups(user.customGroups);
-    user.phone = normalizePhone(user.phone || '');
-    // Ensure product presets exist; auto-collect from existing products if empty
-    if (!Array.isArray(user.categoryPresets)) {
-      const cats = new Set();
-      for (const p of user.products) {
-        if (p.category) p.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
-      }
-      user.categoryPresets = [...cats];
-    }
-    if (!Array.isArray(user.specPresets)) {
-      const specs = new Set();
-      for (const p of user.products) {
-        if (Array.isArray(p.specs)) p.specs.filter(Boolean).forEach(s => specs.add(s));
-      }
-      user.specPresets = [...specs];
-    }
-    if (!user.appNumberId) {
-      let appNum;
-      do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber.has(appNum));
-      user.appNumberId = appNum;
-    }
-    index.usersById.set(user.id, user);
-    index.usersByName.set(user.username, user);
-    if (user.phone) index.usersByPhone.set(user.phone, user);
-    index.usersByAppNumber.set(user.appNumberId, user);
-  }
-  for (const conv of db.conversations) {
-    if (!conv.clearedAt) conv.clearedAt = {};
-    if (!conv.lastRead) conv.lastRead = {};
-    if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
-    if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
-    if (!Array.isArray(conv.members)) conv.members = [];
-    index.convById.set(conv.id, conv);
-    for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
-    if (conv.type === 'direct' && conv.members.length === 2) {
-      index.directConvByPair.set(`${conv.members[0]}:${conv.members[1]}`, conv);
-      index.directConvByPair.set(`${conv.members[1]}:${conv.members[0]}`, conv);
-    }
-  }
-  for (const msg of db.messages) {
-    if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
-    addToMapArray(index.messagesByConv, msg.conversationId, msg);
-    if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
-  }
-  for (const order of db.orders || []) {
-    if (!Array.isArray(order.items)) order.items = [];
-    if (!order.status) order.status = 'accepted';
-    if (typeof order.priceAdjustmentLocked !== 'boolean') order.priceAdjustmentLocked = false;
-    if (!('pendingPrice' in order)) order.pendingPrice = null;
-    if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
-    if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
-    index.ordersById.set(order.id, order);
-  }
-
-  for (const rel of db.friendships) {
-    addToMapArray(index.friendshipsByUser, rel.userId, rel);
-    index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
-  }
-  index.friendRequestsById.clear();
-  for (const req of db.friendRequests) {
-    index.friendRequestsById.set(req.id, req);
-    if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
-  }
-  rebuildFriendViewsIndex();
-  rebuildConversationBaseIndex();
-  rebuildRequestViewsIndex();
-  rebuildBlacklistViewsIndex();
-  rebuildMallIndex();
-}
-
-// Targeted index helpers — avoid full rebuildIndexes() for single-entity mutations
-function indexNewUser(user) {
-  user.role = normalizeUserRole(user);
-  if (!user.status) user.status = 'active';
-  if (!Array.isArray(user.blacklist)) user.blacklist = [];
-  if (!Array.isArray(user.products)) user.products = [];
-  if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
-  user.customGroups = normalizeUserCustomGroups(user.customGroups);
-  user.phone = normalizePhone(user.phone || '');
-  if (!Array.isArray(user.categoryPresets)) user.categoryPresets = [];
-  if (!Array.isArray(user.specPresets)) user.specPresets = [];
-  index.usersById.set(user.id, user);
-  if (user.username) index.usersByName.set(user.username, user);
-  if (user.phone) index.usersByPhone.set(user.phone, user);
-  if (user.appNumberId) index.usersByAppNumber.set(user.appNumberId, user);
-}
-
-function indexNewConversation(conv) {
-  if (!conv.clearedAt) conv.clearedAt = {};
-  if (!conv.lastRead) conv.lastRead = {};
-  if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
-  if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
-  if (!Array.isArray(conv.members)) conv.members = [];
-  index.convById.set(conv.id, conv);
-  for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
-  if (conv.type === 'direct' && conv.members.length === 2) {
-    index.directConvByPair.set(`${conv.members[0]}:${conv.members[1]}`, conv);
-    index.directConvByPair.set(`${conv.members[1]}:${conv.members[0]}`, conv);
-  }
-  rebuildConversationBaseIndex();
-}
-
-function rebuildFriendshipIndexes() {
-  index.friendshipsByUser.clear();
-  index.friendshipByPair.clear();
-  for (const rel of db.friendships) {
-    addToMapArray(index.friendshipsByUser, rel.userId, rel);
-    index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
-  }
-  rebuildFriendViewsIndex();
-  rebuildConversationBaseIndex();
-}
-
-function rebuildFriendRequestMaps() {
-  index.friendRequestsById.clear();
-  index.requestsByTarget.clear();
-  for (const req of db.friendRequests) {
-    index.friendRequestsById.set(req.id, req);
-    if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
-  }
-  rebuildRequestViewsIndex();
-}
-
-function rebuildFriendshipAndRequestIndexes() {
-  rebuildFriendshipIndexes();
-  rebuildFriendRequestMaps();
-}
-
-function rebuildRequestIndexesOnly() {
-  rebuildFriendRequestMaps();
-}
-
-function rebuildMessageIndexes() {
-  index.messagesByConv.clear();
-  index.messageByClientKey.clear();
-  for (const msg of db.messages) {
-    if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
-    addToMapArray(index.messagesByConv, msg.conversationId, msg);
-    if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
-  }
-}
 
 rebuildIndexes();
 
@@ -906,63 +435,9 @@ function consumeUserBySseSessionToken(token) {
 
 
 
-function normalizeIpForThrottle(raw) {
-  const value = String(raw || '').trim().slice(0, 64);
-  if (!value) return '';
-  return /^[0-9a-fA-F:.]+$/.test(value) ? value : '';
-}
-
-function getClientIp(req) {
-  const remoteIp = normalizeIpForThrottle(req.socket?.remoteAddress || '');
-  if (!TRUST_PROXY) return remoteIp;
-  const forwarded = normalizeIpForThrottle(String(req.headers['x-forwarded-for'] || '').split(',')[0]);
-  return forwarded || remoteIp;
-}
-
-// Shared rate-limit state helpers (parameterized by map + thresholds)
-function getRateLimitState(map, key) {
-  const now = Date.now();
-  if (!key) return { count: 0, windowStart: now, blockedUntil: 0 };
-  const existing = map.get(key) || { count: 0, windowStart: now, blockedUntil: 0 };
-  if (existing.blockedUntil && existing.blockedUntil > now) return existing;
-  if (now - Number(existing.windowStart || now) > 10 * 60 * 1000) {
-    const reset = { count: 0, windowStart: now, blockedUntil: 0 };
-    map.set(key, reset);
-    return reset;
-  }
-  return existing;
-}
-
-function recordRateLimitAttempt(map, key, success, maxAttempts, blockDurationMs) {
-  if (!key) return;
-  const now = Date.now();
-  const state = getRateLimitState(map, key);
-  if (success) { map.delete(key); return; }
-  const next = {
-    count: (state.count || 0) + 1,
-    windowStart: state.windowStart || now,
-    blockedUntil: state.blockedUntil || 0,
-  };
-  if (next.count >= maxAttempts) next.blockedUntil = now + blockDurationMs;
-  map.set(key, next);
-}
-
-function getLoginAttemptState(key) { return getRateLimitState(loginAttempts, key); }
-function recordLoginAttempt(key, success) { recordRateLimitAttempt(loginAttempts, key, success, 8, 5 * 60 * 1000); }
-function getPhoneCodeIpAttemptState(ip) { return getRateLimitState(phoneCodeVerifyIpAttempts, ip); }
-function recordPhoneCodeIpAttempt(ip, success) { recordRateLimitAttempt(phoneCodeVerifyIpAttempts, ip, success, 20, 10 * 60 * 1000); }
-
-function cleanupAuthState() {
-  const now = Date.now();
-  for (const [token, session] of sessions.entries()) {
-    if (session?.expiresAt && Number(session.expiresAt) < now) {
-      sessions.delete(token);
-      csrfTokens.delete(token);
-    }
-  }
-  cleanupExpiredMap(sseSessionTokens, (_k, e, n) => !e?.expiresAt || Number(e.expiresAt) < n);
-  cleanupExpiredMap(loginAttempts, isRateLimitEntryStale);
-  cleanupExpiredPhoneCodeState();
+// Wrap cleanupAuthState to pass server-local maps
+function runCleanupAuthState() {
+  cleanupAuthState({ sessions, sseSessionTokens });
 }
 
 function ensureActingUser(body, authUser, ...candidateKeys) {
@@ -1111,7 +586,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
-      cleanupAuthState();
+      runCleanupAuthState();
       return sendJson(res, 200, {
         ok: true,
         uptimeMs: Date.now() - serverStartedAt,
@@ -2052,30 +1527,7 @@ const server = http.createServer(async (req, res) => {
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
       const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
       const offset = parseInt(searchParams.get('offset') || '0', 10);
-      const results = [];
-      const userConvs = index.convByUser.get(authUser.id) || [];
-      for (const conv of userConvs) {
-        const peerId = (conv.members || []).find((id) => id !== authUser.id);
-        const peer = peerId ? index.usersById.get(peerId) : null;
-        const peerName = peer ? (peer.displayName || peer.username) : (conv.title || '');
-        const peerAvatarUrl = peer ? peer.avatarUrl : '';
-        const msgs = index.messagesByConv.get(conv.id) || [];
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          const msg = msgs[i];
-          if (msg.type !== 'text' || !msg.text) continue;
-          if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
-          if (msg.text.toLowerCase().includes(keyword)) {
-            results.push({
-              messageId: msg.id, conversationId: conv.id, senderId: msg.senderId,
-              text: msg.text, createdAt: msg.createdAt,
-              peerName, peerAvatarUrl, peerId: peerId || '',
-            });
-          }
-        }
-      }
-      results.sort((a, b) => b.createdAt - a.createdAt);
-      const paged = results.slice(offset, offset + limit);
-      return sendJson(res, 200, { results: paged, total: results.length, hasMore: offset + limit < results.length });
+      return sendJson(res, 200, searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }));
     }
 
     // In-conversation message search
@@ -2091,23 +1543,7 @@ const server = http.createServer(async (req, res) => {
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
       const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
       const offset = parseInt(searchParams.get('offset') || '0', 10);
-      const msgs = index.messagesByConv.get(conversationId) || [];
-      const results = [];
-      const maxNeeded = offset + limit;
-      let total = 0;
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const msg = msgs[i];
-        if (msg.type !== 'text' || !msg.text) continue;
-        if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
-        if (msg.text.toLowerCase().includes(keyword)) {
-          total++;
-          if (results.length < maxNeeded) {
-            results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
-          }
-        }
-      }
-      const paged = results.slice(offset, offset + limit);
-      return sendJson(res, 200, { results: paged, total, hasMore: offset + limit < total });
+      return sendJson(res, 200, searchMessagesInConversation({ conv, keyword, limit, offset, authUserId: authUser.id, index, isMessageVisibleToUser }));
     }
 
     const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
@@ -2260,7 +1696,7 @@ async function gracefulShutdown(signal) {
   }, 10_000);
   hardExitTimer.unref?.();
   try {
-    cleanupAuthState();
+    runCleanupAuthState();
     await flushPersistenceNow();
   } catch (err) {
     console.error('[shutdown] persistence flush failed', err);
@@ -2276,7 +1712,7 @@ async function gracefulShutdown(signal) {
   });
 }
 
-setInterval(cleanupAuthState, 60 * 1000).unref();
+setInterval(runCleanupAuthState, 60 * 1000).unref();
 
 // Message retention cleanup — runs daily, removes messages older than MESSAGE_RETENTION_DAYS
 function cleanupExpiredMessages() {
