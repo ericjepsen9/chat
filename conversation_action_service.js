@@ -25,12 +25,17 @@ function buildCallHistoryText(body = {}) {
   return `${modeLabel}（通话状态更新）`;
 }
 
-function findConversationMessage(messagesByConv, conversationId, messageId) {
+function findConversationMessage(messagesByConv, conversationId, messageId, messagesById) {
+  // O(1) lookup via messagesById index, fallback to linear scan
+  if (messagesById) {
+    const msg = messagesById.get(messageId);
+    return msg && msg.conversationId === conversationId ? msg : undefined;
+  }
   return (messagesByConv.get(conversationId) || []).find((msg) => msg.id === messageId);
 }
 
 function deleteConversationMessage({ conversationId, messageId, authUser, index, schedulePersist, broadcastToUser, persistEvent }) {
-  const msg = findConversationMessage(index.messagesByConv, conversationId, messageId);
+  const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
   if (!msg.deletedBy.includes(authUser.id)) msg.deletedBy.push(authUser.id);
   schedulePersist(persistEvent, { conversationId, messageId: msg.id, userId: authUser.id });
@@ -39,7 +44,7 @@ function deleteConversationMessage({ conversationId, messageId, authUser, index,
 }
 
 function recallConversationMessage({ conversationId, messageId, authUser, index, schedulePersist, broadcastToConversation, persistEvent }) {
-  const msg = findConversationMessage(index.messagesByConv, conversationId, messageId);
+  const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
   if (msg.senderId !== authUser.id || Date.now() - msg.createdAt > 120000) {
     return { ok: false, status: 403, error: '超时或无权限' };
@@ -88,19 +93,21 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   }
 
   if (action === 'mute') {
-    if (conv.mutedBy.includes(authUser.id)) conv.mutedBy = conv.mutedBy.filter((id) => id !== authUser.id);
+    const idx = conv.mutedBy.indexOf(authUser.id);
+    if (idx !== -1) conv.mutedBy.splice(idx, 1);
     else conv.mutedBy.push(authUser.id);
     schedulePersist('conversation_mute', { conversationId, userId: authUser.id });
     broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-    return { ok: true, status: 200, payload: { ok: true, muted: conv.mutedBy.includes(authUser.id) } };
+    return { ok: true, status: 200, payload: { ok: true, muted: idx === -1 } };
   }
 
   if (action === 'pin') {
-    if (conv.pinnedBy.includes(authUser.id)) conv.pinnedBy = conv.pinnedBy.filter((id) => id !== authUser.id);
+    const idx = conv.pinnedBy.indexOf(authUser.id);
+    if (idx !== -1) conv.pinnedBy.splice(idx, 1);
     else conv.pinnedBy.push(authUser.id);
     schedulePersist('conversation_pin', { conversationId, userId: authUser.id });
     broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-    return { ok: true, status: 200, payload: { ok: true, pinned: conv.pinnedBy.includes(authUser.id) } };
+    return { ok: true, status: 200, payload: { ok: true, pinned: idx === -1 } };
   }
 
   if (action === 'clear') {
@@ -152,6 +159,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
       };
       db.messages.push(msg);
       addToMapArray(index.messagesByConv, conversationId, msg);
+      index.messagesById.set(msg.id, msg);
       conv.lastMessageAt = msg.createdAt;
       broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
       broadcastToConversation(conversationId, 'conversation_updated', { conversationId });

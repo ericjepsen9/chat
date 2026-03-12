@@ -176,19 +176,17 @@ function rebuildIndexes() {
     user.customGroups = normalizeUserCustomGroups(user.customGroups);
     user.phone = normalizePhone(user.phone || '');
     // Ensure product presets exist; auto-collect from existing products if empty
-    if (!Array.isArray(user.categoryPresets)) {
-      const cats = new Set();
+    const needCats = !Array.isArray(user.categoryPresets);
+    const needSpecs = !Array.isArray(user.specPresets);
+    if (needCats || needSpecs) {
+      const cats = needCats ? new Set() : null;
+      const specs = needSpecs ? new Set() : null;
       for (const p of user.products) {
-        if (p.category) p.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
+        if (cats && p.category) p.category.split(/[\/,、]/).map(s => s.trim()).filter(Boolean).forEach(c => cats.add(c));
+        if (specs && Array.isArray(p.specs)) p.specs.filter(Boolean).forEach(s => specs.add(s));
       }
-      user.categoryPresets = [...cats];
-    }
-    if (!Array.isArray(user.specPresets)) {
-      const specs = new Set();
-      for (const p of user.products) {
-        if (Array.isArray(p.specs)) p.specs.filter(Boolean).forEach(s => specs.add(s));
-      }
-      user.specPresets = [...specs];
+      if (cats) user.categoryPresets = [...cats];
+      if (specs) user.specPresets = [...specs];
     }
     if (!user.appNumberId) {
       let appNum;
@@ -216,6 +214,7 @@ function rebuildIndexes() {
   for (const msg of db.messages) {
     if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
     addToMapArray(index.messagesByConv, msg.conversationId, msg);
+    index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
   }
   for (const order of db.orders || []) {
@@ -309,9 +308,11 @@ function rebuildRequestIndexesOnly() {
 function rebuildMessageIndexes() {
   index.messagesByConv.clear();
   index.messageByClientKey.clear();
+  index.messagesById.clear();
   for (const msg of db.messages) {
     if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
     addToMapArray(index.messagesByConv, msg.conversationId, msg);
+    index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
   }
 }

@@ -108,6 +108,7 @@ function createConversationMessage({
 
   db.messages.push(msg);
   addToMapArray(index.messagesByConv, conversationId, msg);
+  index.messagesById.set(msg.id, msg);
   if (msg.clientMessageId) index.messageByClientKey.set(`${conversationId}:${authUser.id}:${msg.clientMessageId}`, msg);
   conv.lastMessageAt = now;
   schedulePersist('message_create', { conversationId, messageId: msg.id });

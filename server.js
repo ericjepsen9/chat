@@ -164,6 +164,7 @@ const index = {
   convById: new Map(),
   convByUser: new Map(),
   messagesByConv: new Map(),
+  messagesById: new Map(),
   friendshipsByUser: new Map(),
   friendshipByPair: new Map(),
   friendViewsByUser: new Map(),
@@ -547,6 +548,7 @@ function addTradeMessage(conversationId, payload = {}) {
   };
   db.messages.push(msg);
   addToMapArray(index.messagesByConv, conversationId, msg);
+  index.messagesById.set(msg.id, msg);
   const conv = index.convById.get(conversationId);
   if (conv) conv.lastMessageAt = msg.createdAt;
   broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });

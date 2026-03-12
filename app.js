@@ -31,22 +31,26 @@ function updateProfileDetailActions(){
   const isFriend = !!p.isFriend || isFriendUser(p.id);
   const isSelf = p.id === state.currentUser?.id;
   const pendingReq = !isFriend && !isSelf ? getPendingFriendRequest(p.id) : null;
-  if($("profileAddFriendBtn")) $("profileAddFriendBtn").classList.toggle("hidden", isFriend || !!pendingReq);
-  if($("profileStrangerHint")) $("profileStrangerHint").classList.toggle("hidden", isFriend || isSelf);
-  if($("profileActionRemarkBtn")) $("profileActionRemarkBtn").style.display = isFriend ? '' : 'none';
-  if($("profileActionMoveGroupBtn")) $("profileActionMoveGroupBtn").style.display = isFriend ? '' : 'none';
-  if($("profileSendMessageBtn")) $("profileSendMessageBtn").classList.toggle("hidden", isSelf);
-  if($("profilePrimaryActions")) $("profilePrimaryActions").classList.toggle('hidden', isFriend || isSelf || !!pendingReq);
-  if($("profileFriendRequestActions")) {
-    $("profileFriendRequestActions").classList.toggle('hidden', !pendingReq);
-    // Always rebind to avoid stale closure; clear when no pending request
+  const addBtn = $("profileAddFriendBtn"), hint = $("profileStrangerHint"),
+    remarkBtn = $("profileActionRemarkBtn"), moveBtn = $("profileActionMoveGroupBtn"),
+    sendBtn = $("profileSendMessageBtn"), primaryActs = $("profilePrimaryActions"),
+    reqActs = $("profileFriendRequestActions"),
+    acceptBtn = $("profileAcceptRequestBtn"), rejectBtn = $("profileRejectRequestBtn");
+  if(addBtn) addBtn.classList.toggle("hidden", isFriend || !!pendingReq);
+  if(hint) hint.classList.toggle("hidden", isFriend || isSelf);
+  if(remarkBtn) remarkBtn.style.display = isFriend ? '' : 'none';
+  if(moveBtn) moveBtn.style.display = isFriend ? '' : 'none';
+  if(sendBtn) sendBtn.classList.toggle("hidden", isSelf);
+  if(primaryActs) primaryActs.classList.toggle('hidden', isFriend || isSelf || !!pendingReq);
+  if(reqActs) {
+    reqActs.classList.toggle('hidden', !pendingReq);
     if (pendingReq) {
       const reqId = pendingReq.id;
-      if($("profileAcceptRequestBtn")) $("profileAcceptRequestBtn").onclick = () => window.acceptRequest(reqId);
-      if($("profileRejectRequestBtn")) $("profileRejectRequestBtn").onclick = () => window.rejectRequest(reqId);
+      if(acceptBtn) acceptBtn.onclick = () => window.acceptRequest(reqId);
+      if(rejectBtn) rejectBtn.onclick = () => window.rejectRequest(reqId);
     } else {
-      if($("profileAcceptRequestBtn")) $("profileAcceptRequestBtn").onclick = null;
-      if($("profileRejectRequestBtn")) $("profileRejectRequestBtn").onclick = null;
+      if(acceptBtn) acceptBtn.onclick = null;
+      if(rejectBtn) rejectBtn.onclick = null;
     }
   }
 }
@@ -607,7 +611,8 @@ function renderSellerProductsManage(){
 function openProductDetail(item, fromSeller = false){
   if(!item) return;
   state.selectedProductDetail = { ...item, fromSeller: !!fromSeller };
-  if($("productDetailImage")) { $("productDetailImage").style.display = ''; $("productDetailImage").onerror = function() { this.style.display = 'none'; }; $("productDetailImage").src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
+  const _pdImg = $("productDetailImage");
+  if(_pdImg) { _pdImg.style.display = ''; _pdImg.onerror = function() { this.style.display = 'none'; }; _pdImg.src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
   if($("productDetailTitle")) $("productDetailTitle").textContent = item.title || '商品';
   if($("productDetailDesc")) $("productDetailDesc").textContent = item.desc || '商品详情页为图片、文字、价格与规格';
   if($("productDetailPrice")) $("productDetailPrice").textContent = formatMoney(item.price);

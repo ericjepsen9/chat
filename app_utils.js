@@ -364,25 +364,35 @@ async function uploadBinary(blob, fileName, contentType) {
   return res.url;
 }
 
-function formatTime(timestamp) {
-  const d = new Date(timestamp), n = new Date();
-  const t = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-  if (d.toDateString() === n.toDateString()) return t;
-  if (new Date(n.setDate(n.getDate()-1)).toDateString() === d.toDateString()) return `昨天 ${t}`;
-  return `${d.getMonth()+1}月${d.getDate()}日 ${t}`;
+// Shared helper: compute start-of-day timestamp and time string from a Date
+function _dayStartAndTime(d) {
+  const hh = d.getHours(), mm = d.getMinutes();
+  return {
+    dayStart: d - hh * 3600000 - mm * 60000 - d.getSeconds() * 1000 - d.getMilliseconds(),
+    hhmm: `${hh < 10 ? '0' + hh : hh}:${mm < 10 ? '0' + mm : mm}`,
+  };
 }
 
+function formatTime(timestamp) {
+  const d = new Date(timestamp);
+  const { dayStart: msgDay, hhmm } = _dayStartAndTime(d);
+  const { dayStart: todayStart } = _dayStartAndTime(new Date());
+  if (msgDay === todayStart) return hhmm;
+  if (todayStart - msgDay === 86400000) return `昨天 ${hhmm}`;
+  return `${d.getMonth()+1}月${d.getDate()}日 ${hhmm}`;
+}
+
+const _WEEKDAYS = ['周日','周一','周二','周三','周四','周五','周六'];
 function formatConversationTime(timestamp) {
   if (!timestamp) return '';
   const d = new Date(timestamp);
+  const { dayStart: msgDay, hhmm } = _dayStartAndTime(d);
   const now = new Date();
-  const hhmm = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startMsg = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffDays = Math.round((startToday - startMsg) / 86400000);
+  const { dayStart: todayStart } = _dayStartAndTime(now);
+  const diffDays = Math.round((todayStart - msgDay) / 86400000);
   if (diffDays <= 0) return hhmm;
   if (diffDays === 1) return '昨天';
-  if (diffDays < 7) return ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+  if (diffDays < 7) return _WEEKDAYS[d.getDay()];
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
 }
