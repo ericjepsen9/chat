@@ -7404,33 +7404,45 @@ async function _loadConversationsImpl() {
 // ==========================================
 async function bootstrap() {
   bindAllEvents(); // 无论如何先把所有事件绑定好
-  
+
   try {
     const session = readSession();
     const user = session.user;
     state.sessionToken = session.token || null;
     state.csrfToken = session.csrfToken || null;
     if (!user || !user.id || !state.sessionToken) { if($("authScreen")) $("authScreen").classList.remove("hidden"); return; }
-    
-    try {
-      const refreshed = await api(`/api/users/${user.id}/profile?viewerId=${user.id}`);
-      if(refreshed.profile) {
-        user.displayName = refreshed.profile.nickname; user.avatarUrl = refreshed.profile.avatarUrl; user.signature = refreshed.profile.signature; user.appNumberId = refreshed.profile.appNumberId; user.customGroups = normalizeCustomGroups(refreshed.profile.customGroups); user.paymentCodes = refreshed.profile.paymentCodes || user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' }; user.phone = refreshed.profile.phone || user.phone || '';
-        writeSession(user);
-      }
-    } catch(e) {
-      console.warn("账号已失效，需重新登录");
-      localStorage.removeItem(SESSION_KEY);
-      if($("authScreen")) $("authScreen").classList.remove("hidden");
-      return; 
-    }
 
+    // Show app screen immediately with cached user data to avoid blank white page
     state.currentUser = user;
     nativeOnLogin(user.id);
     loadCartFromStorage();
     updateMyCartBadge();
     if($("authScreen")) $("authScreen").classList.add("hidden");
     if($("appScreen")) $("appScreen").classList.remove("hidden");
+
+    try {
+      const _ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const _to = _ac ? setTimeout(() => _ac.abort(), 8000) : null;
+      const refreshed = await api(`/api/users/${user.id}/profile?viewerId=${user.id}`, _ac ? { signal: _ac.signal } : {});
+      if (_to) clearTimeout(_to);
+      if(refreshed.profile) {
+        user.displayName = refreshed.profile.nickname; user.avatarUrl = refreshed.profile.avatarUrl; user.signature = refreshed.profile.signature; user.appNumberId = refreshed.profile.appNumberId; user.customGroups = normalizeCustomGroups(refreshed.profile.customGroups); user.paymentCodes = refreshed.profile.paymentCodes || user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' }; user.phone = refreshed.profile.phone || user.phone || '';
+        writeSession(user);
+        state.currentUser = user;
+      }
+    } catch(e) {
+      // If session is truly expired (401), redirect to login
+      if (!e.isNetworkError && e.name !== 'AbortError') {
+        console.warn("账号已失效，需重新登录");
+        localStorage.removeItem(SESSION_KEY);
+        state.currentUser = null;
+        if($("appScreen")) $("appScreen").classList.add("hidden");
+        if($("authScreen")) $("authScreen").classList.remove("hidden");
+        return;
+      }
+      // Network error or timeout: stay on app screen with cached data
+      console.warn("网络异常，使用缓存数据", e);
+    }
     
     if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName; 
     if($("profileUsername")) $("profileUsername").textContent = `ID: ${state.currentUser.appNumberId}`; 
