@@ -363,6 +363,15 @@ async function loadSellerOrders(){
   renderConversationListFromState();
 }
 
+// Unified order data refresh — call after ANY order state change
+async function refreshAllOrderData() {
+  await Promise.all([
+    loadBuyerOrders(),
+    loadSellerOrders(),
+    loadProfileOrders(),
+    state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()
+  ]);
+}
 
 let tradeRefreshTimer = null;
 function scheduleTradeReminderRefresh(delayMs = 300) {
@@ -753,7 +762,7 @@ function buildOrderCard(order, role){
         editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
         try{
           await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+          await refreshAllOrderData();
           renderSellerOrdersManage();
         }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
       });
@@ -769,7 +778,7 @@ function buildOrderCard(order, role){
       acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
       try{
         await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-        await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+        await refreshAllOrderData();
         renderSellerOrdersManage();
       }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
     });
@@ -788,7 +797,7 @@ function buildOrderCard(order, role){
         completeBtn.disabled = true; completeBtn.textContent = '处理中...';
         try{
           await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-          await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+          await refreshAllOrderData();
           if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage();
         }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成'; }
       });
@@ -1143,7 +1152,7 @@ function updateSelectedOrderPrice(){
     try{
       const data = await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
       state.selectedOrderDetail = data.order || order;
-      await Promise.all([loadBuyerOrders(), loadSellerOrders(), loadProfileOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+      await refreshAllOrderData();
       renderOrderDetailPage();
     }catch(e){ showModal(e.message || '修改失败'); }
   });
@@ -1157,8 +1166,7 @@ async function completeSelectedOrder(){
     try{
       const data = await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
       state.selectedOrderDetail = data.order || order;
-      await Promise.all([loadSellerOrders(), loadProfileOrders(), loadBuyerOrders()]);
-      if(state.activeConversation?.id) await reloadActiveConversationMessages();
+      await refreshAllOrderData();
       renderOrderDetailPage();
       showToast('订单已完成');
     }catch(e){ showModal(e.message || '更新失败'); }
@@ -2014,7 +2022,7 @@ function renderProfileOrders(){
           showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
             try{
               await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-              await Promise.all([loadProfileOrders(), loadBuyerOrders(), loadSellerOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+              await refreshAllOrderData();
             }catch(e){ showModal(e.message || '修改失败'); }
           });
         });
@@ -2027,7 +2035,7 @@ function renderProfileOrders(){
           if(!order.id) return;
           try{
             await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-            await Promise.all([loadProfileOrders(), loadBuyerOrders(), loadSellerOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+            await refreshAllOrderData();
           }catch(e){ showModal(e.message || '接单失败'); }
         });
         actions.appendChild(acceptBtn);
@@ -2045,7 +2053,7 @@ function renderProfileOrders(){
           if(!order.id) return;
           try{
             await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-            await Promise.all([loadProfileOrders(), loadBuyerOrders(), loadSellerOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+            await refreshAllOrderData();
           }catch(e){ showModal(e.message || '更新失败'); }
         });
         actions.appendChild(doneBtn);
@@ -2064,7 +2072,7 @@ function renderProfileOrders(){
         showConfirm('确认已收到商品？订单将标记为已完成。', async () => {
           try{
             await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-            await Promise.all([loadProfileOrders(), loadBuyerOrders(), loadSellerOrders(), state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()]);
+            await refreshAllOrderData();
           }catch(e){ showModal(e.message || '确认失败'); }
         });
       });
@@ -2876,7 +2884,7 @@ function buildOrderCardMessage(msg){
         editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
         try{
           await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders(), loadProfileOrders()]);
+          await refreshAllOrderData();
         }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
       });
     });
@@ -2891,7 +2899,7 @@ function buildOrderCardMessage(msg){
       acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
       try{
         await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders(), loadProfileOrders()]);
+        await refreshAllOrderData();
       }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
     });
     actions.appendChild(acceptBtn);
@@ -2917,7 +2925,7 @@ function buildOrderCardMessage(msg){
       completeBtn.disabled = true; completeBtn.textContent = '处理中...';
       try{
         await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-        await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders(), loadProfileOrders()]);
+        await refreshAllOrderData();
       }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成'; }
     });
     actions.appendChild(completeBtn);
@@ -5682,8 +5690,7 @@ function bindAllEvents() {
     try{
       const data = await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
       state.selectedOrderDetail = data.order || order;
-      await Promise.all([loadSellerOrders(), loadProfileOrders(), loadBuyerOrders()]);
-      if(state.activeConversation?.id) await reloadActiveConversationMessages();
+      await refreshAllOrderData();
       renderOrderDetailPage();
       showToast('已接单');
     }catch(e){ showModal(e.message || '接单失败'); }
@@ -5696,8 +5703,7 @@ function bindAllEvents() {
       try{
         const data = await api(`/api/orders/${order.id}/price-request`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
         state.selectedOrderDetail = data.order || order;
-        await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
-        if(state.activeConversation?.id) await reloadActiveConversationMessages();
+        await refreshAllOrderData();
         renderOrderDetailPage();
       }catch(e){ showModal(e.message || '申请失败'); }
     });
