@@ -2676,7 +2676,8 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         card.classList.add('clickable-card');
         card.addEventListener('click', (e) => {
           e.stopPropagation();
-          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], sellerId: msg.senderId || '' };
+          const cardSellerId = c.sellerId || (msg.senderId !== state.currentUser?.id ? msg.senderId : (state.activeConversation?.members || []).find(m => m !== state.currentUser?.id) || '');
+          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], sellerId: cardSellerId };
           openProductDetail(productItem, false);
         });
       }
@@ -3899,7 +3900,7 @@ window.openProductChat = async (sellerId, title, price, image) => {
     const data = await api('/api/conversations', { method: 'POST', body: JSON.stringify({ creatorId: state.currentUser.id, memberIds: [sellerId] }) });
     await window.openConversation(data.conversation.id);
     $("messageInput").value = `你好，我想买你的【${title}】`; $("messageInput").dispatchEvent(new Event("input"));
-    window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: '来自ChatTrade商城', imageUrl: image } }).catch(() => {});
+    window.sendMessage({ type: 'card', card: { cardType: '闲置商品', title, description: `售价：¥${price}`, meta: '来自ChatTrade商城', imageUrl: image, sellerId } }).catch(() => {});
   } catch(e) { showModal("发起交易沟通失败"); }
 };
 
