@@ -2640,11 +2640,12 @@ function summarizeMessagePreview(msg) {
 }
 
 let _lastReceiptKey = '';
+let _lastReceiptEl = null;
 function refreshMessageReadReceipts() {
   const chatView = $('chatView');
   if (!chatView) return;
   if (!state.activeConversation || state.activeConversation.type !== 'direct') {
-    if (_lastReceiptKey) { chatView.querySelectorAll('.message-read-receipt').forEach((el) => el.remove()); _lastReceiptKey = ''; }
+    if (_lastReceiptEl) { _lastReceiptEl.remove(); _lastReceiptEl = null; _lastReceiptKey = ''; }
     return;
   }
   const peerLastReadAt = Number(state.activeConversation.peerLastReadAt || 0);
@@ -2652,12 +2653,13 @@ function refreshMessageReadReceipts() {
   const receiptKey = state.activeConversation.id + ':' + peerLastReadAt + ':' + (lastMsg?.id || '');
   if (receiptKey === _lastReceiptKey) return;
   _lastReceiptKey = receiptKey;
-  chatView.querySelectorAll('.message-read-receipt').forEach((el) => el.remove());
+  if (_lastReceiptEl) { _lastReceiptEl.remove(); _lastReceiptEl = null; }
   let target = null;
+  const uid = state.currentUser.id;
   for (let i = state.messages.length - 1; i >= 0; i -= 1) {
     const msg = state.messages[i];
     if (!msg) continue;
-    if (msg.senderId !== state.currentUser.id) continue;
+    if (msg.senderId !== uid) continue;
     if (msg.type === 'system') continue;
     if (String(msg.id || '').startsWith('temp_')) continue;
     target = msg;
@@ -2679,6 +2681,7 @@ function refreshMessageReadReceipts() {
   receipt.appendChild(dot);
   receipt.appendChild(text);
   wrap.appendChild(receipt);
+  _lastReceiptEl = receipt;
 }
 
 function syncActiveConversationListMeta() {
@@ -3282,7 +3285,7 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
     if($("scanManualPanel")) $("scanManualPanel").classList.add('hidden');
     if($("scanIdInput")) $("scanIdInput").value = '';
     if($("scanHintText")) $("scanHintText").textContent = '将二维码放入框内，即可自动扫描';
-    setTimeout(() => { startScanCamera(); }, 0);
+    requestAnimationFrame(() => { startScanCamera(); });
   }
   else if (page === 'privacyPage') { if($("chatTitle")) $("chatTitle").textContent = '黑名单管理'; }
   else if (page === 'qrCodePage') { if($("chatTitle")) $("chatTitle").textContent = '二维码名片'; }
@@ -4348,8 +4351,8 @@ function bindProductEvents() {
     const catWrap = $('categoryPresetChips');
     const specWrap = $('specPresetChips');
     if (catWrap) {
-      catWrap.innerHTML = '';
       const selectedCats = new Set(categoryTags.getTags());
+      const catFrag = document.createDocumentFragment();
       _categoryPresets.forEach(cat => {
         const chip = document.createElement('button');
         chip.type = 'button';
@@ -4360,12 +4363,13 @@ function bindProductEvents() {
           else categoryTags.addTag(cat);
           renderPresetChips();
         });
-        catWrap.appendChild(chip);
+        catFrag.appendChild(chip);
       });
+      catWrap.replaceChildren(catFrag);
     }
     if (specWrap) {
-      specWrap.innerHTML = '';
       const selectedSpecs = new Set(specsTags.getTags());
+      const specFrag = document.createDocumentFragment();
       _specPresets.forEach(spec => {
         const chip = document.createElement('button');
         chip.type = 'button';
@@ -4376,8 +4380,9 @@ function bindProductEvents() {
           else specsTags.addTag(spec);
           renderPresetChips();
         });
-        specWrap.appendChild(chip);
+        specFrag.appendChild(chip);
       });
+      specWrap.replaceChildren(specFrag);
     }
   }
 
@@ -4484,11 +4489,14 @@ function bindProductEvents() {
     const list = $('presetManageList');
     if (!list) return;
     const items = _presetManageType === 'category' ? _categoryPresets : _specPresets;
-    list.innerHTML = '';
     if (items.length === 0) {
-      list.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:14px;">暂无项目，请在下方添加</div>';
+      const emptyDiv = document.createElement('div');
+      emptyDiv.style.cssText = 'text-align:center;color:#999;padding:20px;font-size:14px;';
+      emptyDiv.textContent = '暂无项目，请在下方添加';
+      list.replaceChildren(emptyDiv);
       return;
     }
+    const _pmFrag = document.createDocumentFragment();
     items.forEach((item, i) => {
       const row = document.createElement('div');
       row.className = 'preset-manage-item';
@@ -4528,8 +4536,9 @@ function bindProductEvents() {
         renderPresetManageList();
         renderPresetChips();
       });
-      list.appendChild(row);
+      _pmFrag.appendChild(row);
     });
+    list.replaceChildren(_pmFrag);
   }
 
   // Global drag event listeners
