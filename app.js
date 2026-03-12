@@ -1073,7 +1073,7 @@ function renderOrderDetailPage(){
   // Action buttons visibility
   const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
   if($("orderDetailAcceptBtn")) $("orderDetailAcceptBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
-  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'accepted' || !!order.priceAdjustmentLocked);
+  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', true);
   if($("orderDetailPriceRequestBtn")) $("orderDetailPriceRequestBtn").classList.toggle('hidden', role !== 'buyer' || order.status !== 'accepted' || hasPending || !!order.priceAdjustmentLocked);
   if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', order.status !== 'accepted');
   if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
@@ -1948,24 +1948,7 @@ function renderProfileOrders(){
         actions.appendChild(acceptBtn);
       }
 
-      // Price edit only on accepted, non-locked, non-completed orders
-      if(order.status === 'accepted' && !order.priceAdjustmentLocked){
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'secondary-btn';
-        editBtn.textContent = '修改价格';
-        editBtn.addEventListener('click', (e) => { e.stopPropagation();
-          if(!order.id) return;
-          showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
-            try{
-              await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-              await loadProfileOrders();
-              if(state.activeConversation?.id) await reloadActiveConversationMessages();
-            }catch(e){ showModal(e.message || '修改失败'); }
-          });
-        });
-        actions.appendChild(editBtn);
-      }
+      // Price edit removed — accepted orders should not allow direct price modification
 
       // Complete button only on accepted orders
       if(order.status === 'accepted'){
@@ -3300,6 +3283,8 @@ function buildConversationRow(conv) {
   if (state.activeConversation && state.activeConversation.id === conv.id) btn.classList.add('is-active');
   btn.dataset.conversationId = conv.id;
   if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => {
+    state.tradeAlertReadAt = Date.now();
+    renderConversationListFromState();
     await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
     const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
     if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
@@ -7245,11 +7230,13 @@ function renderConversationListFromState() {
   let filteredConvs = state.conversations || [];
 
   const tradeOrders = (state.buyerOrders || []).concat(state.sellerOrders || []).filter((o) => o && o.status !== 'completed');
+  const tradeReadAt = state.tradeAlertReadAt || 0;
+  const tradeUnread = tradeOrders.filter((o) => Number(o.updatedAt || o.createdAt || 0) > tradeReadAt).length;
   const tradeConv = tradeOrders.length ? {
     id: '__trade_alert__',
     title: '交易提醒',
     preview: `待处理 ${tradeOrders.length} 单（拉黑不影响交易提醒）`,
-    unread: tradeOrders.length,
+    unread: tradeUnread,
     muted: false,
     pinned: true,
     peerAvatarUrl: '',

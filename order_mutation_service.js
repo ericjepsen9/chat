@@ -142,7 +142,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
   const order = {
-    id: uid('o'),
+    id: String(Date.now()) + String(Math.floor(Math.random() * 900000) + 100000),
     buyerId: authUser.id,
     sellerId: seller.id,
     items: normalized,
@@ -206,6 +206,7 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
   if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
+  if (order.status === 'accepted') return { ok: false, status: 409, error: 'price_change_not_allowed_after_accepted' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
