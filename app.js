@@ -4157,7 +4157,7 @@ window.openUserProfile = async (userId, fallbackName) => {
       if($("profileSignature")) $("profileSignature").textContent = data.profile.signature || '这个人很神秘，还没有填写签名';
       updateProfileDetailActions();
       await loadProfileStore(data.profile.id);
-      window.openSecondaryPage('profileDetailPage', state.activeConversation ? 'chat' : 'home');
+      window.openSecondaryPage('profileDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
     }
   } catch (e) {
     console.warn('openUserProfile failed', e);
