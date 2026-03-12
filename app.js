@@ -5505,8 +5505,9 @@ function bindAllEvents() {
       } catch(e) {
         addBtn.disabled = false;
         addBtn.textContent = '添加好友';
-      showModal(e.message || '发送失败');
-    }
+        showModal(e.message || '发送失败');
+      }
+    });
   });
   const submitScanRequest = async () => {
       const keyword = ($("scanIdInput")?.value || '').trim(); if (!keyword) return showModal('请输入对方 ChatTrade ID');
