@@ -564,7 +564,11 @@ function touchConversation(conversationId) {
 }
 
 function removeFriendshipPair(a, b) {
-  db.friendships = db.friendships.filter((f) => !((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)));
+  const arr = db.friendships;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const f = arr[i];
+    if ((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)) arr.splice(i, 1);
+  }
   rebuildFriendshipIndexes();
 }
 

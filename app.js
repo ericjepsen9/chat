@@ -99,6 +99,12 @@ function getSecondaryBackTarget(defaultTarget = 'home'){
 }
 
 
+function rebuildOrdersById() {
+  const map = new Map();
+  for (const o of (state.buyerOrders || [])) map.set(o.id, o);
+  for (const o of (state.sellerOrders || [])) if (!map.has(o.id)) map.set(o.id, o);
+  state.ordersById = map;
+}
 let _loadBuyerOrdersPromise = null;
 async function loadBuyerOrders(){
   if(!state.currentUser) return;
@@ -113,6 +119,7 @@ async function _loadBuyerOrdersImpl(){
   }catch(_){
     state.buyerOrders = [];
   }
+  rebuildOrdersById();
   renderBuyerOrdersManage();
   scheduleRenderConversationList();
 }
@@ -131,6 +138,7 @@ async function _loadSellerOrdersImpl(){
   }catch(_){
     state.sellerOrders = [];
   }
+  rebuildOrdersById();
   renderSellerOrdersManage();
   scheduleRenderConversationList();
 }
@@ -494,7 +502,7 @@ function populateSellerCategoryFilter(){
 }
 
 function getFilteredSellerProducts(){
-  const all = Array.isArray(state.sellerProducts) ? [...state.sellerProducts] : [];
+  const all = Array.isArray(state.sellerProducts) ? state.sellerProducts : [];
   const showUnlisted = state.sellerProductViewTab === 'unlisted';
   const keyword = String(state.sellerProductSearch || '').trim().toLowerCase();
   const catFilter = String(state.sellerProductCategoryFilter || '').trim();
@@ -1186,9 +1194,9 @@ function renderProfileCartPage(){
   const sellerInfo = $("profileCartSellerInfo");
   if(sellerInfo){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    const sellerName = profile?.displayName || profile?.nickname
-      || ((state.buyerOrders || []).find(o => o.sellerId === sellerId) || (state.sellerOrders || []).find(o => o.sellerId === sellerId))?.sellerName
-      || `商家 ${sellerId.slice(-6)}`;
+    let _sName = '';
+    if (!profile && state.ordersById) { for (const o of state.ordersById.values()) { if (o.sellerId === sellerId && o.sellerName) { _sName = o.sellerName; break; } } }
+    const sellerName = profile?.displayName || profile?.nickname || _sName || `商家 ${sellerId.slice(-6)}`;
     sellerInfo.textContent = sellerName;
     sellerInfo.classList.toggle('hidden', !sellerId);
   }
@@ -2501,14 +2509,11 @@ function buildBroadcastCardMessage(msg){
 async function openChatOrderDetail(order){
   if(!order || !order.id) return;
   // Try to find full order from local state for richer details
-  let fullOrder = (state.buyerOrders || []).find(o => o.id === order.id)
-    || (state.sellerOrders || []).find(o => o.id === order.id);
+  let fullOrder = state.ordersById?.get(order.id);
   if(!fullOrder){
     // Reload orders and try again
     try{ await Promise.all([loadBuyerOrders(), loadSellerOrders()]); }catch(_){}
-    fullOrder = (state.buyerOrders || []).find(o => o.id === order.id)
-      || (state.sellerOrders || []).find(o => o.id === order.id)
-      || order;
+    fullOrder = state.ordersById?.get(order.id) || order;
   }
   const currentUserId = state.currentUser?.id || '';
   const role = currentUserId === fullOrder.buyerId ? 'buyer' : (currentUserId === fullOrder.sellerId ? 'seller' : 'buyer');
@@ -6583,11 +6588,13 @@ function renderConversationListFromState() {
   const tradeReadAt = state.tradeAlertReadAt || 0;
   let tradeUnread = 0;
   const tradeOrders = [];
-  for (const o of (state.buyerOrders || [])) {
-    if (o && o.status !== 'completed') { tradeOrders.push(o); if (Number(o.updatedAt || o.createdAt || 0) > tradeReadAt) tradeUnread++; }
-  }
-  for (const o of (state.sellerOrders || [])) {
-    if (o && o.status !== 'completed') { tradeOrders.push(o); if (Number(o.updatedAt || o.createdAt || 0) > tradeReadAt) tradeUnread++; }
+  const _orderSources = [state.buyerOrders, state.sellerOrders];
+  for (let s = 0; s < 2; s++) {
+    const src = _orderSources[s] || [];
+    for (let i = 0; i < src.length; i++) {
+      const o = src[i];
+      if (o && o.status !== 'completed') { tradeOrders.push(o); if (Number(o.updatedAt || o.createdAt || 0) > tradeReadAt) tradeUnread++; }
+    }
   }
   const tradeConv = tradeOrders.length ? {
     id: '__trade_alert__',
