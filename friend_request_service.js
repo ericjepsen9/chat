@@ -36,10 +36,10 @@ function createFriendRequest({
   const reversePending = (index.requestsByTarget.get(authUser.id) || []).find((r) => r.userId === target.id && r.status === 'pending');
   if (reversePending) {
     reversePending.status = 'accepted';
-    if (!db.friendships.some(f => f.userId === authUser.id && f.friendId === target.id)) {
+    if (!index.friendshipByPair.has(`${authUser.id}:${target.id}`)) {
       db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: target.id, group: '我的好友', remark: '' });
     }
-    if (!db.friendships.some(f => f.userId === target.id && f.friendId === authUser.id)) {
+    if (!index.friendshipByPair.has(`${target.id}:${authUser.id}`)) {
       db.friendships.push({ id: uid('f'), userId: target.id, friendId: authUser.id, group: '我的好友', remark: '' });
     }
     if (typeof getOrCreateDirectConversation === 'function') {
@@ -74,6 +74,7 @@ function acceptFriendRequest({
   requestId,
   authUser,
   db,
+  index,
   uid,
   getDirectConversation,
   rebuildIndexes,
@@ -83,10 +84,10 @@ function acceptFriendRequest({
   const request = db.friendRequests.find((r) => r.id === requestId && r.targetId === authUser.id && r.status === 'pending');
   if (!request) return { ok: false, status: 404, error: 'not_found' };
   request.status = 'accepted';
-  if (!db.friendships.some(f => f.userId === authUser.id && f.friendId === request.userId)) {
+  if (!index.friendshipByPair.has(`${authUser.id}:${request.userId}`)) {
     db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: request.userId, group: '我的好友', remark: '' });
   }
-  if (!db.friendships.some(f => f.userId === request.userId && f.friendId === authUser.id)) {
+  if (!index.friendshipByPair.has(`${request.userId}:${authUser.id}`)) {
     db.friendships.push({ id: uid('f'), userId: request.userId, friendId: authUser.id, group: '我的好友', remark: '' });
   }
   const existed = getDirectConversation(authUser.id, request.userId);

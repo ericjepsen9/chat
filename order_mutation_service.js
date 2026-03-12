@@ -95,12 +95,16 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     }
   }
 
+  // Build product-by-id map once for O(1) lookups
+  const productById = new Map();
+  for (const p of (seller.products || [])) productById.set(String(p.id || ''), p);
+
   const normalized = [];
   const neededByProduct = new Map();
   for (const rawItem of items) {
     const reqItem = normalizeOrderItemRequest(rawItem);
     if (!reqItem.productId) return { ok: false, status: 400, error: 'invalid_product_id' };
-    const sellerProduct = (seller.products || []).find((p) => String(p.id || '') === reqItem.productId);
+    const sellerProduct = productById.get(reqItem.productId);
     if (!sellerProduct) return { ok: false, status: 404, error: 'product_not_found' };
 
     const availableSpecs = Array.isArray(sellerProduct.specs) ? sellerProduct.specs.filter(Boolean) : [];
@@ -128,7 +132,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
 
   const stockUpdates = [];
   for (const [productId, neededQty] of neededByProduct.entries()) {
-    const sellerProduct = (seller.products || []).find((p) => String(p.id || '') === String(productId));
+    const sellerProduct = productById.get(String(productId));
     if (!sellerProduct) return { ok: false, status: 404, error: 'product_not_found' };
     const currentStock = Math.max(0, Math.floor(Number(sellerProduct.stock ?? 0)));
     if (currentStock < neededQty) return { ok: false, status: 409, error: 'insufficient_stock' };

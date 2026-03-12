@@ -552,6 +552,69 @@ function rebuildIndexes() {
   rebuildBlacklistViewsIndex();
   rebuildMallIndex();
 }
+
+// Targeted index helpers — avoid full rebuildIndexes() for single-entity mutations
+function indexNewUser(user) {
+  user.role = normalizeUserRole(user);
+  if (!user.status) user.status = 'active';
+  if (!Array.isArray(user.blacklist)) user.blacklist = [];
+  if (!Array.isArray(user.products)) user.products = [];
+  if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
+  user.customGroups = normalizeUserCustomGroups(user.customGroups);
+  user.phone = normalizePhone(user.phone || '');
+  if (!Array.isArray(user.categoryPresets)) user.categoryPresets = [];
+  if (!Array.isArray(user.specPresets)) user.specPresets = [];
+  index.usersById.set(user.id, user);
+  if (user.username) index.usersByName.set(user.username, user);
+  if (user.phone) index.usersByPhone.set(user.phone, user);
+  if (user.appNumberId) index.usersByAppNumber.set(user.appNumberId, user);
+}
+
+function indexNewConversation(conv) {
+  if (!conv.clearedAt) conv.clearedAt = {};
+  if (!conv.lastRead) conv.lastRead = {};
+  if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
+  if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
+  if (!Array.isArray(conv.members)) conv.members = [];
+  index.convById.set(conv.id, conv);
+  for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
+  rebuildConversationBaseIndex();
+}
+
+function rebuildFriendshipIndexes() {
+  index.friendshipsByUser.clear();
+  index.friendshipByPair.clear();
+  for (const rel of db.friendships) {
+    addToMapArray(index.friendshipsByUser, rel.userId, rel);
+    index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);
+  }
+  rebuildFriendViewsIndex();
+  rebuildConversationBaseIndex();
+}
+
+function rebuildFriendshipAndRequestIndexes() {
+  rebuildFriendshipIndexes();
+  index.requestsByTarget.clear();
+  for (const req of db.friendRequests) if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  rebuildRequestViewsIndex();
+}
+
+function rebuildRequestIndexesOnly() {
+  index.requestsByTarget.clear();
+  for (const req of db.friendRequests) if (req.status === 'pending') addToMapArray(index.requestsByTarget, req.targetId, req);
+  rebuildRequestViewsIndex();
+}
+
+function rebuildMessageIndexes() {
+  index.messagesByConv.clear();
+  index.messageByClientKey.clear();
+  for (const msg of db.messages) {
+    if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
+    addToMapArray(index.messagesByConv, msg.conversationId, msg);
+    if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
+  }
+}
+
 rebuildIndexes();
 
 const sseClientsByUser = new Map();
@@ -938,7 +1001,7 @@ function getOrCreateDirectConversation(userId, peerId) {
     lastMessageAt: now,
   };
   db.conversations.push(conv);
-  rebuildIndexes();
+  indexNewConversation(conv);
   return index.convById.get(conv.id) || conv;
 }
 
@@ -975,7 +1038,7 @@ function touchConversation(conversationId) {
 
 function removeFriendshipPair(a, b) {
   db.friendships = db.friendships.filter((f) => !((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)));
-  rebuildIndexes();
+  rebuildFriendshipIndexes();
 }
 
 function safeStaticPath(pathname) {
@@ -1124,7 +1187,7 @@ const server = http.createServer(async (req, res) => {
           phone,
         };
         db.users.push(user);
-        rebuildIndexes();
+        indexNewUser(user);
         await schedulePersistCritical('register', { userId: user.id });
         broadcastAll('users_updated', { userId: user.id });
       }
@@ -1245,7 +1308,7 @@ const server = http.createServer(async (req, res) => {
         phone,
       };
       db.users.push(user);
-      rebuildIndexes();
+      indexNewUser(user);
       await schedulePersistCritical('register', { userId: user.id });
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
@@ -1728,7 +1791,7 @@ const server = http.createServer(async (req, res) => {
         db,
         areFriends,
         uid,
-        rebuildIndexes,
+        rebuildIndexes: rebuildFriendshipAndRequestIndexes,
         schedulePersist,
         broadcastToUser,
         findUserByPhone,
@@ -1766,9 +1829,10 @@ const server = http.createServer(async (req, res) => {
         requestId: context.body.requestId,
         authUser: context.authUser,
         db,
+        index,
         uid,
         getDirectConversation,
-        rebuildIndexes,
+        rebuildIndexes: rebuildFriendshipAndRequestIndexes,
         schedulePersist,
         broadcastToUser,
       });
@@ -1782,7 +1846,7 @@ const server = http.createServer(async (req, res) => {
         requestId: context.body.requestId,
         authUser: context.authUser,
         db,
-        rebuildIndexes,
+        rebuildIndexes: rebuildRequestIndexesOnly,
         schedulePersist,
         broadcastToUser,
       });
@@ -2187,7 +2251,7 @@ function cleanupExpiredMessages() {
   const before = db.messages.length;
   db.messages = db.messages.filter((m) => m.createdAt > cutoff);
   if (db.messages.length < before) {
-    rebuildIndexes();
+    rebuildMessageIndexes();
     schedulePersist('message_retention_cleanup', {});
     console.log(`[retention] cleaned ${before - db.messages.length} messages older than ${MESSAGE_RETENTION_DAYS} days`);
   }
