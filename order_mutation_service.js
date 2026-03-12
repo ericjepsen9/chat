@@ -9,10 +9,12 @@ function parseProductPrice(value) {
 }
 
 function normalizeOrderItemRequest(item = {}) {
+  const price = Number(item.price);
   return {
     productId: String(item.productId || '').trim(),
     spec: String(item.spec || '默认规格').trim() || '默认规格',
     quantity: Math.max(1, Math.floor(Number(item.quantity || 1))),
+    price: Number.isFinite(price) && price >= 0 ? price : null,
   };
 }
 
@@ -106,13 +108,15 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     }
 
     const safeSpec = availableSpecs.length ? reqItem.spec : '默认规格';
-    const unitPrice = parseProductPrice(sellerProduct.price);
+    const productPrice = parseProductPrice(sellerProduct.price);
+    const unitPrice = reqItem.price !== null ? reqItem.price : productPrice;
     normalized.push({
       productId: sellerProduct.id,
       title: String(sellerProduct.title || '').trim() || '商品',
       spec: safeSpec,
       quantity: reqItem.quantity,
       price: unitPrice,
+      imageUrl: sellerProduct.image || '',
     });
 
     neededByProduct.set(
