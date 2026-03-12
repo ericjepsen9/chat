@@ -254,7 +254,8 @@ const state = {
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {},
   mallTab: 'nearby', userLocation: null, userLocationName: '正在定位...',
-  sidebarMode: 'expanded'
+  sidebarMode: 'expanded',
+  secondaryStack: []
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 
@@ -2729,7 +2730,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
             } catch(_) {}
           }
           // Fallback to card data
-          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], sellerId: cardSellerId };
+          const productItem = { title: c.title || '商品', desc: c.description || '', price: parseMoney(c.meta || '0'), image: c.imageUrl || '', specs: [], stock: 0, sellerId: cardSellerId };
           openProductDetail(productItem, false);
         });
       }
@@ -3681,7 +3682,17 @@ const SECONDARY_PAGE_IDS = [
   'msgSearchPage','mallSearchPage','systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
 ];
 
-window.openSecondaryPage = (page, backTo = 'home') => {
+window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
+  // Push current secondary page onto stack for proper back navigation
+  // Use options.replace = true to replace current page instead of pushing (e.g. after completing an action)
+  if (!options.replace && state.secondaryPage && state.secondaryPage !== page) {
+    state.secondaryStack.push({ page: state.secondaryPage, backTo: state.secondaryReturn });
+  }
+  if (options.replace && state.secondaryStack.length > 0) {
+    // When replacing, inherit backTo from the stack entry that the current page would go back to
+    const prevEntry = state.secondaryStack[state.secondaryStack.length - 1];
+    if (!backTo || backTo === 'home') backTo = prevEntry.backTo;
+  }
   state.secondaryPage = page; state.secondaryReturn = backTo;
   ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
   if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
@@ -4160,13 +4171,15 @@ window.openConversation = async (id, options = {}) => {
     conv.unread = 0;
     renderConversationListFromState();
   }
+  // Clear secondary page navigation state when entering a conversation
+  state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
   SECONDARY_PAGE_IDS.forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
   if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
-  if($("chatListView")) $("chatListView").classList.add("hidden"); 
+  if($("chatListView")) $("chatListView").classList.add("hidden");
   if($("friendListView")) $("friendListView").classList.add("hidden");
   if($("mallView")) $("mallView").classList.add("hidden");
   if($("profileView")) $("profileView").classList.add("hidden");
-  if($("chatView")) $("chatView").classList.remove("hidden"); 
+  if($("chatView")) $("chatView").classList.remove("hidden");
   if($("composerPanel")) $("composerPanel").classList.remove("hidden");
   if($("homeTabbar")) $("homeTabbar").classList.add("hidden");
   if($("backBtn")) $("backBtn").classList.remove("hidden");
@@ -5064,7 +5077,7 @@ function bindAllEvents() {
           await refreshProductViews();
           state.publishEditingProductId = '';
           if (state.secondaryReturn === 'sellerProductsPage') {
-            window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
+            window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage', { replace: true });
           } else if($("backBtn")) {
             $("backBtn").click();
           }
@@ -5143,11 +5156,19 @@ function bindAllEvents() {
   on("backBtn", "click", () => {
     try { stopScanCamera(); } catch(_) {}
       const backTo = state.secondaryReturn;
-      const currentSecondary = state.secondaryPage;
-      state.secondaryPage = null; state.secondaryReturn = null; 
+      state.secondaryPage = null; state.secondaryReturn = null;
       SECONDARY_PAGE_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-      if (backTo && SECONDARY_PAGE_IDS.includes(backTo) && backTo !== currentSecondary) {
-          window.openSecondaryPage(backTo, 'profile');
+      // Pop from navigation stack to restore previous secondary page with its original backTo
+      if (state.secondaryStack.length > 0) {
+          const prev = state.secondaryStack.pop();
+          state.secondaryPage = prev.page; state.secondaryReturn = prev.backTo;
+          ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+          if($(prev.page)) $(prev.page).classList.remove('hidden');
+          if($("backBtn")) $("backBtn").classList.remove('hidden');
+          if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
+          if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
+          if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
+          if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
           return;
       }
       if (backTo === 'chat' && state.activeConversation) {
@@ -6200,6 +6221,8 @@ function bindAllEvents() {
 // ★ 3. 核心拉取与渲染 ★
 // ==========================================
 function setMainTab(tab) {
+  // Clear secondary navigation state when switching to a main tab
+  state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
   ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) { $(t+'Tab').classList.remove('active'); } });
   if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
   ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) { $(id).classList.add('hidden'); } });
