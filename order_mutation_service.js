@@ -79,6 +79,7 @@ function buildOrderCardPayload(order, extras = {}) {
 function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll, ordersById }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
+  if (seller.id === authUser.id) return { ok: false, status: 400, error: 'cannot_buy_own_product' };
   if (isUserBlockedByCounterparty(authUser, seller)) return { ok: false, status: 403, error: 'trade_blocked' };
   const items = Array.isArray(body.items) ? body.items : [];
   if (!items.length) return { ok: false, status: 400, error: 'empty_items' };

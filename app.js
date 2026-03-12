@@ -997,10 +997,11 @@ function openProductDetail(item, fromSeller = false){
     });
     specsEl.replaceChildren(frag);
   }
+  const isOwnProduct = !fromSeller && (item.sellerId === state.currentUser?.id || state.currentProfileUser?.id === state.currentUser?.id);
   if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
-  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller);
-  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller);
-  if($("productDetailChatBtn")) $("productDetailChatBtn").classList.toggle('hidden', fromSeller);
+  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
+  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
+  if($("productDetailChatBtn")) $("productDetailChatBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
   // Show seller management buttons on detail page
   if($("productDetailSellerActions")) $("productDetailSellerActions").classList.toggle('hidden', !fromSeller);
   if(fromSeller && $("productDetailListedBtn")) {
@@ -1425,6 +1426,7 @@ function addSelectedProductToCart(){
   const addQty = Math.max(1, state.specSheetQty || 1);
   const key = `${item.id}__${spec}`;
   const sellerId = item.sellerId || state.currentProfileUser?.id || '';
+  if(sellerId === state.currentUser?.id){ showToast('不能购买自己的商品'); return; }
   const cart = getCurrentSellerCart(sellerId);
   const found = cart.find(i => i.key === key);
   const inCartQty = getProfileStoreItemCartQuantity(item);
@@ -1461,6 +1463,7 @@ function buyNowAndCheckout(){
   const addQty = Math.max(1, state.specSheetQty || 1);
   const sellerId = item.sellerId || state.currentProfileUser?.id || '';
   if(!sellerId) return showToast('无法确定卖家');
+  if(sellerId === state.currentUser?.id) return showToast('不能购买自己的商品');
   const availableStock = getItemAvailableStock(item);
   if(addQty > availableStock){ showToast('库存不足'); return; }
   // Add to cart then navigate to checkout
