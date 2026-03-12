@@ -308,6 +308,7 @@ const index = {
   friendshipByPair: new Map(),
   friendViewsByUser: new Map(),
   ordersById: new Map(),
+  directConvByPair: new Map(),
   friendRequestsById: new Map(),
   directConvBasesByUser: new Map(),
   requestsByTarget: new Map(),
@@ -526,6 +527,10 @@ function rebuildIndexes() {
     if (!Array.isArray(conv.members)) conv.members = [];
     index.convById.set(conv.id, conv);
     for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
+    if (conv.type === 'direct' && conv.members.length === 2) {
+      index.directConvByPair.set(`${conv.members[0]}:${conv.members[1]}`, conv);
+      index.directConvByPair.set(`${conv.members[1]}:${conv.members[0]}`, conv);
+    }
   }
   for (const msg of db.messages) {
     if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
@@ -583,6 +588,10 @@ function indexNewConversation(conv) {
   if (!Array.isArray(conv.members)) conv.members = [];
   index.convById.set(conv.id, conv);
   for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
+  if (conv.type === 'direct' && conv.members.length === 2) {
+    index.directConvByPair.set(`${conv.members[0]}:${conv.members[1]}`, conv);
+    index.directConvByPair.set(`${conv.members[1]}:${conv.members[0]}`, conv);
+  }
   rebuildConversationBaseIndex();
 }
 
@@ -656,23 +665,27 @@ function removeSseClient(userId, res) {
   set.delete(res);
   if (!set.size) sseClientsByUser.delete(userId);
 }
-function sendSse(res, event, payload) {
+function sendSseRaw(res, chunk) {
   try {
     if (res.destroyed || res.writableEnded) return false;
-    res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    res.write(chunk);
     return true;
   } catch (_) { return false; }
 }
-function broadcastToUser(userId, event, payload) {
+function sendSse(res, event, payload) {
+  return sendSseRaw(res, `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+function broadcastToUser(userId, event, payload, _prebuilt) {
   const clients = sseClientsByUser.get(userId);
   if (!clients || clients.size === 0) {
-    // User is offline — send push notification as fallback
     sendPushFallback(userId, event, payload);
     return;
   }
+  // Pre-serialize once for multiple clients
+  const chunk = _prebuilt || `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
   const toRemove = [];
   for (const client of clients) {
-    if (!sendSse(client, event, payload)) toRemove.push(client);
+    if (!sendSseRaw(client, chunk)) toRemove.push(client);
   }
   for (const client of toRemove) removeSseClient(userId, client);
 }
@@ -708,10 +721,12 @@ function sendPushFallback(userId, event, payload) {
 function broadcastToConversation(conversationId, event, payload) {
   const conv = index.convById.get(conversationId);
   if (!conv) return;
-  for (const userId of conv.members) broadcastToUser(userId, event, payload);
+  const chunk = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const userId of conv.members) broadcastToUser(userId, event, payload, chunk);
 }
 function broadcastAll(event, payload) {
-  for (const userId of sseClientsByUser.keys()) broadcastToUser(userId, event, payload);
+  const chunk = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const userId of sseClientsByUser.keys()) broadcastToUser(userId, event, payload, chunk);
 }
 
 function sendJson(res, status, payload) {
@@ -991,7 +1006,7 @@ function areFriends(userId, friendId) {
 }
 
 function getDirectConversation(userId, peerId) {
-  return (index.convByUser.get(userId) || []).find((c) => c.type === 'direct' && c.members.includes(peerId));
+  return index.directConvByPair.get(`${userId}:${peerId}`) || null;
 }
 
 function getOrCreateDirectConversation(userId, peerId) {
