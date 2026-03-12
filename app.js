@@ -1074,8 +1074,8 @@ function renderOrderDetailPage(){
   // Action buttons visibility
   const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
   if($("orderDetailAcceptBtn")) $("orderDetailAcceptBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
-  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', true);
-  if($("orderDetailPriceRequestBtn")) $("orderDetailPriceRequestBtn").classList.toggle('hidden', role !== 'buyer' || order.status !== 'accepted' || hasPending || !!order.priceAdjustmentLocked);
+  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
+  if($("orderDetailPriceRequestBtn")) $("orderDetailPriceRequestBtn").classList.toggle('hidden', true);
   if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', order.status !== 'accepted');
   if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
 }
@@ -1566,7 +1566,20 @@ function renderProfileCartPage(){
         saveCartToStorage();
       });
     });
-    priceWrap.appendChild(priceLabel);
+    const priceEditBtn = document.createElement('button');
+    priceEditBtn.type = 'button';
+    priceEditBtn.className = 'checkout-price-edit-btn';
+    priceEditBtn.textContent = '改价';
+    priceEditBtn.addEventListener('click', () => {
+      showPrompt('请输入新的单价', String(item.unitPrice || 0), (raw) => {
+        const newPrice = Math.max(0, Number(String(raw).replace(/[^\d.]/g, '')) || 0);
+        item.unitPrice = newPrice;
+        priceLabel.textContent = formatMoney(newPrice);
+        updateTotals();
+        saveCartToStorage();
+      });
+    });
+    priceWrap.append(priceLabel, priceEditBtn);
 
     // Quantity controls
     const qtyWrap = document.createElement('div');
@@ -1932,8 +1945,23 @@ function renderProfileOrders(){
     const canManage = state.currentUser?.id && state.currentUser.id === order.sellerId;
 
     if (canManage) {
-      // Accept button for pending orders
+      // Price edit + Accept button for pending orders
       if(order.status === 'pending'){
+        const editPriceBtn = document.createElement('button');
+        editPriceBtn.type = 'button';
+        editPriceBtn.className = 'secondary-btn';
+        editPriceBtn.textContent = '修改价格';
+        editPriceBtn.addEventListener('click', (e) => { e.stopPropagation();
+          if(!order.id) return;
+          showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
+            try{
+              await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
+              await loadProfileOrders();
+              if(state.activeConversation?.id) await reloadActiveConversationMessages();
+            }catch(e){ showModal(e.message || '修改失败'); }
+          });
+        });
+        actions.appendChild(editPriceBtn);
         const acceptBtn = document.createElement('button');
         acceptBtn.type = 'button';
         acceptBtn.className = 'primary-btn';
@@ -2745,6 +2773,22 @@ function buildOrderCardMessage(msg){
 
   // Seller can accept pending orders
   if(isSeller && order.status === 'pending'){
+    const editPriceBtn = document.createElement('button');
+    editPriceBtn.type = 'button';
+    editPriceBtn.className = 'secondary-btn';
+    editPriceBtn.textContent = '修改价格';
+    editPriceBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if(!order.id) return;
+      showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
+        editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
+        try{
+          await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
+          await Promise.all([reloadActiveConversationMessages(), loadBuyerOrders(), loadSellerOrders()]);
+        }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
+      });
+    });
+    actions.appendChild(editPriceBtn);
     const acceptBtn = document.createElement('button');
     acceptBtn.type = 'button';
     acceptBtn.className = 'primary-btn';
@@ -2769,8 +2813,8 @@ function buildOrderCardMessage(msg){
     actions.appendChild(waitHint);
   }
 
-  // Only buyer can request price change, and only on accepted orders
-  const canRequest = isBuyer && order.status === 'accepted' && !hasPendingPrice && !isPriceLocked;
+  // Price change request disabled — accepted orders have locked price
+  const canRequest = false;
   if(canRequest){
     const reqBtn = document.createElement('button');
     reqBtn.type = 'button';

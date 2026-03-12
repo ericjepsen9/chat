@@ -205,7 +205,6 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
   if (!actor.ok) return actor;
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
-  if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
   if (order.status === 'accepted') return { ok: false, status: 409, error: 'price_change_not_allowed_after_accepted' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
@@ -215,8 +214,6 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;
   order.updatedAt = Date.now();
-  order.status = 'accepted';
-  order.priceAdjustmentLocked = true;
 
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
   addTradeMessage(conv.id, {

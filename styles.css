@@ -1377,6 +1377,18 @@ input, textarea { font-size: var(--font-body); }
   border-bottom:1px dashed #ff3b30;
   padding-bottom:1px;
 }
+.checkout-price-edit-btn{
+  margin-left:6px;
+  padding:2px 8px;
+  font-size:12px;
+  border:1px solid #ff3b30;
+  color:#ff3b30;
+  background:transparent;
+  border-radius:10px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.checkout-price-edit-btn:active{ opacity:.7; }
 /* Quantity stepper */
 .checkout-qty-wrap{
   display:flex;
