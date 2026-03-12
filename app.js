@@ -725,6 +725,24 @@ function orderStatusText(status){
   return formatOrderStatusLabel(status);
 }
 
+// ---- Shared order action helpers (eliminates duplication across 4 contexts) ----
+async function doUpdateOrderPrice(orderId, rawPrice) {
+  await api(`/api/orders/${orderId}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(rawPrice) }) });
+  await refreshAllOrderData();
+}
+
+async function doAcceptOrder(orderId) {
+  const data = await api(`/api/orders/${orderId}/accept`, { method:'POST', body: '{}' });
+  await refreshAllOrderData();
+  return data;
+}
+
+async function doCompleteOrder(orderId) {
+  const data = await api(`/api/orders/${orderId}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
+  await refreshAllOrderData();
+  return data;
+}
+
 function buildOrderCard(order, role){
   const card = document.createElement('button');
   card.type = 'button';
@@ -773,8 +791,7 @@ function buildOrderCard(order, role){
       showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
         editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
         try{
-          await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await refreshAllOrderData();
+          await doUpdateOrderPrice(order.id, raw);
           renderSellerOrdersManage();
         }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
       });
@@ -789,8 +806,7 @@ function buildOrderCard(order, role){
       if(!order.id || acceptBtn.disabled) return;
       acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
       try{
-        await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-        await refreshAllOrderData();
+        await doAcceptOrder(order.id);
         renderSellerOrdersManage();
       }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
     });
@@ -808,8 +824,7 @@ function buildOrderCard(order, role){
       showConfirm(msg, async () => {
         completeBtn.disabled = true; completeBtn.textContent = '处理中...';
         try{
-          await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-          await refreshAllOrderData();
+          await doCompleteOrder(order.id);
           if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage();
         }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成'; }
       });
@@ -1162,9 +1177,7 @@ function updateSelectedOrderPrice(){
   if(!order?.id) return;
   showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
     try{
-      const data = await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-      state.selectedOrderDetail = data.order || order;
-      await refreshAllOrderData();
+      await doUpdateOrderPrice(order.id, raw);
       renderOrderDetailPage();
     }catch(e){ showModal(e.message || '修改失败'); }
   });
@@ -1176,9 +1189,8 @@ async function completeSelectedOrder(){
   const isBuyerRole = state.selectedOrderRole === 'buyer';
   showConfirm(isBuyerRole ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？', async () => {
     try{
-      const data = await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
+      const data = await doCompleteOrder(order.id);
       state.selectedOrderDetail = data.order || order;
-      await refreshAllOrderData();
       renderOrderDetailPage();
       showToast('订单已完成');
     }catch(e){ showModal(e.message || '更新失败'); }
@@ -2038,10 +2050,7 @@ function renderProfileOrders(){
         editPriceBtn.addEventListener('click', (e) => { e.stopPropagation();
           if(!order.id) return;
           showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
-            try{
-              await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-              await refreshAllOrderData();
-            }catch(e){ showModal(e.message || '修改失败'); }
+            try{ await doUpdateOrderPrice(order.id, raw); }catch(e){ showModal(e.message || '修改失败'); }
           });
         });
         actions.appendChild(editPriceBtn);
@@ -2051,15 +2060,10 @@ function renderProfileOrders(){
         acceptBtn.textContent = '接单';
         acceptBtn.addEventListener('click', async (e) => { e.stopPropagation();
           if(!order.id) return;
-          try{
-            await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-            await refreshAllOrderData();
-          }catch(e){ showModal(e.message || '接单失败'); }
+          try{ await doAcceptOrder(order.id); }catch(e){ showModal(e.message || '接单失败'); }
         });
         actions.appendChild(acceptBtn);
       }
-
-      // Price edit removed — accepted orders should not allow direct price modification
 
       // Complete button only on accepted orders
       if(order.status === 'accepted'){
@@ -2069,10 +2073,7 @@ function renderProfileOrders(){
         doneBtn.textContent = '标记已完成';
         doneBtn.addEventListener('click', async (e) => { e.stopPropagation();
           if(!order.id) return;
-          try{
-            await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-            await refreshAllOrderData();
-          }catch(e){ showModal(e.message || '更新失败'); }
+          try{ await doCompleteOrder(order.id); }catch(e){ showModal(e.message || '更新失败'); }
         });
         actions.appendChild(doneBtn);
       }
@@ -2088,10 +2089,7 @@ function renderProfileOrders(){
       receiveBtn.addEventListener('click', async (e) => { e.stopPropagation();
         if(!order.id) return;
         showConfirm('确认已收到商品？订单将标记为已完成。', async () => {
-          try{
-            await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-            await refreshAllOrderData();
-          }catch(e){ showModal(e.message || '确认失败'); }
+          try{ await doCompleteOrder(order.id); }catch(e){ showModal(e.message || '确认失败'); }
         });
       });
       actions.appendChild(receiveBtn);
@@ -2901,8 +2899,7 @@ function buildOrderCardMessage(msg){
       showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
         editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
         try{
-          await api(`/api/orders/${order.id}/price`, { method:'POST', body: JSON.stringify({ total: parseMoney(raw) }) });
-          await refreshAllOrderData();
+          await doUpdateOrderPrice(order.id, raw);
         }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
       });
     });
@@ -2916,8 +2913,7 @@ function buildOrderCardMessage(msg){
       if(!order.id || acceptBtn.disabled) return;
       acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
       try{
-        await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
-        await refreshAllOrderData();
+        await doAcceptOrder(order.id);
       }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
     });
     actions.appendChild(acceptBtn);
@@ -2942,8 +2938,7 @@ function buildOrderCardMessage(msg){
       if(!order.id || completeBtn.disabled) return;
       completeBtn.disabled = true; completeBtn.textContent = '处理中...';
       try{
-        await api(`/api/orders/${order.id}/status`, { method:'POST', body: JSON.stringify({ status:'completed' }) });
-        await refreshAllOrderData();
+        await doCompleteOrder(order.id);
       }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成'; }
     });
     actions.appendChild(completeBtn);
@@ -5706,9 +5701,8 @@ function bindAllEvents() {
     const order = state.selectedOrderDetail;
     if(!order?.id) return;
     try{
-      const data = await api(`/api/orders/${order.id}/accept`, { method:'POST', body: '{}' });
+      const data = await doAcceptOrder(order.id);
       state.selectedOrderDetail = data.order || order;
-      await refreshAllOrderData();
       renderOrderDetailPage();
       showToast('已接单');
     }catch(e){ showModal(e.message || '接单失败'); }
