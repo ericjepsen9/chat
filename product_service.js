@@ -74,9 +74,9 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
 }
 
 function deleteProduct({ authUser, productId, rebuildMallIndex, schedulePersist, broadcastAll }) {
-  const exists = (authUser.products || []).some((p) => p.id === productId);
-  if (!exists) return { ok: false, status: 404, error: 'not_found' };
-  authUser.products = authUser.products.filter((p) => p.id !== productId);
+  const idx = (authUser.products || []).findIndex((p) => p.id === productId);
+  if (idx === -1) return { ok: false, status: 404, error: 'not_found' };
+  authUser.products.splice(idx, 1);
   rebuildMallIndex();
   schedulePersist('product_delete', { userId: authUser.id, productId });
   broadcastAll('mall_updated', {});

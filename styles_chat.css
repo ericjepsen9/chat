@@ -51,7 +51,7 @@
 .context-menu { position: absolute; background: #4c4c4c; border-radius: 8px; display: flex; gap: 1px; padding: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
 .context-menu button { background: transparent; color: #fff; border: none; padding: 8px 16px; font-size: var(--font-body-sm); outline:none; }
 .context-menu button:active { background: #666; border-radius: 4px; }
-.image-viewer { position: absolute; inset: 0; background: rgba(0,0,0,1); z-index: 99999; display: flex; justify-content: center; align-items: center; }
+.image-viewer { position: absolute; inset: 0; background: rgba(0,0,0,1); z-index: 99999; display: flex; justify-content: center; align-items: center; contain: layout style paint; }
 .image-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: auto; }
 
 /* 通话面板 */
@@ -65,7 +65,7 @@
 .call-floating-icon { display: flex; align-items: center; justify-content: center; animation: callPulse 1.5s ease-in-out infinite; }
 .call-floating-duration { font-size: var(--font-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
 @keyframes callPulse { 0%,100%{ opacity:1; } 50%{ opacity:0.5; } }
-.call-panel { position: absolute; inset: 0; background: #1b1b1b; color: #fff; z-index: 100; display: flex; flex-direction: column; justify-content: space-between; padding: 0; overflow: hidden; }
+.call-panel { position: absolute; inset: 0; background: #1b1b1b; color: #fff; z-index: 100; display: flex; flex-direction: column; justify-content: space-between; padding: 0; overflow: hidden; contain: layout style paint; }
 .call-info { text-align: center; margin-top: max(60px, env(safe-area-inset-top)); z-index: 101; transition: opacity 0.3s; }
 .video-container { position: absolute; inset: 0; z-index: 100; background: #000; }
 #remoteVideo { width: 100%; height: 100%; object-fit: cover; }
@@ -75,7 +75,7 @@
 .control-btn { background: transparent; border: none; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: var(--font-caption); opacity: 0.5; transition: all 0.2s; outline:none; cursor:pointer;}
 .control-btn.active { opacity: 1; color: var(--brand); }
 .call-actions { display: flex; justify-content: space-evenly; width: 100%; }
-.call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer;}
+.call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer; will-change: transform;}
 @media (max-width: 500px) { body { padding: 0; } .mobile-shell { border-radius: 0; height: 100vh; } }
 /* V36 conversation list polish */
 .chat-item{ position:relative; }

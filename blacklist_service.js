@@ -6,7 +6,8 @@ function updateBlacklist({ authUser, targetId, action, index, rebuildBlacklistVi
   if (action === 'add') {
     if (!authUser.blacklist.includes(target.id)) authUser.blacklist.push(target.id);
   } else {
-    authUser.blacklist = authUser.blacklist.filter((id) => id !== target.id);
+    const idx = authUser.blacklist.indexOf(target.id);
+    if (idx !== -1) authUser.blacklist.splice(idx, 1);
   }
 
   rebuildBlacklistViewsIndex();

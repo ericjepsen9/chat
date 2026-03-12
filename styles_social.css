@@ -1,6 +1,6 @@
 /* styles_social.css — Contacts, profile, friends, search, settings, sidebar */
 /* 扫一扫 */
-.scan-container { background: #111 !important; display: flex; flex-direction: column; height: 100%; position: relative; z-index: 10; }
+.scan-container { background: #111 !important; display: flex; flex-direction: column; height: 100%; position: relative; z-index: 10; contain: layout style paint; }
 .scan-viewfinder-area{
   flex:1;
   display:flex;
@@ -31,8 +31,9 @@
   box-shadow: 0 0 12px var(--brand);
   animation: scanMove 2.5s ease-in-out infinite;
   pointer-events: none;
+  will-change: transform, opacity;
 }
-@keyframes scanMove { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+@keyframes scanMove { 0% { transform: translateY(0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(220px); opacity: 0; } }
 .scan-hint-text{
   margin-top:20px;
   font-size: var(--font-caption);
