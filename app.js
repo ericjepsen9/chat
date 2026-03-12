@@ -791,9 +791,13 @@ async function completeSelectedOrder(){
   });
 }
 
+let _broadcastDraftsSig = '';
 function renderBroadcastDrafts(){
   const list = $("broadcastDraftList");
   if(!list) return;
+  const sig = state.broadcastDrafts.map(d => (d.id||'')+'|'+(d.title||'')).join(';');
+  if (sig === _broadcastDraftsSig) return;
+  _broadcastDraftsSig = sig;
   if(!state.broadcastDrafts.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -865,9 +869,10 @@ function getProfileStoreItemCartQuantity(item){
   if(!item) return 0;
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
   if(!cart.length) return 0;
-  return cart
-    .filter((entry) => String(entry.productId) === String(item.id))
-    .reduce((sum, entry) => sum + (Number(entry.quantity) || 0), 0);
+  const pid = String(item.id);
+  let sum = 0;
+  for (let i = 0; i < cart.length; i++) { if (String(cart[i].productId) === pid) sum += (Number(cart[i].quantity) || 0); }
+  return sum;
 }
 
 function getItemAvailableStock(item){
@@ -1170,9 +1175,10 @@ function updateProfileCartBar(){
   const countEl = $("profileCartCount");
   const totalEl = $("profileCartTotal");
   const currentCart = getCurrentSellerCart();
-  const count = currentCart.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+  let count = 0, cartTotal = 0;
+  for (let i = 0; i < currentCart.length; i++) { const q = Number(currentCart[i].quantity)||0; count += q; cartTotal += (Number(currentCart[i].unitPrice)||0)*q; }
   if(countEl) countEl.textContent = `${count} 件商品`;
-  if(totalEl) totalEl.textContent = formatMoney(currentCart.reduce((sum, item) => sum + (Number(item.unitPrice)||0)*(Number(item.quantity)||0), 0));
+  if(totalEl) totalEl.textContent = formatMoney(cartTotal);
   if(bar) bar.classList.toggle('hidden', count <= 0);
   updateMyCartBadge();
 }
@@ -1359,8 +1365,8 @@ function renderCartHubPage(){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
     const knownSeller = _sellerNameCache.get(sellerId);
     const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
-    const count = arr.reduce((s, item) => s + (Number(item.quantity)||0), 0);
-    const total = arr.reduce((s, item) => s + (Number(item.unitPrice)||0)*(Number(item.quantity)||0), 0);
+    let count = 0, total = 0;
+    for (let i = 0; i < arr.length; i++) { const q = Number(arr[i].quantity)||0; count += q; total += (Number(arr[i].unitPrice)||0)*q; }
     const card = document.createElement('div');
     card.className = 'cart-hub-card';
     const head = document.createElement('div');
@@ -1764,7 +1770,7 @@ function applyChatRelationshipState(){
   const peerId = conversationPeerId(state.activeConversation);
   if(!peerId) { $("chatSubtitle").textContent = ''; return; }
   const convFriendState = state.activeConversation?.peerIsFriend === true
-    || (state.conversations || []).find((c) => c.id === state.activeConversation?.id)?.peerIsFriend === true;
+    || state.conversationsById?.get(state.activeConversation?.id)?.peerIsFriend === true;
   $("chatSubtitle").textContent = (convFriendState || isFriendUser(peerId)) ? '' : '对方还不是你的好友';
 }
 
@@ -2692,7 +2698,7 @@ function syncActiveConversationListMeta() {
 }
 
 function applyIncomingConversationMeta(conversationId, message) {
-  const conv = (state.conversations || []).find((item) => item.id === conversationId);
+  const conv = state.conversationsById?.get(conversationId);
   if (!conv) return;
   conv.preview = summarizeMessagePreview(message);
   conv.lastMessageAt = message?.createdAt || Date.now();
@@ -2705,8 +2711,8 @@ function buildConversationSignature(visible, totalUnread) {
   let s = totalUnread + ':';
   for (const conv of visible) {
     s += conv.id + '|' + (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
-      + '|' + (isConversationMuted(conv) ? 1 : 0) + '|' + (isConversationPinned(conv) ? 1 : 0)
-      + '|' + (conv.peerAvatarUrl || '') + '|' + (getConversationClearedAt(conv))
+      + '|' + (conv.muted ? 1 : 0) + '|' + (conv.pinned ? 1 : 0)
+      + '|' + (conv.peerAvatarUrl || '') + '|' + (conv.clearedAt || 0)
       + '|' + (conv.lastMessageAt || 0) + ';';
   }
   return s;
@@ -2758,8 +2764,8 @@ function normalizeConversation(conv) {
 }
 function buildConversationItemSignature(conv) {
   return (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
-    + '|' + (isConversationMuted(conv) ? 1 : 0) + '|' + (isConversationPinned(conv) ? 1 : 0)
-    + '|' + (conv.peerAvatarUrl || '') + '|' + getConversationClearedAt(conv)
+    + '|' + (conv.muted ? 1 : 0) + '|' + (conv.pinned ? 1 : 0)
+    + '|' + (conv.peerAvatarUrl || '') + '|' + (conv.clearedAt || 0)
     + '|' + (conv.lastMessageAt || 0)
     + '|' + (state.activeConversation && state.activeConversation.id === conv.id ? 1 : 0);
 }
