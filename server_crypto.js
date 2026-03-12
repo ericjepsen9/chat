@@ -257,4 +257,5 @@ module.exports = {
   cleanupAuthState,
   EXPOSE_MOCK_PHONE_CODE, TRUST_PROXY,
   csrfTokens,
+  phoneCodeIpCooldownStore, PHONE_CODE_IP_COOLDOWN_MS,
 };

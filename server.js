@@ -16,6 +16,7 @@ const {
   getPhoneCodeIpAttemptState, recordPhoneCodeIpAttempt,
   cleanupAuthState,
   EXPOSE_MOCK_PHONE_CODE, TRUST_PROXY,
+  phoneCodeIpCooldownStore, PHONE_CODE_IP_COOLDOWN_MS,
 } = require('./server_crypto');
 const createIndexManager = require('./server_index');
 const { searchMessagesGlobal, searchMessagesInConversation } = require('./message_search_service');
@@ -37,6 +38,10 @@ const { listFriendRequests, listFriends, listConversations } = require('./social
 const { deleteConversationMessage, recallConversationMessage, applyConversationAction } = require('./conversation_action_service');
 const { listConversationMessages, createConversationMessage } = require('./conversation_message_service');
 const { pushIncomingCall, pushNewMessage, pushFriendRequest, pushOrderUpdate, isUserOnline } = require('./push_service');
+const createAuthRoutes = require('./server_routes_auth');
+const createSocialRoutes = require('./server_routes_social');
+const createChatRoutes = require('./server_routes_chat');
+const createOrderRoutes = require('./server_routes_orders');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -559,6 +564,48 @@ const allowOrigins = new Set([
   'http://localhost:4173',
 ]);
 
+// Route context shared by all extracted route modules
+const routeCtx = {
+  matchRoute, sendJson, sendResult, parseBody, parseRawBody,
+  getAuthedUser, getAuthedBody, getAuthedActingBody, ensureActingUser,
+  parseAuthToken,
+  db, index, sessions,
+  uid, isAdmin, canAccessConversation,
+  normalizePhone, findUserByPhone, sanitizePublicUser,
+  ensureUserActiveForAuth, issueCsrfToken, validateCsrf, csrfTokens,
+  hashPasswordAsync, verifyPasswordAsync,
+  issuePhoneCode, consumePhoneCode,
+  issueSession, revokeSessionsForUser,
+  getClientIp, getLoginAttemptState, recordLoginAttempt,
+  getPhoneCodeIpAttemptState, recordPhoneCodeIpAttempt,
+  phoneCodeIpCooldownStore, PHONE_CODE_IP_COOLDOWN_MS,
+  generateUniqueAppNumberId, indexNewUser,
+  schedulePersist, schedulePersistCritical, appendWal,
+  broadcastToUser, broadcastToConversation, broadcastAll,
+  areFriends, getDirectConversation, getOrCreateDirectConversation,
+  addTradeMessage, touchConversation, removeFriendshipPair,
+  addToMapArray, DEFAULT_GROUP,
+  normalizeSingleGroupName, normalizeUserCustomGroups,
+  rebuildIndexes, rebuildFriendViewsIndex, rebuildConversationBaseIndex,
+  rebuildBlacklistViewsIndex, rebuildRequestViewsIndex, rebuildMallIndex,
+  rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
+  isMessageVisibleToUser, getVisibleMessagesSlice, buildConversationMeta,
+  searchMessagesGlobal, searchMessagesInConversation,
+  queryOrders, createOrder, acceptOrder, updateOrderPrice,
+  requestOrderPriceChange, confirmOrderPriceChange, updateOrderStatus, deleteOrder,
+  createFriendRequest, acceptFriendRequest, rejectFriendRequest,
+  updateBlacklist, updateFriendRemark, updateFriendGroup, deleteFriendRelation,
+  createGroup, renameGroup, reorderGroup, deleteGroup,
+  listFriendRequests, listFriends, listConversations,
+  listConversationMessages, createConversationMessage,
+  deleteConversationMessage, recallConversationMessage, applyConversationAction,
+  createDirectConversation,
+};
+const handleAuthRoutes = createAuthRoutes(routeCtx);
+const handleSocialRoutes = createSocialRoutes(routeCtx);
+const handleChatRoutes = createChatRoutes(routeCtx);
+const handleOrderRoutes = createOrderRoutes(routeCtx);
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   const { pathname, searchParams } = requestUrl;
@@ -597,227 +644,8 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (matchRoute(pathname, '/api/login') && req.method === 'POST') {
-      const body = await parseBody(req);
-      const username = String(body.username || body.phone || '').trim();
-      const loginPhone = normalizePhone(body.phone || username);
-      const user = index.usersByName.get(username) || (loginPhone ? findUserByPhone(loginPhone) : null);
-      const attemptKey = `${username || loginPhone}:${getClientIp(req)}`;
-      const attemptState = getLoginAttemptState(attemptKey);
-      if (attemptState.blockedUntil && attemptState.blockedUntil > Date.now()) {
-        return sendJson(res, 429, { error: '登录尝试过多，请稍后再试' });
-      }
-      if (!user || !(await verifyPasswordAsync(body.password, user.password))) {
-        recordLoginAttempt(attemptKey, false);
-        // Distinguish between "no password set" and "wrong password"
-        if (user && !user.password) {
-          return sendJson(res, 401, { error: '该账号未设置密码，请使用手机验证码登录' });
-        }
-        return sendJson(res, 401, { error: '账号或密码错误' });
-      }
-      if (!ensureUserActiveForAuth(user)) {
-        return sendJson(res, 403, { error: 'account_disabled' });
-      }
-      recordLoginAttempt(attemptKey, true);
-      if (!user.password.includes(':')) {
-        user.password = await hashPasswordAsync(body.password);
-        await schedulePersistCritical('migrate_password', { userId: user.id });
-      }
-      const token = issueSession(user.id);
-      const csrfToken = issueCsrfToken(token);
-      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
-    }
-
-
-    if (matchRoute(pathname, '/api/auth/send-code') && req.method === 'POST') {
-      const body = await parseBody(req);
-      const phone = normalizePhone(body.phone || '');
-      const scene = String(body.scene || 'login');
-      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
-      if (!['login','reset','register'].includes(scene)) return sendJson(res, 400, { error: '验证码场景不支持' });
-      const clientIp = getClientIp(req);
-      if (clientIp) {
-        const ipCooldownUntil = Number(phoneCodeIpCooldownStore.get(clientIp) || 0);
-        if (ipCooldownUntil > Date.now()) {
-          return sendJson(res, 429, { error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((ipCooldownUntil - Date.now()) / 1000) });
-        }
-        phoneCodeIpCooldownStore.set(clientIp, Date.now() + PHONE_CODE_IP_COOLDOWN_MS);
-      }
-      const issueResult = issuePhoneCode(phone, scene);
-      if (!issueResult.ok) {
-        return sendJson(res, 429, { error: issueResult.error || '发送验证码失败', retryAfterSec: issueResult.retryAfterSec || 0 });
-      }
-      return sendJson(res, 200, { ok: true, expiresInSec: issueResult.expiresInSec });
-    }
-
-    if (matchRoute(pathname, '/api/login/phone-code') && req.method === 'POST') {
-      const body = await parseBody(req);
-      const phone = normalizePhone(body.phone || '');
-      const code = String(body.code || '').trim();
-      const clientIp = getClientIp(req);
-      const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
-      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
-        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
-      }
-      if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      const codeResult = consumePhoneCode(phone, code, 'login');
-      if (!codeResult.ok) {
-        recordPhoneCodeIpAttempt(clientIp, false);
-        const statusCode = codeResult.retryAfterSec ? 429 : 400;
-        return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
-      }
-      recordPhoneCodeIpAttempt(clientIp, true);
-      let user = findUserByPhone(phone);
-      if (user && !ensureUserActiveForAuth(user)) return sendJson(res, 403, { error: 'account_disabled' });
-      // Auto-register if phone is not registered (as UI promises)
-      if (!user) {
-        user = {
-          id: uid('u'),
-          username: phone,
-          password: '',
-          displayName: `用户${phone.slice(-4)}`,
-          signature: '暂未填写签名',
-          avatarUrl: null,
-          products: [],
-          blacklist: [],
-          customGroups: ['我的好友'],
-          appNumberId: generateUniqueAppNumberId(),
-          createdAt: Date.now(),
-          role: 'user',
-          status: 'active',
-          paymentCodes: { wechat: '', alipay: '', cloudpay: '' },
-          phone,
-        };
-        db.users.push(user);
-        indexNewUser(user);
-        await schedulePersistCritical('register', { userId: user.id });
-        broadcastAll('users_updated', { userId: user.id });
-      }
-      const token = issueSession(user.id);
-      const csrfToken = issueCsrfToken(token);
-      return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
-    }
-
-    if (matchRoute(pathname, '/api/password/forgot') && req.method === 'POST') {
-      const body = await parseBody(req);
-      const phone = normalizePhone(body.phone || '');
-      const code = String(body.code || '').trim();
-      const nextPassword = String(body.newPassword || '');
-      const clientIp = getClientIp(req);
-      const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
-      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > Date.now()) {
-        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
-      }
-      if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
-      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
-      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
-      if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      const user = findUserByPhone(phone);
-      if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
-      const codeResult = consumePhoneCode(phone, code, 'reset');
-      if (!codeResult.ok) {
-        recordPhoneCodeIpAttempt(clientIp, false);
-        const statusCode = codeResult.retryAfterSec ? 429 : 400;
-        return sendJson(res, statusCode, { error: codeResult.error || '验证码错误或已过期', retryAfterSec: codeResult.retryAfterSec || 0 });
-      }
-      recordPhoneCodeIpAttempt(clientIp, true);
-      if (await verifyPasswordAsync(nextPassword, user.password)) {
-        return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
-      }
-      user.password = await hashPasswordAsync(nextPassword);
-      revokeSessionsForUser(user.id);
-      await schedulePersistCritical('password_forgot_reset', { userId: user.id });
-      return sendJson(res, 200, { ok: true });
-    }
-
-    if (matchRoute(pathname, '/api/password/change') && req.method === 'POST') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const body = await parseBody(req);
-      if (!authUser.password) {
-        return sendJson(res, 400, { error: '当前账号未设置密码，请通过忘记密码功能设置新密码' });
-      }
-      if (!(await verifyPasswordAsync(body.oldPassword, authUser.password))) {
-        return sendJson(res, 400, { error: '旧密码错误' });
-      }
-      const nextPassword = String(body.newPassword || '');
-      if (String(body.oldPassword || '') === nextPassword) {
-        return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
-      }
-      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
-      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
-      authUser.password = await hashPasswordAsync(nextPassword);
-      revokeSessionsForUser(authUser.id);
-      const token = issueSession(authUser.id);
-      const csrfToken = issueCsrfToken(token);
-      await schedulePersistCritical('password_change', { userId: authUser.id });
-      return sendJson(res, 200, { ok: true, token, csrfToken });
-    }
-
-
-    if (matchRoute(pathname, '/api/logout') && req.method === 'POST') {
-      const authUser = getAuthedUser(req, res);
-      if (!authUser) return;
-      const token = parseAuthToken(req, searchParams);
-      if (token) { sessions.delete(token); csrfTokens.delete(token); }
-      return sendJson(res, 200, { ok: true });
-    }
-
-    if (matchRoute(pathname, '/api/register') && req.method === 'POST') {
-      const body = await parseBody(req);
-      if (!body.displayName || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
-      const displayName = String(body.displayName).trim();
-      if (!displayName) return sendJson(res, 400, { error: '昵称不能为空' });
-      if (String(body.password || '').length < 8) {
-        return sendJson(res, 400, { error: '密码至少8位' });
-      }
-      const phone = normalizePhone(body.phone || '');
-      if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
-      // Use phone number as login username
-      const username = phone;
-      // Verify phone code on server side (try 'register' scene first, fall back to 'login')
-      const regCode = String(body.code || '').trim();
-      if (!regCode) return sendJson(res, 400, { error: '请输入验证码' });
-      const codeResult = consumePhoneCode(phone, regCode, 'register');
-      if (!codeResult.ok) {
-        // Fall back to 'login' scene if 'register' scene code not found
-        const fallbackResult = consumePhoneCode(phone, regCode, 'login');
-        if (!fallbackResult.ok) {
-          return sendJson(res, 400, { error: fallbackResult.error || '验证码错误或已过期' });
-        }
-      }
-      if (index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      if (String(body.password || '').length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
-      const hashedPassword = await hashPasswordAsync(body.password);
-      // Re-check after async hash to prevent race condition
-      if (index.usersByName.has(username) || findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      const user = {
-        id: uid('u'),
-        username,
-        password: hashedPassword,
-        displayName,
-        signature: '暂未填写签名',
-        avatarUrl: null,
-        products: [],
-        blacklist: [],
-        customGroups: ['我的好友'],
-        appNumberId: generateUniqueAppNumberId(),
-        createdAt: Date.now(),
-        role: 'user',
-        status: 'active',
-        paymentCodes: { wechat:'', alipay:'', cloudpay:'' },
-        phone,
-      };
-      db.users.push(user);
-      indexNewUser(user);
-      await schedulePersistCritical('register', { userId: user.id });
-      const token = issueSession(user.id);
-      const csrfToken = issueCsrfToken(token);
-      broadcastAll('users_updated', { userId: user.id });
-      return sendJson(res, 201, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
-    }
-
+    // Auth routes (login, register, phone code, password)
+    if (await handleAuthRoutes(pathname, req.method, req, res, searchParams)) return;
 
     if (matchRoute(pathname, '/api/upload') && req.method === 'POST') {
       const authUser = getAuthedUser(req, res, { searchParams });
@@ -991,143 +819,8 @@ const server = http.createServer(async (req, res) => {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/orders') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const data = queryOrders({ db, authUser, searchParams, isAdmin });
-      // Enrich orders with buyer/seller display names
-      (data.orders || []).forEach(o => {
-        const buyer = index.usersById.get(o.buyerId);
-        const seller = index.usersById.get(o.sellerId);
-        o.buyerName = buyer?.displayName || buyer?.nickname || '';
-        o.sellerName = seller?.displayName || seller?.nickname || '';
-      });
-      return sendJson(res, 200, data);
-    }
-
-    if (matchRoute(pathname, '/api/orders') && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = createOrder({
-        authUser: context.authUser,
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        uid,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        rebuildMallIndex,
-        broadcastAll,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderAcceptMatch = pathname.match(/^\/api\/orders\/([^/]+)\/accept$/);
-    if (orderAcceptMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = acceptOrder({
-        authUser: context.authUser,
-        orderId: orderAcceptMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderPriceMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price$/);
-    if (orderPriceMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = updateOrderPrice({
-        authUser: context.authUser,
-        orderId: orderPriceMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderPriceRequestMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-request$/);
-    if (orderPriceRequestMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = requestOrderPriceChange({
-        authUser: context.authUser,
-        orderId: orderPriceRequestMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderPriceConfirmMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-confirm$/);
-    if (orderPriceConfirmMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = confirmOrderPriceChange({
-        authUser: context.authUser,
-        orderId: orderPriceConfirmMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderStatusMatch = pathname.match(/^\/api\/orders\/([^/]+)\/status$/);
-    if (orderStatusMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = updateOrderStatus({
-        authUser: context.authUser,
-        orderId: orderStatusMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderDeleteMatch = pathname.match(/^\/api\/orders\/([^/]+)\/delete$/);
-    if (orderDeleteMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = deleteOrder({
-        authUser: context.authUser,
-        orderId: orderDeleteMatch[1],
-        db,
-        usersById: index.usersById,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
+    // Order routes
+    if (await handleOrderRoutes(pathname, req.method, req, res, searchParams)) return;
 
     if (pathname === '/api/system/messages' && req.method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
@@ -1253,398 +946,11 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, data);
     }
 
-    if (matchRoute(pathname, '/api/blacklist') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const blacklist = index.blacklistViewsByUser.get(authUser.id) || [];
-      return sendJson(res, 200, { users: blacklist });
-    }
+    // Friend, group & blacklist routes
+    if (await handleSocialRoutes(pathname, req.method, req, res, searchParams)) return;
 
-    if (matchRoute(pathname, '/api/blacklist') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateBlacklist({
-        authUser: context.authUser,
-        targetId: context.body.targetId,
-        action: context.body.action,
-        index,
-        rebuildBlacklistViewsIndex,
-        schedulePersist,
-      });
-      return sendResult(res, result);
-    }
-
-    // Search user by username, appNumberId, or phone (for add-friend preview)
-    if (matchRoute(pathname, '/api/users/search') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const keyword = String(searchParams.get('keyword') || '').trim();
-      if (!keyword) return sendJson(res, 400, { error: '请输入搜索内容' });
-      const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || findUserByPhone(keyword);
-      if (!target || target.id === authUser.id) return sendJson(res, 404, { error: '未找到该用户' });
-      return sendJson(res, 200, { user: sanitizePublicUser(target) });
-    }
-
-    const handleFriendRequestCreate = (context) => {
-      const result = createFriendRequest({
-        reqBody: context.body,
-        authUser: context.authUser,
-        index,
-        db,
-        areFriends,
-        uid,
-        rebuildIndexes: rebuildFriendshipAndRequestIndexes,
-        schedulePersist,
-        broadcastToUser,
-        findUserByPhone,
-        getOrCreateDirectConversation,
-      });
-      return sendResult(res, result);
-    };
-
-    if (matchRoute(pathname, '/api/friends/request') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      return handleFriendRequestCreate(context);
-    }
-
-    if (matchRoute(pathname, '/api/friends') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      return handleFriendRequestCreate(context);
-    }
-
-    if (matchRoute(pathname, '/api/friends/requests') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const data = listFriendRequests({
-        authUser,
-        requestViewsByTarget: index.requestViewsByTarget,
-      });
-      return sendJson(res, 200, data);
-    }
-
-    if (matchRoute(pathname, '/api/friends/accept') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = acceptFriendRequest({
-        requestId: context.body.requestId,
-        authUser: context.authUser,
-        db,
-        index,
-        uid,
-        getDirectConversation,
-        rebuildIndexes: rebuildFriendshipAndRequestIndexes,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/friends/reject') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = rejectFriendRequest({
-        requestId: context.body.requestId,
-        authUser: context.authUser,
-        db,
-        index,
-        rebuildIndexes: rebuildRequestIndexesOnly,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/friends/remark') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateFriendRemark({
-        authUser: context.authUser,
-        friendId: context.body.friendId,
-        group: context.body.group,
-        remark: context.body.remark,
-        friendshipByPair: index.friendshipByPair,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        schedulePersist,
-        broadcastToUser,
-        defaultGroup: DEFAULT_GROUP,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/groups/create') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = createGroup({
-        authUser: context.authUser,
-        rawName: context.body.name,
-        defaultGroup: DEFAULT_GROUP,
-        normalizeSingleGroupName,
-        normalizeUserCustomGroups,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/groups/rename') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = renameGroup({
-        authUser: context.authUser,
-        groupNameRaw: context.body.groupName,
-        newNameRaw: context.body.newName,
-        defaultGroup: DEFAULT_GROUP,
-        normalizeSingleGroupName,
-        normalizeUserCustomGroups,
-        friendshipsByUser: index.friendshipsByUser,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/groups/reorder') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = reorderGroup({
-        authUser: context.authUser,
-        groupNameRaw: context.body.groupName,
-        offsetRaw: context.body.offset,
-        defaultGroup: DEFAULT_GROUP,
-        normalizeSingleGroupName,
-        normalizeUserCustomGroups,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/groups/delete') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = deleteGroup({
-        authUser: context.authUser,
-        groupNameRaw: context.body.groupName,
-        defaultGroup: DEFAULT_GROUP,
-        normalizeSingleGroupName,
-        normalizeUserCustomGroups,
-        friendshipsByUser: index.friendshipsByUser,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/friends/group') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateFriendGroup({
-        authUser: context.authUser,
-        friendId: context.body.friendId,
-        groupRaw: context.body.group,
-        friendshipByPair: index.friendshipByPair,
-        normalizeSingleGroupName,
-        defaultGroup: DEFAULT_GROUP,
-        schedulePersist,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/friends/delete') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = deleteFriendRelation({
-        authUser: context.authUser,
-        friendId: context.body.friendId,
-        usersById: index.usersById,
-        removeFriendshipPair,
-        rebuildIndexes,
-        getDirectConversation,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/friends') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const data = listFriends({
-        authUser,
-        friendViewsByUser: index.friendViewsByUser,
-      });
-      return sendJson(res, 200, data);
-    }
-
-    if (matchRoute(pathname, '/api/conversations') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const data = listConversations({
-        authUser,
-        directConvBasesByUser: index.directConvBasesByUser,
-        convById: index.convById,
-        buildConversationMeta,
-      });
-      return sendJson(res, 200, data);
-    }
-
-    if (matchRoute(pathname, '/api/conversations') && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      ensureActingUser(context.body, context.authUser, 'creatorId');
-      const peerId = (context.body.memberIds || [])[0];
-      const result = createDirectConversation({
-        authUser: context.authUser,
-        peerId,
-        usersById: index.usersById,
-        getDirectConversation,
-        uid,
-        db,
-        rebuildIndexes,
-        schedulePersist,
-        broadcastToUser,
-      });
-      return sendResult(res, result);
-    }
-
-    // Global message search across all conversations
-    if (matchRoute(pathname, '/api/messages/search') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
-      if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
-      const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
-      return sendJson(res, 200, searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }));
-    }
-
-    // In-conversation message search
-    const convSearchMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/search$/);
-    if (convSearchMatch && req.method === 'GET') {
-      const conversationId = convSearchMatch[1];
-      const conv = index.convById.get(conversationId);
-      if (!conv) return sendJson(res, 404, { error: 'not_found' });
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-      const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
-      if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
-      const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
-      return sendJson(res, 200, searchMessagesInConversation({ conv, keyword, limit, offset, authUserId: authUser.id, index, isMessageVisibleToUser }));
-    }
-
-    const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
-    if (convMsgMatch) {
-      const conversationId = convMsgMatch[1];
-      const conv = index.convById.get(conversationId);
-      if (!conv) return sendJson(res, 404, { error: 'not_found' });
-
-      if (req.method === 'GET') {
-        const authUser = getAuthedUser(req, res, { searchParams });
-        if (!authUser) return;
-        const result = listConversationMessages({
-          conv,
-          authUser,
-          searchParams,
-          getVisibleMessagesSlice,
-        });
-        return sendResult(res, result);
-      }
-
-      if (req.method === 'POST') {
-        const context = await getAuthedBody(req, res);
-        if (!context) return;
-        ensureActingUser(context.body, context.authUser, 'senderId');
-        const result = createConversationMessage({
-          conversationId,
-          conv,
-          authUser: context.authUser,
-          body: context.body,
-          index,
-          areFriends,
-          uid,
-          db,
-          addToMapArray,
-          schedulePersist,
-          broadcastToConversation,
-        });
-        return sendResult(res, result);
-      }
-    }
-
-    const convMsgActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/([^/]+)\/(delete|recall)$/);
-    if (convMsgActionMatch && req.method === 'POST') {
-      const [_, conversationId, messageId, action] = convMsgActionMatch;
-      const conv = index.convById.get(conversationId);
-      if (!conv) return sendJson(res, 404, { error: 'not_found' });
-      const authUser = getAuthedUser(req, res);
-      if (!authUser) return;
-      if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-
-      const result = action === 'delete'
-        ? deleteConversationMessage({
-          conversationId,
-          messageId,
-          authUser,
-          index,
-          schedulePersist,
-          broadcastToUser,
-          persistEvent: 'message_delete',
-        })
-        : recallConversationMessage({
-          conversationId,
-          messageId,
-          authUser,
-          index,
-          schedulePersist,
-          broadcastToConversation,
-          persistEvent: 'message_recall',
-        });
-
-      return sendResult(res, result);
-    }
-
-    const convActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/);
-    if (convActionMatch && req.method === 'POST') {
-      const conversationId = convActionMatch[1];
-      const action = convActionMatch[2];
-      const conv = index.convById.get(conversationId);
-      if (!conv) return sendJson(res, 404, { error: 'not_found' });
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      if (!conv.members.includes(context.authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
-
-
-      const result = applyConversationAction({
-        action,
-        conversationId,
-        body: context.body,
-        authUser: context.authUser,
-        conv,
-        db,
-        index,
-        uid,
-        addToMapArray,
-        schedulePersist,
-        broadcastToUser,
-        broadcastToConversation,
-      });
-
-      return sendResult(res, result);
-    }
+    // Conversation & message routes
+    if (await handleChatRoutes(pathname, req.method, req, res, searchParams)) return;
 
     if (!pathname.startsWith('/api/')) {
       const filePath = safeStaticPath(pathname);

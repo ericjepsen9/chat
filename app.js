@@ -3770,6 +3770,19 @@ function bindAllEvents() {
   if (_eventsBound) return;
   _eventsBound = true;
 
+  bindAuthEvents();
+  bindProductEvents();
+  bindProfileEvents();
+  bindSocialEvents();
+  bindShoppingEvents();
+  bindBroadcastEvents();
+  bindChatEvents();
+  bindSearchAndEmojiEvents();
+}
+
+
+// Auth & password events
+function bindAuthEvents() {
   // ---- Auth: code box input handling ----
   function setupCodeBoxes(containerId, onComplete) {
     const container = $(containerId);
@@ -4151,6 +4164,10 @@ function bindAllEvents() {
   on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
   on("mallSearchPageBtn", "click", () => { if (checkSearchCooldown('mallSearch')) doMallSearchPage(); });
   on("mallSearchPageInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (checkSearchCooldown('mallSearch')) doMallSearchPage(); } });
+}
+
+// Product publishing & management
+function bindProductEvents() {
   // ---- Tag input (still used for adding new items inline) ----
   function initTagInput(wrapperId, inputId, onAdd) {
     const wrap = $(wrapperId); const input = $(inputId);
@@ -4557,6 +4574,10 @@ function bindAllEvents() {
     const el = $("productStockInput"); if (!el) return;
     el.value = el.value.replace(/[^0-9]/g, '');
   });
+}
+
+// Profile, avatar, tabs, payments
+function bindProfileEvents() {
   on("editAvatarPreview", "click", () => { if($("editAvatarInput")) $("editAvatarInput").click(); });
   on("editAvatarInput", "change", async () => {
       const file = $("editAvatarInput").files?.[0]; if (!file) return;
@@ -4814,7 +4835,10 @@ function bindAllEvents() {
       window.openSecondaryPage('sellerCenterPage', state.secondaryReturn || 'profile');
     }catch(e){ showModal(e.message || '保存失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
   });
+}
 
+// Privacy, blacklist, friends, chat settings
+function bindSocialEvents() {
   on("privacySettingsBtn", "click", async () => {
       window.openSecondaryPage('privacyPage', 'settingsPage');
       try {
@@ -5079,6 +5103,10 @@ function bindAllEvents() {
   on("scanSubmitBtn", "click", submitScanRequest);
   on("scanIdInput", "keydown", (e) => { if (e.key === 'Enter') submitScanRequest(); });
 
+}
+
+// Cart, spec sheets, product editor
+function bindShoppingEvents() {
   on("profileAddFriendBtn", "click", () => sendFriendRequestToCurrentProfile());
   on("profileSendMessageBtn", "click", async () => {
     const p = state.currentProfileUser;
@@ -5166,7 +5194,10 @@ function bindAllEvents() {
     if($("productEditorPrice")) $("productEditorPrice").value = '';
     if($("productEditorDesc")) $("productEditorDesc").value = '';
   });
+}
 
+// Broadcast & profile actions
+function bindBroadcastEvents() {
   on("createBroadcastBtn", "click", () => {
     if($("broadcastTitleInput")) $("broadcastTitleInput").value = '';
     if($("broadcastSummaryInput")) $("broadcastSummaryInput").value = '';
@@ -5226,7 +5257,10 @@ function bindAllEvents() {
       } catch(e) { showModal(e.message || '添加失败'); }
   });
 
-  on("imageViewer", "click", (e) => { if(e.target === $("imageViewer")) window.closeImageViewer(); });
+}
+
+// Messaging, recording, call UI
+function bindChatEvents() {
   document.addEventListener("keydown", (e) => { if(e.key === "Escape" && $("imageViewer") && !$("imageViewer").classList.contains("hidden")) window.closeImageViewer(); });
   on("closeForwardModalBtn", "click", () => { if($("forwardModal")) $("forwardModal").classList.add("hidden"); });
   
@@ -5487,6 +5521,10 @@ function bindAllEvents() {
     if ($("callFloatingBubble")) $("callFloatingBubble").classList.add('hidden');
   };
 
+}
+
+// Search & emoji
+function bindSearchAndEmojiEvents() {
   // ── Search cooldown utility ──
   const _searchCooldowns = {};
   const SEARCH_COOLDOWN_MS = 3000; // 3 second cooldown between searches
@@ -5673,6 +5711,7 @@ function bindAllEvents() {
     });
   }
 }
+
 
 
 // ==========================================
