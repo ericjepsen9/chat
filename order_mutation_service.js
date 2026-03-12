@@ -109,7 +109,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
 
     const safeSpec = availableSpecs.length ? reqItem.spec : '默认规格';
     const productPrice = parseProductPrice(sellerProduct.price);
-    const unitPrice = reqItem.price !== null ? reqItem.price : productPrice;
+    const unitPrice = productPrice;
     normalized.push({
       productId: sellerProduct.id,
       title: String(sellerProduct.title || '').trim() || '商品',

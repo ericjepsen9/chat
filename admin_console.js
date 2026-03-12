@@ -1,6 +1,27 @@
 const $ = (id) => document.getElementById(id);
 const state = { data: null, drafts: [] };
 
+function showAdminMsg(msg) {
+  let overlay = document.getElementById('_adminModal');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = '_adminModal';
+    overlay.innerHTML =
+      '<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);"></div>' +
+      '<div style="position:relative;width:320px;max-width:85vw;background:#fff;border-radius:12px;overflow:hidden;text-align:center;">' +
+        '<div id="_adminModalBody" style="padding:24px 20px 16px;font-size:15px;line-height:1.5;color:#333;white-space:pre-wrap;"></div>' +
+        '<div style="border-top:1px solid #e5e7eb;"><button id="_adminModalOk" style="width:100%;height:44px;border:none;background:transparent;font-size:16px;color:#07c160;font-weight:600;cursor:pointer;">确定</button></div>' +
+      '</div>';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;';
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = 'flex';
+  document.getElementById('_adminModalBody').textContent = msg;
+  const close = () => { overlay.style.display = 'none'; };
+  document.getElementById('_adminModalOk').onclick = close;
+  overlay.querySelector('div').onclick = (e) => { if (e.target === overlay.firstElementChild) close(); };
+}
+
 const SESSION_KEY = 'chattrade_api_session_user';
 
 function getToken(){
@@ -167,13 +188,13 @@ function renderDrafts(){
 async function loadDashboard(){
   const token = getToken();
   if(!token){
-    alert('未检测到登录态，请先在用户端登录，再打开后台页。');
+    showAdminMsg('未检测到登录态，请先在用户端登录，再打开后台页。');
     return;
   }
   try{
     state.data = await api('/api/admin/dashboard');
   }catch(err){
-    alert(err.message || '后台数据加载失败');
+    showAdminMsg(err.message || '后台数据加载失败');
     state.data = { stats:{}, recentOrders:[], userList:[], productList:[], reportList:[] };
   }
   renderOverview();
@@ -190,7 +211,7 @@ function bind(){
     localStorage.removeItem('token');
     sessionStorage.removeItem('token');
     localStorage.removeItem(SESSION_KEY);
-    alert('已清除本地登录态');
+    showAdminMsg('已清除本地登录态');
   });
   $('adminSaveBroadcastDraftBtn').addEventListener('click', () => {
     const draft = {
@@ -200,17 +221,17 @@ function bind(){
     };
     state.drafts.unshift(draft);
     renderDrafts();
-    alert('草稿已保存');
+    showAdminMsg('草稿已保存');
   });
   $('adminSendBroadcastBtn').addEventListener('click', async () => {
     const title = $('broadcastTitle').value.trim() || '系统消息';
     const summary = $('broadcastSummary').value.trim() || $('broadcastContent').value.trim() || '请查看最新通知';
     try{
       await api('/api/admin/system/messages', { method:'POST', body: JSON.stringify({ title, summary, cover: '' }) });
-      alert('系统消息已发布');
+      showAdminMsg('系统消息已发布');
       await loadDashboard();
     }catch(err){
-      alert(err.message || '发布失败');
+      showAdminMsg(err.message || '发布失败');
     }
   });
 }
