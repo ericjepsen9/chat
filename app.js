@@ -670,11 +670,15 @@ function openOrderDetail(order, role = 'buyer'){
   window.openSecondaryPage('orderDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
+let _orderDetailSig = '';
 function renderOrderDetailPage(){
   const box = $("orderDetailCard");
   if(!box) return;
   const order = state.selectedOrderDetail;
   const role = state.selectedOrderRole || 'buyer';
+  const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.updatedAt||0)+'|'+role) : '';
+  if (sig === _orderDetailSig) return;
+  _orderDetailSig = sig;
   if(!order){
     box.textContent = '暂无订单详情';
     return;
@@ -903,11 +907,15 @@ function adjustProfileStoreItemQuantity(item, delta){
   renderProfileStore();
 }
 
+let _profileStoreSig = '';
 function renderProfileStore(){
   const list = $("profileStoreList");
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
+  const sig = (state.profileStoreItems||[]).map(i => i.id+'|'+(i.listed?'1':'0')+'|'+i.stock+'|'+(i.createdAt||0)).join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
+  if (sig === _profileStoreSig) return;
+  _profileStoreSig = sig;
   const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Pre-parse categories once for reuse in tabs + filtering
   const parsedCats = new Map();
@@ -1479,10 +1487,14 @@ function renderAdminCenter(){
   grid.replaceChildren(frag);
 }
 
+let _adminOrdersSig = '';
 function renderAdminOrders(){
   const list = $("adminOrdersList");
   if(!list) return;
   const rows = state.adminDashboard?.recentOrders || [];
+  const sig = rows.map(o => o.id+'|'+o.status).join(';');
+  if (sig === _adminOrdersSig) return;
+  _adminOrdersSig = sig;
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1512,10 +1524,14 @@ function renderAdminOrders(){
   list.replaceChildren(frag);
 }
 
+let _adminUsersSig = '';
 function renderAdminUsers(){
   const list = $("adminUsersList");
   if(!list) return;
   const rows = state.adminDashboard?.userList || [];
+  const sig = rows.map(u => u.id+'|'+(u.productCount||0)+'|'+(u.blacklistCount||0)).join(';');
+  if (sig === _adminUsersSig) return;
+  _adminUsersSig = sig;
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1545,10 +1561,14 @@ function renderAdminUsers(){
   list.replaceChildren(frag);
 }
 
+let _adminProductsSig = '';
 function renderAdminProducts(){
   const list = $("adminProductsList");
   if(!list) return;
   const rows = state.adminDashboard?.productList || [];
+  const sig = rows.map(p => p.id+'|'+p.price).join(';');
+  if (sig === _adminProductsSig) return;
+  _adminProductsSig = sig;
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -1572,10 +1592,14 @@ function renderAdminProducts(){
   list.replaceChildren(frag);
 }
 
+let _adminReportsSig = '';
 function renderAdminReports(){
   const list = $("adminReportsList");
   if(!list) return;
   const rows = state.adminDashboard?.reportList || [];
+  const sig = rows.map(r => r.title).join(';');
+  if (sig === _adminReportsSig) return;
+  _adminReportsSig = sig;
   if(!rows.length){
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -2046,7 +2070,13 @@ async function sendPaymentCodeInChat(){
   await window.sendMessage({ type:'card', card:{ cardType:'收款码', title:picked[1], description:'请核对金额后付款', meta:'仅用于当前订单沟通', imageUrl:picked[2] } });
 }
 
-const conversationPeerId = c => (!c||!c.members||!state.currentUser) ? null : (c.members.find(id=>id!==state.currentUser.id)||null);
+const conversationPeerId = c => {
+  if (!c || !c.members || !state.currentUser) return null;
+  if (c._peerId !== undefined) return c._peerId;
+  const uid = state.currentUser.id;
+  c._peerId = (c.members[0] === uid ? c.members[1] : c.members[0]) || null;
+  return c._peerId;
+};
 
 function normalizeCustomGroups(groups) {
   const ordered = [];

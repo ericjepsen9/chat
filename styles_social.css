@@ -84,6 +84,8 @@
   padding:0;
   z-index:20;
   transition:transform .25s ease;
+  will-change:transform;
+  contain:layout style paint;
 }
 .scan-manual-panel.hidden{ display:none; }
 .scan-manual-card{

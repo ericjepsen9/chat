@@ -25,13 +25,17 @@ function buildAdminDashboardData(db) {
     blacklistCountByUser.set(user.id, outgoing);
   }
 
+  let broadcastCount = 0;
+  for (const message of (db.messages || [])) { if (message.type === 'broadcast_card') broadcastCount++; }
+  let pendingOrders = 0;
+  for (const order of orders) { if (order.status !== 'completed') pendingOrders++; }
   const stats = {
     users: users.length,
     products: products.length,
     orders: orders.length,
-    broadcasts: (db.messages || []).filter((message) => message.type === 'broadcast_card').length,
+    broadcasts: broadcastCount,
     blacklistLinks,
-    pendingOrders: orders.filter((order) => order.status !== 'completed').length,
+    pendingOrders,
   };
 
   const recentOrders = orders.slice(0, 20).map((order) => {
