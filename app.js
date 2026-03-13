@@ -1212,7 +1212,11 @@ function renderProfileCartPage(){
       updateTotals();
     });
     plusBtn.addEventListener('click', () => {
-      item.quantity = (Number(item.quantity)||1) + 1;
+      const currentQty = Number(item.quantity) || 1;
+      const productInStore = (state.profileStoreItems || []).find(p => String(p.id) === String(item.productId));
+      const availableStock = productInStore ? getItemAvailableStock(productInStore) : Infinity;
+      if (currentQty >= availableStock) { showToast('库存不足'); return; }
+      item.quantity = currentQty + 1;
       qtySpan.textContent = String(item.quantity);
       updateProfileCartBar();
       updateTotals();
@@ -4819,7 +4823,7 @@ function bindShoppingEvents() {
     if (!item) return;
     const availableStock = getItemAvailableStock(item);
     const inCartQty = getProfileStoreItemCartQuantity(item);
-    if ((state.specSheetQty || 1) + inCartQty >= availableStock) {
+    if ((state.specSheetQty || 1) + inCartQty + 1 > availableStock) {
       showToast('库存不足');
       return;
     }
