@@ -18,6 +18,7 @@ const state = {
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 const CATEGORY_SPLIT_RE = /[\/,、]/;
+const formatOrderId = (id) => String(id || '').slice(-6);
 
 const isFriendUser = (userId) => !!(userId && (state.friendsById ? state.friendsById.has(userId) : (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId)));
 
@@ -208,7 +209,7 @@ function orderMatchesFilters(order, role = 'buyer'){
   const createdAt = Number(order?.createdAt || 0);
   if (keyword) {
     const counterpartyName = role === 'buyer' ? (order?.sellerName || '') : (order?.buyerName || '');
-    const hay = `#${String(order?.id || '').slice(-6)} ${(order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ')} ${counterpartyName}`.toLowerCase();
+    const hay = `#${formatOrderId(order?.id)} ${(order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ')} ${counterpartyName}`.toLowerCase();
     if (!hay.includes(keyword)) return false;
   }
   if (fromVal) {
@@ -312,7 +313,7 @@ function buildOrderCard(order, role){
   header.className = 'order-card-header';
   const idSpan = document.createElement('span');
   idSpan.className = 'order-card-id';
-  idSpan.textContent = `#${String(order.id || '').slice(-6)}`;
+  idSpan.textContent = `#${formatOrderId(order.id)}`;
   const statusSpan = document.createElement('span');
   const st = String(order.status || '').toLowerCase();
   statusSpan.className = 'order-card-status' + (st === 'completed' ? ' s-done' : (st === 'accepted' || st === 'processing' || st === 'in_progress') ? ' s-active' : ' s-pending');
@@ -733,10 +734,6 @@ const loadProfileStore = singleFlight(async function _loadProfileStoreImpl(userI
   await loadProfileOrders();
 });
 
-
-function openProductDetailPage(item){
-  openProductDetail(item, false);
-}
 
 function sumCartTotals(items) {
   let count = 0, total = 0;
@@ -1375,7 +1372,7 @@ function addAdminTag(card, text, warn) {
 
 function renderAdminOrders() {
   renderAdminList('adminOrdersList', 'adminOrders', 'recentOrders', o => o.id+'|'+o.status, '暂无平台订单', (order) => {
-    const card = buildProfileCard(`订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
+    const card = buildProfileCard(`订单 #${formatOrderId(order.id)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
     return addAdminTag(card, order.status === 'completed' ? '已完成' : '处理中', order.status !== 'completed');
   });
 }
@@ -1396,14 +1393,6 @@ function renderAdminReports() {
   );
 }
 
-function renderSellerCenterPage(){
-  setText("chatTitle", '卖家中心');
-}
-
-async function renderBuyerOrdersPage(){
-  await loadProfileOrders();
-}
-
 function openBroadcastDetail(title, summary){
   setText("broadcastDetailTitle", title || '广播详情');
   setText("broadcastDetailSummary", summary || '');
@@ -1422,7 +1411,7 @@ function renderProfileOrders(){
   const frag = document.createDocumentFragment();
   state.profileOrders.forEach(order => {
     const names = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，');
-    const card = buildProfileCard(`订单 #${String(order.id || '').slice(-6) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
+    const card = buildProfileCard(`订单 #${formatOrderId(order.id) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
     const status = document.createElement('div');
     status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
     status.textContent = formatOrderStatusLabel(order.status);
@@ -1772,9 +1761,9 @@ async function renderOrderCardPicker(filterTab){
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'picker-order-card';
-    card.innerHTML = `<div class="picker-order-top"><span class="picker-order-id">#${escapeHTML(String(o.id||'').slice(-6))}</span><span class="picker-order-role ${role}">${roleLabel}</span></div><div class="picker-order-items">${escapeHTML(itemsSummary)}</div><div class="picker-order-bottom"><span class="picker-order-total">${escapeHTML(formatMoney(o.total))}</span><span class="picker-order-status">${escapeHTML(formatOrderStatusLabel(o.status))}</span></div>`;
+    card.innerHTML = `<div class="picker-order-top"><span class="picker-order-id">#${escapeHTML(formatOrderId(o.id))}</span><span class="picker-order-role ${role}">${roleLabel}</span></div><div class="picker-order-items">${escapeHTML(itemsSummary)}</div><div class="picker-order-bottom"><span class="picker-order-total">${escapeHTML(formatMoney(o.total))}</span><span class="picker-order-status">${escapeHTML(formatOrderStatusLabel(o.status))}</span></div>`;
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${String(o.id||'').slice(-6)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
@@ -2093,7 +2082,7 @@ function buildOrderCardMessage(msg){
     wrap.appendChild(cover);
   }
 
-  appendTradeCardHeader(wrap, order.title || `订单 #${String(order.id || '').slice(-6) || '-'}`, order.summary || '订单通知');
+  appendTradeCardHeader(wrap, order.title || `订单 #${formatOrderId(order.id) || '-'}`, order.summary || '订单通知');
   const price = document.createElement('div');
   price.className = 'trade-card-price';
   price.textContent = formatMoney(order.total || 0);
@@ -2929,7 +2918,7 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   }
   state.secondaryPage = page; state.secondaryReturn = backTo;
   ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-  if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
+  if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); }
   if($(page)) $(page).classList.remove('hidden');
   showEl("backBtn");
   hideEl("homeMoreBtn");
@@ -4389,7 +4378,7 @@ function bindProfileEvents() {
       state.chatListSignature = '';
       state.conversationItemSignatures = {};
       renderConversationListFromState();
-      hideEl("chatView"); hideEl("composerPanel"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
+      hideEl("chatView"); hideEl("composerPanel"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); }
       showEl("homeTabbar"); hideEl("backBtn"); hideEl("chatSettingsBtn");
       const activeTab = document.querySelector('.tab-item.active');
       if(activeTab) {
@@ -5338,7 +5327,7 @@ function bindSearchAndEmojiEvents() {
   on("chatSearchMsgBtn", "click", () => {
     if ($("backBtn")) $("backBtn").click(); // go back from settings page
     const bar = $("chatSearchBar");
-    if (bar) { bar.classList.remove('hidden'); bar.style.display = 'flex'; }
+    if (bar) { bar.classList.remove('hidden'); }
     if ($("chatSearchInput")) { $("chatSearchInput").value = ''; $("chatSearchInput").focus(); }
     if ($("chatSearchCount")) $("chatSearchCount").textContent = '';
     state._chatSearchResults = [];
@@ -5346,7 +5335,7 @@ function bindSearchAndEmojiEvents() {
   });
   on("chatSearchCloseBtn", "click", () => {
     const bar = $("chatSearchBar");
-    if (bar) { bar.classList.add('hidden'); bar.style.display = 'none'; }
+    if (bar) { bar.classList.add('hidden'); }
     // Remove highlights
     document.querySelectorAll('#chatView .search-highlight').forEach(el => {
       const parent = el.parentNode;
