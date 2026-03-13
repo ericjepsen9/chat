@@ -1,5 +1,13 @@
 // Session, API, UI utilities moved to app_utils.js
 
+// ---- Constants: delays, limits, and reusable values ----
+const DELAYS = { TYPING_TIMEOUT: 3000, ANIMATION: 1500, SCAN_DETECT: 350, SCAN_INIT: 400, RESEND_COUNTDOWN: 60 };
+const LIMITS = { STORE_PREVIEW: 6, SWIPE_ACTION_WIDTH: 156, DRAG_THRESHOLD: 48 };
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', COMPLETED: 'completed', PROCESSING: 'processing', IN_PROGRESS: 'in_progress' };
+const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
+const DEFAULT_GROUP = '我的好友';
+
 const state = {
   currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], messagesById: new Map(),
   friends: [], friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
@@ -251,7 +259,7 @@ function updateOrderPresetUI(role = 'buyer'){
     const days = Number(btn.dataset.range || 0);
     let active = false;
     if (Number.isFinite(fromTs) && Number.isFinite(toTs) && days > 0) {
-      const start = now - (days * 24 * 60 * 60 * 1000);
+      const start = now - (days * MS_PER_DAY);
       active = Math.abs(fromTs - start) < 2 * 60 * 1000 && Math.abs(toTs - now) < 2 * 60 * 1000;
     }
     btn.classList.toggle('active', active);
@@ -261,7 +269,7 @@ function updateOrderPresetUI(role = 'buyer'){
 function applyOrderQuickRange(role = 'buyer', days = 0){
   const prefix = orderPrefix(role);
   const now = new Date();
-  const from = new Date(now.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - Math.max(1, days) * MS_PER_DAY);
   const fmt = (d) => {
     const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 16);
@@ -285,9 +293,7 @@ async function deleteOrderRecord(orderId){
   }
 }
 
-function orderStatusText(status){
-  return formatOrderStatusLabel(status);
-}
+// orderStatusText removed — use formatOrderStatusLabel directly
 
 // ---- Shared order action helpers (eliminates duplication across 4 contexts) ----
 async function doUpdateOrderPrice(orderId, rawPrice) {
@@ -313,7 +319,7 @@ function buildOrderCard(order, role){
 
   const statusCls = orderStatusCls('order-card-status', order.status);
   const header = createEl('div', 'order-card-header');
-  header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id)}`), createEl('span', statusCls, orderStatusText(order.status)));
+  header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id)}`), createEl('span', statusCls, formatOrderStatusLabel(order.status)));
 
   const body = createEl('div', 'order-card-body');
   body.appendChild(createEl('div', 'order-card-items', (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容'));
@@ -399,13 +405,18 @@ function populateSellerCategoryFilter(){
   // Also merge from presets if loaded
   (state._sellerCategoryPresets || []).forEach(c => cats.add(c));
   const prev = sel.value;
-  sel.innerHTML = '<option value="">全部分类</option>';
+  const defaultOpt = document.createElement('option');
+  defaultOpt.value = '';
+  defaultOpt.textContent = '全部分类';
+  const frag = document.createDocumentFragment();
+  frag.appendChild(defaultOpt);
   [...cats].sort().forEach(cat => {
     const opt = document.createElement('option');
     opt.value = cat;
     opt.textContent = cat;
-    sel.appendChild(opt);
+    frag.appendChild(opt);
   });
+  sel.replaceChildren(frag);
   sel.value = prev || '';
 }
 
@@ -545,14 +556,23 @@ function renderOrderDetailPage(){
     box.textContent = '暂无订单详情';
     return;
   }
-  setText("orderDetailStatus", orderStatusText(order.status));
+  setText("orderDetailStatus", formatOrderStatusLabel(order.status));
   box.replaceChildren();
+
+  // Helper: build an od-row with label/value
+  const odRow = (label, value, valueCls = 'od-value') => {
+    const row = createEl('div', 'od-row');
+    row.append(createEl('span', 'od-label', label), createEl('span', valueCls, value));
+    return row;
+  };
 
   // Order number & time
   const headerDiv = createEl('div', 'od-section');
-  headerDiv.innerHTML = `<div class="od-row"><span class="od-label">订单编号</span><span class="od-value">${escapeHTML(String(order.id || '-'))}</span></div>`
-    + `<div class="od-row"><span class="od-label">下单时间</span><span class="od-value">${order.createdAt ? formatTime(order.createdAt) : '-'}</span></div>`
-    + `<div class="od-row"><span class="od-label">订单状态</span><span class="od-value od-status-${order.status === 'completed' ? 'done' : 'active'}">${escapeHTML(orderStatusText(order.status))}</span></div>`;
+  headerDiv.append(
+    odRow('订单编号', String(order.id || '-')),
+    odRow('下单时间', order.createdAt ? formatTime(order.createdAt) : '-'),
+    odRow('订单状态', formatOrderStatusLabel(order.status), `od-value od-status-${order.status === ORDER_STATUS.COMPLETED ? 'done' : 'active'}`)
+  );
   box.appendChild(headerDiv);
 
   // Counterparty info
@@ -560,46 +580,56 @@ function renderOrderDetailPage(){
   const counterId = role === 'buyer' ? order.sellerId : order.buyerId;
   const counterName = role === 'buyer' ? (order.sellerName || '') : (order.buyerName || '');
   const partyDiv = createEl('div', 'od-section');
-  partyDiv.innerHTML = `<div class="od-row"><span class="od-label">${escapeHTML(counterLabel)}</span><span class="od-value od-link" id="odCounterpartyLink">${escapeHTML(counterName || counterId || '-')}</span></div>`;
-  box.appendChild(partyDiv);
-  const counterLink = box.querySelector('#odCounterpartyLink');
-  if(counterLink && counterId) {
-    counterLink.style.cursor = 'pointer';
-    counterLink.style.color = 'var(--brand, #07c160)';
-    counterLink.addEventListener('click', () => window.openUserProfile(counterId, counterName));
+  const counterValueEl = createEl('span', 'od-value od-link', counterName || counterId || '-');
+  if (counterId) {
+    counterValueEl.classList.add('od-clickable');
+    counterValueEl.addEventListener('click', () => window.openUserProfile(counterId, counterName));
   }
+  const partyRow = createEl('div', 'od-row');
+  partyRow.append(createEl('span', 'od-label', counterLabel), counterValueEl);
+  partyDiv.appendChild(partyRow);
+  box.appendChild(partyDiv);
 
   // Item list
   const itemsDiv = createEl('div', 'od-section');
-  const itemsTitle = createEl('div', 'od-section-title', '商品清单');
-  itemsDiv.appendChild(itemsTitle);
+  itemsDiv.appendChild(createEl('div', 'od-section-title', '商品清单'));
   (order.items || []).forEach(item => {
     const row = createEl('div', 'od-item-row');
     const imgUrl = normalizeMediaUrl(item.imageUrl || item.image || '');
-    row.innerHTML = (imgUrl ? `<img class="od-item-img" src="${escapeHTML(imgUrl)}" alt="" />` : '')
-      + `<div class="od-item-info"><div class="od-item-name">${escapeHTML(item.title || '商品')}</div>`
-      + `<div class="od-item-spec">${escapeHTML(item.spec || '默认规格')} x${item.quantity || 1}</div></div>`
-      + `<div class="od-item-price">${escapeHTML(formatMoney((item.price || 0) * (item.quantity || 1)))}</div>`;
+    if (imgUrl) {
+      const img = createEl('img', 'od-item-img');
+      img.src = imgUrl;
+      img.alt = '';
+      row.appendChild(img);
+    }
+    const info = createEl('div', 'od-item-info');
+    info.append(
+      createEl('div', 'od-item-name', item.title || '商品'),
+      createEl('div', 'od-item-spec', `${item.spec || '默认规格'} x${item.quantity || 1}`)
+    );
+    row.append(info, createEl('div', 'od-item-price', formatMoney((item.price || 0) * (item.quantity || 1))));
     itemsDiv.appendChild(row);
   });
   box.appendChild(itemsDiv);
 
   // Total
   const totalDiv = createEl('div', 'od-section od-total-section');
-  let totalHtml = `<div class="od-row"><span class="od-label">合计</span><span class="od-value od-total">${escapeHTML(formatMoney(order.total))}</span></div>`;
+  totalDiv.appendChild(odRow('合计', formatMoney(order.total), 'od-value od-total'));
   if(order.pendingPrice != null && order.pendingPriceRequestedBy){
-    totalHtml += `<div class="od-row"><span class="od-label">改价申请中</span><span class="od-value" style="color:#ff9500;">${escapeHTML(formatMoney(order.pendingPrice))}</span></div>`;
+    const pendingVal = createEl('span', 'od-value od-pending-price', formatMoney(order.pendingPrice));
+    const pendingRow = createEl('div', 'od-row');
+    pendingRow.append(createEl('span', 'od-label', '改价申请中'), pendingVal);
+    totalDiv.appendChild(pendingRow);
   }
   if(order.priceAdjustmentLocked){
-    totalHtml += `<div class="od-row"><span class="od-label" style="color:#999;">价格已锁定</span></div>`;
+    totalDiv.appendChild(createEl('div', 'od-row')).appendChild(createEl('span', 'od-label od-muted', '价格已锁定'));
   }
-  totalDiv.innerHTML = totalHtml;
   box.appendChild(totalDiv);
 
   // Remark
   if(order.remark){
     const remarkDiv = createEl('div', 'od-section');
-    remarkDiv.innerHTML = `<div class="od-row"><span class="od-label">备注</span><span class="od-value">${escapeHTML(order.remark)}</span></div>`;
+    remarkDiv.appendChild(odRow('备注', order.remark));
     box.appendChild(remarkDiv);
   }
 
@@ -1404,7 +1434,7 @@ function showTradePicker(title, items, renderLine, emptyText) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'profile-order-card';
-      btn.innerHTML = `<div class="profile-order-title">${idx + 1}. ${escapeHTML(renderLine(item))}</div>`;
+      btn.appendChild(createEl('div', 'profile-order-title', `${idx + 1}. ${renderLine(item)}`));
       btn.addEventListener('click', () => close(item));
       frag.appendChild(btn);
     });
@@ -1510,7 +1540,7 @@ function renderContactCardPicker(keyword){
     const f = item.friend;
     if (!f) return;
     if (search && !(f.displayName || '').toLowerCase().includes(search) && !(f.remark || '').toLowerCase().includes(search) && !(f.username || '').toLowerCase().includes(search)) return;
-    const groupName = item.group || '我的好友';
+    const groupName = item.group || DEFAULT_GROUP;
     if (!grouped.has(groupName)) grouped.set(groupName, []);
     grouped.get(groupName).push(f);
   });
@@ -1593,7 +1623,12 @@ async function renderProductCardPicker(){
     card.type = 'button';
     card.className = 'picker-product-card';
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
-    card.innerHTML = `<img class="picker-product-img" src="${escapeHTML(imgUrl)}" alt="" /><div class="picker-product-info"><div class="picker-product-name">${escapeHTML(p.title || '商品')}</div><div class="picker-product-price">${escapeHTML(formatMoney(p.price))}</div></div>`;
+    const img = createEl('img', 'picker-product-img');
+    img.src = imgUrl;
+    img.alt = '';
+    const info = createEl('div', 'picker-product-info');
+    info.append(createEl('div', 'picker-product-name', p.title || '商品'), createEl('div', 'picker-product-price', formatMoney(p.price)));
+    card.append(img, info);
     card.addEventListener('click', async () => {
       await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: p.image || p.imageUrl || '', sellerId: p.sellerId || state.currentUser?.id || '', productId: p.id || '' } });
       if($("backBtn")) $("backBtn").click();
@@ -1636,7 +1671,11 @@ async function renderOrderCardPicker(filterTab){
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'picker-order-card';
-    card.innerHTML = `<div class="picker-order-top"><span class="picker-order-id">#${escapeHTML(formatOrderId(o.id))}</span><span class="picker-order-role ${role}">${roleLabel}</span></div><div class="picker-order-items">${escapeHTML(itemsSummary)}</div><div class="picker-order-bottom"><span class="picker-order-total">${escapeHTML(formatMoney(o.total))}</span><span class="picker-order-status">${escapeHTML(formatOrderStatusLabel(o.status))}</span></div>`;
+    const top = createEl('div', 'picker-order-top');
+    top.append(createEl('span', 'picker-order-id', `#${formatOrderId(o.id)}`), createEl('span', `picker-order-role ${role}`, roleLabel));
+    const bottom = createEl('div', 'picker-order-bottom');
+    bottom.append(createEl('span', 'picker-order-total', formatMoney(o.total)), createEl('span', 'picker-order-status', formatOrderStatusLabel(o.status)));
+    card.append(top, createEl('div', 'picker-order-items', itemsSummary), bottom);
     card.addEventListener('click', async () => {
       await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
       if($("backBtn")) $("backBtn").click();
@@ -1678,15 +1717,15 @@ function normalizeCustomGroups(groups) {
     seen.add(trimmed);
     ordered.push(trimmed);
   });
-  if (!seen.has('我的好友')) ordered.unshift('我的好友');
+  if (!seen.has(DEFAULT_GROUP)) ordered.unshift(DEFAULT_GROUP);
   else {
-    const idx = ordered.indexOf('我的好友');
-    if (idx > 0) { ordered.splice(idx, 1); ordered.unshift('我的好友'); }
+    const idx = ordered.indexOf(DEFAULT_GROUP);
+    if (idx > 0) { ordered.splice(idx, 1); ordered.unshift(DEFAULT_GROUP); }
   }
   return ordered.slice(0, 20);
 }
 function getCustomGroups() {
-  return normalizeCustomGroups(state.currentUser?.customGroups || ['我的好友']);
+  return normalizeCustomGroups(state.currentUser?.customGroups || [DEFAULT_GROUP]);
 }
 
 function normalizeGroupNameInput(value) {
@@ -2313,7 +2352,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
   let suppressClick = false;
   let tracking = false;
   let axis = '';
-  const threshold = 48;
+  const threshold = LIMITS.DRAG_THRESHOLD;
   const content = wrap.querySelector('.chat-swipe-content');
   if (!content) return;
 
@@ -2327,7 +2366,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
     closeConversationSwipeRows(wrap);
   };
 
-  const actionWidth = 156;
+  const actionWidth = LIMITS.SWIPE_ACTION_WIDTH;
 
   const move = (x, y, canPreventDefault = false, ev = null) => {
     if (!tracking) return;
@@ -2988,7 +3027,7 @@ window.toggleSellerProductListed = async (productId, nextListed) => {
 };
 
 window.deleteGroup = (groupName) => {
-  if(groupName === '我的好友') return showModal('”我的好友”是全部好友列表，不能删除。');
+  if(groupName === DEFAULT_GROUP) return showModal('”我的好友”是全部好友列表，不能删除。');
   showConfirm(`确定删除分组 [${groupName}] 吗？\n该分组下的好友将被移入”我的好友”。`, async () => {
     try {
       const data = await api('/api/groups/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, groupName }) });
@@ -3001,7 +3040,7 @@ window.deleteGroup = (groupName) => {
 };
 
 window.renameGroup = (groupName) => {
-  if (groupName === '我的好友') return showModal('”我的好友”是全部好友列表，不能重命名。');
+  if (groupName === DEFAULT_GROUP) return showModal('”我的好友”是全部好友列表，不能重命名。');
   showPrompt('请输入新的分组名称', groupName, async (nextNameRaw) => {
     const nextName = normalizeGroupNameInput(nextNameRaw);
     if (!nextName) return showModal('分组名称不能为空');
@@ -3017,7 +3056,7 @@ window.renameGroup = (groupName) => {
 };
 
 window.moveGroupOrder = async (groupName, offset) => {
-  if (groupName === '我的好友') return;
+  if (groupName === DEFAULT_GROUP) return;
   try {
     const data = await api('/api/groups/reorder', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, groupName, offset }) });
     syncSessionGroups(data.groups || getCustomGroups());
@@ -3863,10 +3902,7 @@ function bindProductEvents() {
     if (!list) return;
     const items = _presetManageType === 'category' ? _categoryPresets : _specPresets;
     if (items.length === 0) {
-      const emptyDiv = document.createElement('div');
-      emptyDiv.style.cssText = 'text-align:center;color:#999;padding:20px;font-size:14px;';
-      emptyDiv.textContent = '暂无项目，请在下方添加';
-      list.replaceChildren(emptyDiv);
+      showEmptyState(list, '暂无项目，请在下方添加');
       return;
     }
     const _pmFrag = document.createDocumentFragment();
@@ -3874,14 +3910,17 @@ function bindProductEvents() {
       const row = document.createElement('div');
       row.className = 'preset-manage-item';
       row.setAttribute('data-idx', i);
-      row.innerHTML = `<span class="preset-drag-handle">☰</span><span class="preset-manage-item-text"></span><button type="button" class="preset-manage-item-edit">编辑</button><button type="button" class="preset-manage-item-del">删除</button>`;
-      row.querySelector('.preset-manage-item-text').textContent = item;
-      // Drag handle events
-      const handle = row.querySelector('.preset-drag-handle');
+      const handle = createEl('span', 'preset-drag-handle', '☰');
+      const textSpan = createEl('span', 'preset-manage-item-text', item);
+      const editBtn = createEl('button', 'preset-manage-item-edit', '编辑');
+      editBtn.type = 'button';
+      const delBtn = createEl('button', 'preset-manage-item-del', '删除');
+      delBtn.type = 'button';
+      row.append(handle, textSpan, editBtn, delBtn);
       handle.addEventListener('mousedown', (e) => { e.preventDefault(); _startDrag(e, i, row); });
       handle.addEventListener('touchstart', (e) => { _startDrag(e, i, row); }, { passive: false });
-      row.querySelector('.preset-manage-item-edit').addEventListener('click', () => {
-        const textEl = row.querySelector('.preset-manage-item-text');
+      editBtn.addEventListener('click', () => {
+        const textEl = textSpan;
         const inp = document.createElement('input');
         inp.className = 'preset-manage-input';
         inp.value = item;
@@ -3902,7 +3941,7 @@ function bindProductEvents() {
         inp.addEventListener('blur', save);
         inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } });
       });
-      row.querySelector('.preset-manage-item-del').addEventListener('click', () => {
+      delBtn.addEventListener('click', () => {
         const arr = _presetManageType === 'category' ? _categoryPresets : _specPresets;
         arr.splice(i, 1);
         saveProductPresets();
@@ -4484,25 +4523,36 @@ function bindSocialEvents() {
       if (!user || !resultEl) return;
       // Check if already friends
       const isFriend = (state.friends || []).some(f => f.friendId === user.id || f.userId === user.id);
-      const safeAvatarUrl = escapeHTML(user.avatarUrl || '');
-      const avatarContent = user.avatarUrl
-        ? `<img src="${safeAvatarUrl}" alt="" />`
-        : firstChar(user.displayName);
-      resultEl.innerHTML = `
-        <div class="add-friend-card">
-          <div class="add-friend-card-top">
-            <div class="add-friend-avatar" ${user.avatarUrl ? '' : 'style="background:#07c160"'}>${avatarContent}</div>
-            <div class="add-friend-info">
-              <div class="add-friend-name">${escapeHTML(user.displayName)}</div>
-              <div class="add-friend-meta">ID: ${escapeHTML(user.appNumberId || '')}${user.role === 'seller' ? ' · 商家' : ''}</div>
-            </div>
-          </div>
-          ${user.signature ? `<div class="add-friend-sig">${escapeHTML(user.signature)}</div>` : ''}
-          <div class="add-friend-actions">
-            <button type="button" class="add-friend-add-btn ${isFriend ? 'already' : ''}" id="addFriendSendBtn" data-uid="${escapeHTML(user.id)}" data-uname="${escapeHTML(user.username)}" ${isFriend ? 'disabled' : ''}>${isFriend ? '已是好友' : '添加好友'}</button>
-          </div>
-        </div>
-      `;
+      const card = createEl('div', 'add-friend-card');
+      const cardTop = createEl('div', 'add-friend-card-top');
+      const avatarDiv = createEl('div', 'add-friend-avatar');
+      if (user.avatarUrl) {
+        const avatarImg = createEl('img');
+        avatarImg.src = user.avatarUrl;
+        avatarImg.alt = '';
+        avatarDiv.appendChild(avatarImg);
+      } else {
+        avatarDiv.style.background = '#07c160';
+        avatarDiv.textContent = firstChar(user.displayName);
+      }
+      const infoDiv = createEl('div', 'add-friend-info');
+      infoDiv.append(
+        createEl('div', 'add-friend-name', user.displayName),
+        createEl('div', 'add-friend-meta', `ID: ${user.appNumberId || ''}${user.role === 'seller' ? ' · 商家' : ''}`)
+      );
+      cardTop.append(avatarDiv, infoDiv);
+      card.appendChild(cardTop);
+      if (user.signature) card.appendChild(createEl('div', 'add-friend-sig', user.signature));
+      const actionsDiv = createEl('div', 'add-friend-actions');
+      const addBtn = createEl('button', `add-friend-add-btn${isFriend ? ' already' : ''}`, isFriend ? '已是好友' : '添加好友');
+      addBtn.type = 'button';
+      addBtn.id = 'addFriendSendBtn';
+      addBtn.dataset.uid = user.id;
+      addBtn.dataset.uname = user.username;
+      if (isFriend) addBtn.disabled = true;
+      actionsDiv.appendChild(addBtn);
+      card.appendChild(actionsDiv);
+      resultEl.replaceChildren(card);
       resultEl.classList.remove('hidden');
     } catch(e) {
       if (emptyEl) {
@@ -5051,22 +5101,37 @@ function bindSearchAndEmojiEvents() {
         showEmptyState(el, '未找到相关聊天记录');
         return;
       }
-      const kw = escapeHTML(keyword);
-      const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-      const highlightText = (text) => {
-        const escaped = escapeHTML(text.length > 80 ? text.slice(0, 80) + '...' : text);
-        return escaped.replace(kwRe, '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
+      const kwRe = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      const highlightInto = (parent, text) => {
+        const truncated = text.length > 80 ? text.slice(0, 80) + '...' : text;
+        let lastIdx = 0;
+        truncated.replace(kwRe, (match, offset) => {
+          if (offset > lastIdx) parent.appendChild(document.createTextNode(truncated.slice(lastIdx, offset)));
+          const mark = document.createElement('mark');
+          mark.className = 'search-highlight';
+          mark.textContent = match;
+          parent.appendChild(mark);
+          lastIdx = offset + match.length;
+          return match;
+        });
+        if (lastIdx < truncated.length) parent.appendChild(document.createTextNode(truncated.slice(lastIdx)));
       };
-      let searchHtml = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
-        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${escapeHTML(r.conversationId)}" data-msg-id="${escapeHTML(r.messageId)}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
-            <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
-          </div>
-          <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
-        </button>`).join('');
-      if (res.total > 20) searchHtml += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${escapeHTML(String(res.total))} 条结果</div>`;
-      el.innerHTML = searchHtml;
+      const frag = document.createDocumentFragment();
+      frag.appendChild(createEl('div', 'msg-search-header', '聊天记录'));
+      res.results.forEach(r => {
+        const btn = createEl('button', 'chat-item msg-search-item');
+        btn.dataset.convId = r.conversationId;
+        btn.dataset.msgId = r.messageId;
+        const info = createEl('div', 'msg-search-info');
+        info.appendChild(createEl('div', 'msg-search-name', r.peerName));
+        const preview = createEl('div', 'msg-search-preview');
+        highlightInto(preview, r.text);
+        info.appendChild(preview);
+        btn.append(info, createEl('div', 'msg-search-time', formatTime(r.createdAt)));
+        frag.appendChild(btn);
+      });
+      if (res.total > 20) frag.appendChild(createEl('div', 'msg-search-count', `共找到 ${res.total} 条结果`));
+      el.replaceChildren(frag);
       if (!el._msgSearchDelegate) {
         el._msgSearchDelegate = true;
         el.addEventListener('click', async (e) => {
@@ -5076,7 +5141,7 @@ function bindSearchAndEmojiEvents() {
           const msgId = btn.dataset.msgId;
           if (!convId) return;
           if ($("msgSearchPageInput")) $("msgSearchPageInput").value = '';
-          if ($("msgSearchPageResults")) $("msgSearchPageResults").innerHTML = '';
+          if ($("msgSearchPageResults")) $("msgSearchPageResults").replaceChildren();
           state.secondaryPage = null;
           await window.openConversation(convId);
           if (msgId) {
@@ -5234,36 +5299,21 @@ function renderGroupManageList() {
     state.currentUser.customGroups = cg;
     list.replaceChildren();
     cg.forEach((g, index) => {
-      const row = document.createElement('div');
-      row.className = 'chat-item';
-      row.style.justifyContent = 'space-between';
-      row.style.gap = '8px';
-      const left = document.createElement('div');
-      left.style.cssText = 'display:flex; align-items:center; gap:8px; min-width:0; flex:1;';
-      const name = document.createElement('span');
-      name.style.cssText = 'font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
-      name.textContent = g;
-      left.appendChild(name);
-      if (g === '我的好友') {
-        const tag = document.createElement('span');
-        tag.style.cssText = 'color:#b2b2b2; font-size:12px;';
-        tag.textContent = '全部好友';
-        left.appendChild(tag);
-      }
+      const row = createEl('div', 'chat-item group-manage-row');
+      const left = createEl('div', 'group-manage-left');
+      left.appendChild(createEl('span', 'group-manage-name', g));
+      if (g === DEFAULT_GROUP) left.appendChild(createEl('span', 'group-manage-tag', '全部好友'));
       row.appendChild(left);
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex; gap:6px; flex-shrink:0;';
-      const mkBtn = (text, color, handler) => {
-        const btn = document.createElement('button');
-        btn.textContent = text;
-        btn.style.cssText = `background:${color}; color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;`;
+      const actions = createEl('div', 'group-manage-actions');
+      const mkBtn = (text, colorCls, handler) => {
+        const btn = createEl('button', `group-manage-btn ${colorCls}`, text);
         btn.addEventListener('click', handler);
         return btn;
       };
-      if (g !== '我的好友') actions.appendChild(mkBtn('重命名', '#007aff', () => window.renameGroup(g)));
-      actions.appendChild(mkBtn('上移', '#8e8e93', () => window.moveGroupOrder(g, -1)));
-      actions.appendChild(mkBtn('下移', '#8e8e93', () => window.moveGroupOrder(g, 1)));
-      if (g !== '我的好友') actions.appendChild(mkBtn('删除', '#ff3b30', () => window.deleteGroup(g)));
+      if (g !== DEFAULT_GROUP) actions.appendChild(mkBtn('重命名', 'blue', () => window.renameGroup(g)));
+      actions.appendChild(mkBtn('上移', 'gray', () => window.moveGroupOrder(g, -1)));
+      actions.appendChild(mkBtn('下移', 'gray', () => window.moveGroupOrder(g, 1)));
+      if (g !== DEFAULT_GROUP) actions.appendChild(mkBtn('删除', 'red', () => window.deleteGroup(g)));
       row.appendChild(actions);
       list.appendChild(row);
     });
@@ -5277,30 +5327,17 @@ const loadMyProducts = singleFlight(async function _loadMyProductsImpl() {
     if(products.length === 0) { showEmptyState(list, '你还没有发布任何闲置商品'); return; }
     list.replaceChildren();
     products.forEach((p) => {
-      const row = document.createElement('div');
-      row.className = 'chat-item';
-      row.style.alignItems = 'flex-start';
+      const row = createEl('div', 'chat-item my-product-row');
       const safeImage = normalizeMediaUrl(p.image);
       if (safeImage) {
-        const img = document.createElement('img');
+        const img = createEl('img', 'my-product-img');
         img.src = safeImage;
-        img.style.cssText = 'width:60px; height:60px; object-fit:cover; border-radius:6px; margin-right:12px;';
         row.appendChild(img);
       }
-      const info = document.createElement('div');
-      info.style.cssText = 'flex:1;text-align:left;';
-      const title = document.createElement('strong');
-      title.style.cssText = 'font-size:15px; margin-bottom:4px; display:block;';
-      title.textContent = p.title || '';
-      const price = document.createElement('div');
-      price.style.cssText = 'color:#ff3b30; font-weight:bold; font-size:14px;';
-      price.textContent = `¥${p.price}`;
-      info.appendChild(title);
-      info.appendChild(price);
+      const info = createEl('div', 'my-product-info');
+      info.append(createEl('strong', 'my-product-title', p.title || ''), createEl('div', 'my-product-price', `¥${p.price}`));
       row.appendChild(info);
-      const btn = document.createElement('button');
-      btn.textContent = '下架';
-      btn.style.cssText = 'background:#ff3b30; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-size:12px; cursor:pointer;';
+      const btn = createEl('button', 'my-product-delist-btn', '下架');
       btn.addEventListener('click', () => window.deleteMyProduct(p.id));
       row.appendChild(btn);
       list.appendChild(row);
@@ -5378,7 +5415,7 @@ async function doMallSearchPage() {
   const keyword = ($('mallSearchPageInput')?.value || '').trim();
   const el = $("mallSearchPageResults");
   if (!el) return;
-  if (!keyword) { el.innerHTML = ''; return; }
+  if (!keyword) { el.replaceChildren(); return; }
   try {
     let qs = 'userId=' + state.currentUser.id + '&q=' + encodeURIComponent(keyword);
     if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
@@ -5473,9 +5510,9 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     state.friendsById = new Map();
     for (const f of data.friends) if (f.friend?.id) state.friendsById.set(f.friend.id, f);
     const grouped = new Map();
-    grouped.set('我的好友', filteredFriends.slice());
+    grouped.set(DEFAULT_GROUP, filteredFriends.slice());
     filteredFriends.forEach((f) => {
-      const groupName = f.group && f.group !== '我的好友' ? f.group : '';
+      const groupName = f.group && f.group !== DEFAULT_GROUP ? f.group : '';
       if (!groupName) return;
       if (!grouped.has(groupName)) grouped.set(groupName, []);
       grouped.get(groupName).push(f);
@@ -5639,7 +5676,7 @@ async function connectRealtime() {
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
       setText("chatSubtitle", "对方正在输入...");
       clearTimeout(state.typingTimer);
-      state.typingTimer = setTimeout(() => { applyChatRelationshipState(); }, 3000);
+      state.typingTimer = setTimeout(() => { applyChatRelationshipState(); }, DELAYS.TYPING_TIMEOUT);
     }
   });
 

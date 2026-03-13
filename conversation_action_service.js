@@ -1,3 +1,5 @@
+const RECALL_TIMEOUT_MS = 120000; // 2 minutes
+
 function formatCallDuration(totalSec) {
   const sec = Math.max(0, Number(totalSec) || 0);
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
@@ -46,7 +48,7 @@ function deleteConversationMessage({ conversationId, messageId, authUser, index,
 function recallConversationMessage({ conversationId, messageId, authUser, index, schedulePersist, broadcastToConversation, persistEvent }) {
   const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
-  if (msg.senderId !== authUser.id || Date.now() - msg.createdAt > 120000) {
+  if (msg.senderId !== authUser.id || Date.now() - msg.createdAt > RECALL_TIMEOUT_MS) {
     return { ok: false, status: 403, error: '超时或无权限' };
   }
   msg.type = 'system';
