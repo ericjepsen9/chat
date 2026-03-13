@@ -3728,33 +3728,39 @@ function bindAuthEvents() {
     btn.addEventListener('click', () => authGotoStep(btn.dataset.authGoto));
   });
 
-  // ---- Login: Phone input → Next ----
-  bindPhoneValidation('loginPhone', 'loginPhoneNextBtn', 'loginAgreeCheck');
-  on("loginPhoneNextBtn", "click", async () => {
-    const phone = normalizePhoneInput($("loginPhone")?.value.trim());
+  // ---- Shared: phone → send code → go to code step ----
+  async function sendCodeAndNext({ phoneInputId, btnId, scene, stateKey, displayId, codeBoxesId, stepId, resendBtnId, enterInputId }) {
+    const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
     if (!phone) return;
-    window._authState.loginPhone = phone;
-    const btn = $("loginPhoneNextBtn");
+    window._authState[stateKey] = phone;
+    const btn = $(btnId);
     btn.disabled = true;
     btn.textContent = '发送中...';
     try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) });
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene }) });
     } catch (e) {
-      btn.disabled = false;
-      btn.textContent = '下一步';
+      btn.disabled = false; btn.textContent = '下一步';
       showModal(e.message || '发送验证码失败，请稍后再试');
       return;
     }
-    btn.disabled = false;
-    btn.textContent = '下一步';
-    if ($("loginCodePhoneDisplay")) $("loginCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
-    clearCodeBoxes('loginCodeBoxes');
-    authGotoStep('authLoginCode');
-    startResendCountdown('resendLoginCodeBtn', 60, async () => {
-      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) }); } catch (_) {}
-      startResendCountdown('resendLoginCodeBtn', 60, () => {});
-    });
-  });
+    btn.disabled = false; btn.textContent = '下一步';
+    if ($(displayId)) $(displayId).textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+    clearCodeBoxes(codeBoxesId);
+    authGotoStep(stepId);
+    const resendFn = async () => {
+      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene }) }); } catch (_) {}
+      startResendCountdown(resendBtnId, 60, resendFn);
+    };
+    startResendCountdown(resendBtnId, 60, resendFn);
+  }
+
+  // ---- Login: Phone input → Next ----
+  bindPhoneValidation('loginPhone', 'loginPhoneNextBtn', 'loginAgreeCheck');
+  on("loginPhoneNextBtn", "click", () => sendCodeAndNext({
+    phoneInputId: 'loginPhone', btnId: 'loginPhoneNextBtn', scene: 'login',
+    stateKey: 'loginPhone', displayId: 'loginCodePhoneDisplay',
+    codeBoxesId: 'loginCodeBoxes', stepId: 'authLoginCode', resendBtnId: 'resendLoginCodeBtn',
+  }));
   on("loginPhone", "keydown", (e) => { if (e.key === 'Enter' && !$("loginPhoneNextBtn")?.disabled) $("loginPhoneNextBtn").click(); });
 
   // ---- Login: SMS code auto-submit ----
@@ -3790,36 +3796,17 @@ function bindAuthEvents() {
       btn.textContent = "登录";
     }
   });
-  on("loginPwdPhone", "keydown", (e) => { if (e.key === 'Enter') $("loginPassword")?.focus(); });
-  on("loginPassword", "keydown", (e) => { if (e.key === 'Enter') $("doLoginBtn").click(); });
+  [['loginPwdPhone','loginPassword','focus'],['loginPassword','doLoginBtn','click']].forEach(
+    ([src,tgt,act]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.[act](); })
+  );
 
   // ---- Register: Phone → Next ----
   bindPhoneValidation('registerPhone', 'regPhoneNextBtn', 'regAgreeCheck');
-  on("regPhoneNextBtn", "click", async () => {
-    const phone = normalizePhoneInput($("registerPhone")?.value.trim());
-    if (!phone) return;
-    window._authState.regPhone = phone;
-    const btn = $("regPhoneNextBtn");
-    btn.disabled = true;
-    btn.textContent = '发送中...';
-    try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) });
-    } catch (e) {
-      btn.disabled = false;
-      btn.textContent = '下一步';
-      showModal(e.message || '发送验证码失败，请稍后再试');
-      return;
-    }
-    btn.disabled = false;
-    btn.textContent = '下一步';
-    if ($("regCodePhoneDisplay")) $("regCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
-    clearCodeBoxes('regCodeBoxes');
-    authGotoStep('authRegCode');
-    startResendCountdown('resendRegCodeBtn', 60, async () => {
-      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) }); } catch (_) {}
-      startResendCountdown('resendRegCodeBtn', 60, () => {});
-    });
-  });
+  on("regPhoneNextBtn", "click", () => sendCodeAndNext({
+    phoneInputId: 'registerPhone', btnId: 'regPhoneNextBtn', scene: 'register',
+    stateKey: 'regPhone', displayId: 'regCodePhoneDisplay',
+    codeBoxesId: 'regCodeBoxes', stepId: 'authRegCode', resendBtnId: 'resendRegCodeBtn',
+  }));
   on("registerPhone", "keydown", (e) => { if (e.key === 'Enter' && !$("regPhoneNextBtn")?.disabled) $("regPhoneNextBtn").click(); });
 
   // ---- Register: SMS code → Profile ----
@@ -3850,57 +3837,19 @@ function bindAuthEvents() {
       btn.textContent = "完成注册";
     }
   });
-  on("registerDisplayName", "keydown", (e) => { if (e.key === 'Enter') $("registerPassword")?.focus(); });
-  on("registerPassword", "keydown", (e) => { if (e.key === 'Enter') $("doRegisterBtn").click(); });
+  [['registerDisplayName','registerPassword','focus'],['registerPassword','doRegisterBtn','click']].forEach(
+    ([src,tgt,act]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.[act](); })
+  );
 
   // ---- Forgot password ----
   on("forgotPasswordBtn", "click", () => authGotoStep('authForgotPwd'));
   on("forgotPasswordBtn2", "click", () => authGotoStep('authForgotPwd'));
-  on("authForgotSendBtn", "click", async () => {
-    const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
-    if (!phone) return showModal('请输入11位手机号');
-    const sendBtn = $("authForgotSendBtn");
-    sendBtn.disabled = true;
-    sendBtn.textContent = '发送中...';
-    try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'reset' }) });
-      showModal('验证码已发送（测试环境请输入 1234）');
-    } catch (e) {
-      const waitSec = Number(e?.data?.retryAfterSec || 0);
-      if (waitSec > 0) showModal(`操作频繁，请${waitSec}秒后重试`);
-      else showModal(e.message || '发送验证码失败');
-    } finally {
-      sendBtn.disabled = false;
-      sendBtn.textContent = '获取验证码';
-    }
-  });
-  on("authForgotSubmitBtn", "click", async () => {
-    const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
-    const code = $("authForgotCode")?.value.trim();
-    const newPassword = $("authForgotNewPwd")?.value || '';
-    if (!phone || !code || !newPassword) return showModal('请填写完整信息');
-    if (!/^\d{4}$/.test(code)) return showModal('请输入4位验证码');
-    if (newPassword.length < 8) return showModal('新密码至少8位');
-    const submitBtn = $("authForgotSubmitBtn");
-    submitBtn.disabled = true;
-    submitBtn.textContent = '提交中...';
-    try {
-      await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
-      showModal('密码重置成功，请重新登录');
-      authGotoStep('authLoginPassword');
-    } catch (e) {
-      showModal(e.message || '重置密码失败');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = '重置密码';
-    }
-  });
 
-  // ---- Settings: forgot password page (in appScreen for logged-in users) ----
-  on("sendForgotCodeBtn", "click", async () => {
-    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
+  // ---- Shared: send reset code ----
+  async function handleSendResetCode(phoneInputId, sendBtnId) {
+    const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
     if (!phone) return showModal('请输入11位手机号');
-    const sendBtn = $("sendForgotCodeBtn");
+    const sendBtn = $(sendBtnId);
     sendBtn.disabled = true;
     sendBtn.textContent = '发送中...';
     try {
@@ -3911,31 +3860,45 @@ function bindAuthEvents() {
       if (waitSec > 0) showModal(`操作频繁，请${waitSec}秒后重试`);
       else showModal(e.message || '发送验证码失败');
     } finally { sendBtn.disabled = false; sendBtn.textContent = '获取验证码'; }
-  });
-  on("submitForgotPasswordBtn", "click", async () => {
-    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
-    const code = $("forgotCodeInput")?.value.trim();
-    const newPassword = $("forgotNewPasswordInput")?.value || '';
+  }
+
+  // ---- Shared: submit reset password ----
+  async function handleResetPassword(phoneInputId, codeInputId, pwdInputId, submitBtnId, onSuccess) {
+    const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
+    const code = $(codeInputId)?.value.trim();
+    const newPassword = $(pwdInputId)?.value || '';
     if (!phone || !code || !newPassword) return showModal('请填写完整信息');
     if (!/^\d{4}$/.test(code)) return showModal('请输入4位验证码');
     if (newPassword.length < 8) return showModal('新密码至少8位');
-    const submitBtn = $("submitForgotPasswordBtn");
+    const submitBtn = $(submitBtnId);
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
     try {
       await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
       showModal('密码重置成功，请重新登录');
-      localStorage.removeItem(SESSION_KEY); location.reload();
+      onSuccess();
     } catch (e) { showModal(e.message || '重置密码失败');
     } finally { submitBtn.disabled = false; submitBtn.textContent = '重置密码'; }
-  });
-  on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'settingsPage'));
-  on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
-  on("openTermsPageBtn", "click", () => window.openSecondaryPage('termsPage', 'settingsPage'));
-  on("openPrivacyPageBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'settingsPage'));
-  on("openAboutPageBtn", "click", () => window.openSecondaryPage('aboutPage', 'settingsPage'));
-  on("aboutTermsBtn", "click", () => window.openSecondaryPage('termsPage', 'aboutPage'));
-  on("aboutPrivacyBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'aboutPage'));
+  }
+
+  on("authForgotSendBtn", "click", () => handleSendResetCode('authForgotPhone', 'authForgotSendBtn'));
+  on("authForgotSubmitBtn", "click", () => handleResetPassword(
+    'authForgotPhone', 'authForgotCode', 'authForgotNewPwd', 'authForgotSubmitBtn',
+    () => authGotoStep('authLoginPassword')
+  ));
+
+  // ---- Settings: forgot password page (in appScreen for logged-in users) ----
+  on("sendForgotCodeBtn", "click", () => handleSendResetCode('forgotPhoneInput', 'sendForgotCodeBtn'));
+  on("submitForgotPasswordBtn", "click", () => handleResetPassword(
+    'forgotPhoneInput', 'forgotCodeInput', 'forgotNewPasswordInput', 'submitForgotPasswordBtn',
+    () => { localStorage.removeItem(SESSION_KEY); location.reload(); }
+  ));
+  [['changePasswordBtn','changePasswordPage','settingsPage'],['changePhoneBtn','changePhonePage','settingsPage'],
+   ['openTermsPageBtn','termsPage','settingsPage'],['openPrivacyPageBtn','privacyPolicyPage','settingsPage'],
+   ['openAboutPageBtn','aboutPage','settingsPage'],['aboutTermsBtn','termsPage','aboutPage'],
+   ['aboutPrivacyBtn','privacyPolicyPage','aboutPage']].forEach(
+    ([id,page,back]) => on(id, "click", () => window.openSecondaryPage(page, back))
+  );
   on("sendChangePhoneCodeBtn", "click", () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     if(!phone) return showModal('请输入11位手机号');
@@ -3971,11 +3934,11 @@ function bindAuthEvents() {
     }, '提交中...');
   });
 
-  on("forgotPhoneInput", "keydown", (e) => { if(e.key === 'Enter') $("sendForgotCodeBtn").click(); });
-  on("forgotCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
-  on("forgotNewPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
-  on("oldPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
-  on("newPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
+  [['forgotPhoneInput','sendForgotCodeBtn'],['forgotCodeInput','submitForgotPasswordBtn'],
+   ['forgotNewPasswordInput','submitForgotPasswordBtn'],['oldPasswordInput','submitChangePasswordBtn'],
+   ['newPasswordInput','submitChangePasswordBtn']].forEach(
+    ([src,tgt]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.click(); })
+  );
 
   on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
 
