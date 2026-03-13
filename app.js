@@ -3013,7 +3013,11 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
     refreshFriendRequestState({ forceList: true });
   }
   else if (page === 'profileDetailPage') { setText("chatTitle", '详细资料'); showEl("chatSettingsBtn"); }
-  else if (page === 'messageSettingsPage') { setText("chatTitle", '聊天信息'); setText("pinConversationBtn", (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天'); setText("muteSettingBtn", (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰'); }
+  else if (page === 'messageSettingsPage') {
+    setText("chatTitle", '聊天信息');
+    setText("pinConversationBtn", (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天');
+    setText("muteSettingBtn", (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰');
+  }
   else if (page === 'addFriendPage') { setText("chatTitle", '添加朋友'); }
   else if (page === 'scanPage') {
     setText("chatTitle", '扫一扫');
@@ -3503,9 +3507,7 @@ window.openConversation = async (id, options = {}) => {
       } catch(_) {}
     });
   }
-  sortConversationsInPlace();
-  renderConversationListFromState();
-  loadConversations(); 
+  refreshConversations();
   if ($("chatView")) setTimeout(() => $("chatView").scrollTop = $("chatView").scrollHeight, 100);
 };
 
@@ -4761,18 +4763,14 @@ function bindSocialEvents() {
     if (!res) return;
     showModal(res.muted ? '已开启免打扰' : '已关闭免打扰');
     setText("muteSettingBtn", res.muted ? '取消免打扰' : '消息免打扰');
-    sortConversationsInPlace();
-    renderConversationListFromState();
-    loadConversations();
+    refreshConversations();
   });
   on("pinConversationBtn", "click", async () => {
     const res = await toggleAction('pin');
     if (!res) return;
     showModal(res.pinned ? '已置顶会话' : '已取消置顶');
     setText("pinConversationBtn", res.pinned ? '取消置顶' : '置顶聊天');
-    sortConversationsInPlace();
-    renderConversationListFromState();
-    loadConversations();
+    refreshConversations();
   });
   on("clearChatBtn", "click", () => {
     showConfirm("确认清空聊天记录？", async () => {
@@ -4794,7 +4792,19 @@ function bindSocialEvents() {
   on("blacklistBtn", "click", () => {
       const peerId = conversationPeerId(state.activeConversation);
       if(!peerId) return showModal('未找到会话对象');
-      showConfirm("确定把他加入黑名单吗？加入后将拒收他的消息。", async () => { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); showModal("已加入黑名单"); loadFriends().catch(() => {}); loadConversations().catch(() => {}); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); showModal(e?.message || '加入黑名单失败'); } finally { hideLoading(); } });
+      showConfirm("确定把他加入黑名单吗？加入后将拒收他的消息。", async () => {
+        showLoading('处理中...');
+        try {
+          await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) });
+          showModal("已加入黑名单");
+          loadFriends().catch(() => {});
+          loadConversations().catch(() => {});
+          if($("backBtn")) $("backBtn").click();
+        } catch(e){
+          console.warn('add blacklist failed', e);
+          showModal(e?.message || '加入黑名单失败');
+        } finally { hideLoading(); }
+      });
   });
   on("deleteFriendBtn", "click", () => {
       showConfirm("确定删除好友并清空聊天记录?", async () => {
@@ -5045,7 +5055,13 @@ function bindBroadcastEvents() {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
       showPrompt("请输入好友备注名", p.remarkName || "", async (newRemark) => {
-        try { await api('/api/friends/remark', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: p.id, remark: newRemark }) }); showModal("备注设置成功"); loadFriends(); loadConversations(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message); }
+        try {
+          await api('/api/friends/remark', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: p.id, remark: newRemark }) });
+          showModal("备注设置成功");
+          loadFriends();
+          loadConversations();
+          if($("backBtn")) $("backBtn").click();
+        } catch(e) { showModal(e.message); }
       });
   });
   on("profileActionMoveGroupBtn", "click", () => { hideProfileActionSheet(); if(state.currentProfileUser) window.openGroupSelect(state.currentProfileUser.id); });
@@ -5053,7 +5069,12 @@ function bindBroadcastEvents() {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
       showLoading('处理中...');
-      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); showModal('已加入黑名单'); loadFriends().catch(() => {}); loadConversations().catch(() => {}); } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
+      try {
+        await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) });
+        showModal('已加入黑名单');
+        loadFriends().catch(() => {});
+        loadConversations().catch(() => {});
+      } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
   });
   on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); showModal('已收到举报，我们会尽快处理'); });
   on("btnSettingsMoveGroup", "click", () => { const peerId = conversationPeerId(state.activeConversation); if(peerId) window.openGroupSelect(peerId); });
@@ -5221,8 +5242,20 @@ function bindChatEvents() {
   on("cameraInput", "change", handleImageUpload);
 
   on("toggleSpeakerBtn", "click", () => { showModal('【原生限制说明】\n网页端无法用代码强制切换听筒，请直接按手机侧边的音量键调节声音。'); });
-  on("toggleMuteBtn", "click", () => { if (!state.rtc.localStream) return; isMuted = !isMuted; state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted); if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; } setText("muteText", isMuted ? "已静音" : "静音"); });
-  on("toggleCameraBtn", "click", () => { if (!state.rtc.localStream) return; isCameraOff = !isCameraOff; state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff); if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; } setText("cameraText", isCameraOff ? "已关镜头" : "镜头"); });
+  on("toggleMuteBtn", "click", () => {
+    if (!state.rtc.localStream) return;
+    isMuted = !isMuted;
+    state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+    if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; }
+    setText("muteText", isMuted ? "已静音" : "静音");
+  });
+  on("toggleCameraBtn", "click", () => {
+    if (!state.rtc.localStream) return;
+    isCameraOff = !isCameraOff;
+    state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff);
+    if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; }
+    setText("cameraText", isCameraOff ? "已关镜头" : "镜头");
+  });
   
   on("acceptCallBtn", "click", async () => {
       if (state.rtc._accepting) return;
@@ -5382,7 +5415,7 @@ function bindSearchAndEmojiEvents() {
       const el = $("msgSearchPageResults");
       if (!el) return;
       if (!res.results || !res.results.length) {
-        el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关聊天记录</div>';
+        showEmptyState(el, '未找到相关聊天记录');
         return;
       }
       const kw = escapeHTML(keyword);
@@ -5734,7 +5767,7 @@ async function doMallSearchPage() {
     const data = await api('/api/mall?' + qs);
     const products = data.items || data.products || [];
     if (!products.length) {
-      el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关商品</div>';
+      showEmptyState(el, '未找到相关商品');
       return;
     }
     const grid = document.createElement('div');
@@ -5742,7 +5775,7 @@ async function doMallSearchPage() {
     products.forEach(p => grid.appendChild(buildMallCard(p)));
     el.replaceChildren(grid);
   } catch (_) {
-    el.innerHTML = '<div style="padding:24px; text-align:center; color:#999;">搜索失败</div>';
+    showEmptyState(el, '搜索失败');
   }
 }
 
@@ -6026,8 +6059,25 @@ async function connectRealtime() {
     if (!payload.mode) payload.mode = 'voice';
     if (signal.type === 'offer') {
       if (isIgnoredCallPayload(payload)) return;
-      if (hasActiveCallSession() && !isSameIncomingCall(payload)) { api(`/api/conversations/${payload.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null }) }).catch(() => {}); return; }
-      state.rtc.earlyCandidates = state.rtc.earlyCandidates || []; state.rtc.callId = payload.callId || state.rtc.callId || null; state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; state.rtc.pendingOffer = payload; setRtcPhase('incoming');
+      if (hasActiveCallSession() && !isSameIncomingCall(payload)) {
+        api(`/api/conversations/${payload.conversationId}/call`, {
+          method: 'POST',
+          body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null })
+        }).catch(() => {});
+        return;
+      }
+      state.rtc.earlyCandidates = state.rtc.earlyCandidates || [];
+      state.rtc.callId = payload.callId || state.rtc.callId || null;
+      state.rtc.conversationId = payload.conversationId;
+      state.rtc.incomingMeta = {
+        senderId: payload.senderId,
+        senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null,
+        mode: payload.mode,
+        conversationId: payload.conversationId,
+        callId: payload.callId || state.rtc.callId || null
+      };
+      state.rtc.pendingOffer = payload;
+      setRtcPhase('incoming');
       
       let peerName = payload.senderName || payload.senderId;
       const f = state.friendsById ? state.friendsById.get(payload.senderId) : state.friends.find(x=>x.friend.id === payload.senderId);
@@ -6081,7 +6131,15 @@ async function connectRealtime() {
       if (hasActiveCallSession() && !isSameIncomingCall(payload)) { autoBusyIncomingCall(payload); return; }
       state.rtc.callId = payload.callId || state.rtc.callId || null;
       state.rtc.peerId = payload.senderId || state.rtc.peerId || null;
-      state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; setRtcPhase('incoming');
+      state.rtc.conversationId = payload.conversationId;
+      state.rtc.incomingMeta = {
+        senderId: payload.senderId,
+        senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null,
+        mode: payload.mode,
+        conversationId: payload.conversationId,
+        callId: payload.callId || state.rtc.callId || null
+      };
+      setRtcPhase('incoming');
       if (shouldPresentIncomingUI(payload)) {
         updateCallUIInfo(payload.senderId, payload.mode, "收到来电");
         showEl("callPanel");
@@ -6094,7 +6152,17 @@ async function connectRealtime() {
       setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');
       return;
     }
-    if (payload.event === 'accept') { if (!isCurrentCallPayload(payload)) return; clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; syncCallConversationState(payload.conversationId || state.rtc.conversationId, state.rtc.peerId || payload.senderId, payload.senderName || ''); markCallConnecting(state.rtc.peerId || payload.senderId, payload.mode || state.rtc.mode, '对方已接听，建立连接中...'); setText("chatSubtitle", '建立连接中…'); scheduleConnectTimeout(); return; }
+    if (payload.event === 'accept') {
+      if (!isCurrentCallPayload(payload)) return;
+      clearTimeout(outgoingTimeoutTimer);
+      clearTimeout(incomingTimeoutTimer);
+      state.rtc.callId = payload.callId || state.rtc.callId || null;
+      syncCallConversationState(payload.conversationId || state.rtc.conversationId, state.rtc.peerId || payload.senderId, payload.senderName || '');
+      markCallConnecting(state.rtc.peerId || payload.senderId, payload.mode || state.rtc.mode, '对方已接听，建立连接中...');
+      setText("chatSubtitle", '建立连接中…');
+      scheduleConnectTimeout();
+      return;
+    }
     if (payload.event === 'cancel' || payload.event === 'reject' || payload.event === 'end') { 
       if (!isCurrentCallPayload(payload)) return;
       if (payload.event === 'cancel') finalizeCall({ alertText: state.rtc.phase === 'incoming' ? '对方已取消通话' : '通话已取消' });
@@ -6262,6 +6330,12 @@ function cycleSidebarMode() {
   else state.sidebarMode = 'expanded';
   try { localStorage.setItem('chatSidebarMode', state.sidebarMode); } catch(_) {}
   applySidebarMode();
+}
+
+function refreshConversations() {
+  sortConversationsInPlace();
+  renderConversationListFromState();
+  loadConversations();
 }
 
 let _renderConvListTimer = null;
