@@ -47,6 +47,7 @@ const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
 const STATIC_ROOT = ROOT;
 
+const CSRF_EXEMPT = new Set(['/api/login', '/api/register', '/api/auth/send-code', '/api/password/forgot', '/api/login/phone-code']);
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -418,8 +419,10 @@ function buildConversationMeta(conv, userId) {
 }
 
 function matchRoute(route, target) {
-  const normalized = route.replace(/\/+$/, '');
-  return normalized === target || normalized === `/api${target}` || normalized === target.replace(/^\/api/, '');
+  if (route === target) return true;
+  // Handle route without /api prefix
+  if (target.startsWith('/api') && route === target.slice(4)) return true;
+  return false;
 }
 
 function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
@@ -647,8 +650,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // CSRF validation for state-changing requests
-  const CSRF_EXEMPT = ['/api/login', '/api/register', '/api/auth/send-code', '/api/password/forgot', '/api/login/phone-code'];
-  if (req.method === 'POST' && pathname.startsWith('/api/') && !CSRF_EXEMPT.some(p => matchRoute(pathname, p))) {
+  if (req.method === 'POST' && pathname.startsWith('/api/') && !CSRF_EXEMPT.has(pathname)) {
     const sessionToken = parseAuthToken(req);
     if (sessionToken && !validateCsrf(req, sessionToken)) {
       return sendJson(res, 403, { error: 'csrf_token_invalid' });

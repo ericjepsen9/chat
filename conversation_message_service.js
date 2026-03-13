@@ -1,3 +1,5 @@
+const ALLOWED_MESSAGE_TYPES = new Set(['text', 'image', 'audio', 'card', 'order_card', 'broadcast_card', 'system']);
+
 function formatOrderSummary(items = []) {
   return items.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
 }
@@ -19,11 +21,11 @@ function buildOrderCardPayload(order, authUserId) {
 }
 
 function listConversationMessages({ conv, authUser, searchParams, getVisibleMessagesSlice }) {
-  if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
+  if (conv.members[0] !== authUser.id && conv.members[1] !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
   const before = parseInt(searchParams.get('before') || '0', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
-  const peerId = (conv.members || []).find((id) => id !== authUser.id);
+  const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
   return {
     ok: true,
     status: 200,
@@ -44,15 +46,14 @@ function createConversationMessage({
   schedulePersist,
   broadcastToConversation,
 }) {
-  if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
+  if (conv.members[0] !== authUser.id && conv.members[1] !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
 
-  const ALLOWED_MESSAGE_TYPES = ['text', 'image', 'audio', 'card', 'order_card', 'broadcast_card', 'system'];
-  if (!body.type || !ALLOWED_MESSAGE_TYPES.includes(body.type)) {
+  if (!body.type || !ALLOWED_MESSAGE_TYPES.has(body.type)) {
     return { ok: false, status: 400, error: 'invalid_message_type' };
   }
 
   if (conv.type === 'direct') {
-    const peerId = conv.members.find((id) => id !== authUser.id);
+    const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
     const peerUser = index.usersById.get(peerId);
     if (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
     if (peerUser?.blacklist?.includes(authUser.id)) return { ok: false, status: 403, error: '消息被对方拒收' };
