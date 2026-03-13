@@ -9,7 +9,7 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
   const userConvs = index.convByUser.get(authUser.id) || [];
   for (const conv of userConvs) {
     const members = conv.members || [];
-    const peerId = members[0] === authUser.id ? members[1] : members[0];
+    const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
     const peer = peerId ? index.usersById.get(peerId) : null;
     const peerName = peer ? (peer.displayName || peer.username) : (conv.title || '');
     const peerAvatarUrl = peer ? peer.avatarUrl : '';

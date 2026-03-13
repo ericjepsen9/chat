@@ -22,7 +22,8 @@ function listConversationMessages({ conv, authUser, searchParams, getVisibleMess
   const before = parseInt(searchParams.get('before') || '0', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
-  const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
+  const members = conv.members || [];
+  const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
   return {
     ok: true,
     status: 200,
@@ -50,6 +51,7 @@ function createConversationMessage({
   }
 
   if (conv.type === 'direct') {
+    if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
     const peerUser = index.usersById.get(peerId);
     if (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
@@ -61,6 +63,7 @@ function createConversationMessage({
 
   if (body.type === 'order_card') {
     if (conv.type !== 'direct') return { ok: false, status: 400, error: 'order_card_only_for_direct_chat' };
+    if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const orderId = String(body.order?.id || '').trim();
     if (!orderId) return { ok: false, status: 400, error: 'invalid_order_card' };
     const order = index.ordersById.get(orderId);

@@ -800,18 +800,27 @@ function renderProfileStore(){
     for (const arr of parsedCats.values()) arr.forEach(c => cats.add(c));
     catTabsEl.replaceChildren();
     if (cats.size > 0) {
+      if (!catTabsEl.dataset.delegated) {
+        catTabsEl.dataset.delegated = '1';
+        catTabsEl.addEventListener('click', (e) => {
+          const tab = e.target.closest('.profile-store-cat-tab');
+          if (!tab) return;
+          state.profileStoreCategoryFilter = tab.dataset.cat || '';
+          renderProfileStore();
+        });
+      }
       const allTab = document.createElement('button');
       allTab.type = 'button';
       allTab.className = 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : '');
       allTab.textContent = '全部';
-      allTab.addEventListener('click', () => { state.profileStoreCategoryFilter = ''; renderProfileStore(); });
+      allTab.dataset.cat = '';
       catTabsEl.appendChild(allTab);
       cats.forEach(cat => {
         const tab = document.createElement('button');
         tab.type = 'button';
         tab.className = 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : '');
         tab.textContent = cat;
-        tab.addEventListener('click', () => { state.profileStoreCategoryFilter = cat; renderProfileStore(); });
+        tab.dataset.cat = cat;
         catTabsEl.appendChild(tab);
       });
     }
@@ -1705,7 +1714,7 @@ const conversationPeerId = c => {
   if (!c || !c.members || !state.currentUser) return null;
   if (c._peerId !== undefined) return c._peerId;
   const uid = state.currentUser.id;
-  c._peerId = (c.members[0] === uid ? c.members[1] : c.members[0]) || null;
+  c._peerId = c.members.length >= 2 ? ((c.members[0] === uid ? c.members[1] : c.members[0]) || null) : null;
   return c._peerId;
 };
 
@@ -2341,6 +2350,28 @@ function bindConversationSwipeDismiss(){
   list.addEventListener('scroll', () => closeConversationSwipeRows(), { passive: true });
   list.addEventListener('click', (e) => {
     if (!e.target.closest('.chat-swipe-row')) closeConversationSwipeRows();
+    // Delegated conversation item click
+    const chatItem = e.target.closest('.chat-item');
+    if (!chatItem) return;
+    // Skip if click was on a swipe action button
+    if (e.target.closest('.chat-swipe-actions')) return;
+    // Skip if click was on avatar (handled separately for profile popup)
+    if (e.target.closest('.avatar')) return;
+    const convId = chatItem.dataset.conversationId;
+    if (!convId) return;
+    if (convId === '__trade_alert__') {
+      state.tradeAlertReadAt = Date.now();
+      renderConversationListFromState();
+      Promise.all([loadBuyerOrders(), loadSellerOrders()]).then(() => {
+        const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
+        if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
+        else window.openSecondaryPage('buyerOrdersManagePage', 'home');
+      });
+    } else if (convId === '__system_message__') {
+      window.openSecondaryPage('systemMessagesPage', 'home');
+    } else {
+      window.openConversation(convId);
+    }
   });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#chatList .chat-swipe-row')) closeConversationSwipeRows();
@@ -2472,16 +2503,6 @@ function buildConversationRow(conv) {
   const btn = createEl('button', cls);
   btn.type = 'button';
   btn.dataset.conversationId = conv.id;
-  if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => {
-    state.tradeAlertReadAt = Date.now();
-    renderConversationListFromState();
-    await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
-    const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
-    if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
-    else window.openSecondaryPage('buyerOrdersManagePage', 'home');
-  });
-  else if (conv.syntheticType === 'system') btn.addEventListener('click', () => { window.openSecondaryPage('systemMessagesPage', 'home'); });
-  else btn.addEventListener('click', () => window.openConversation(conv.id));
 
   const avatarWrap = createEl('div', 'chat-item-avatar');
   if (conv.syntheticType === 'trade') avatarWrap.textContent = '💱';
@@ -3200,7 +3221,11 @@ function stopScanCamera(keepVideoHidden = false){
   showEl('scanFallbackBox');
 }
 
+let _openConvAc = null;
 window.openConversation = async (id, options = {}) => {
+  if (_openConvAc) { _openConvAc.abort(); _openConvAc = null; }
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  _openConvAc = ac;
   const { skipFetch = false } = options;
   const conv = state.conversationsById?.get(id);
   state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
@@ -3228,19 +3253,22 @@ window.openConversation = async (id, options = {}) => {
   toggleEl("sidebarPanel", "sidebar-tab-hidden", false);
   applySidebarMode();
   applyChatRelationshipState();
+  const signal = ac ? ac.signal : null;
   if (!skipFetch) {
-    await fetchMessages(); 
-    await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
+    await fetchMessages();
+    if (signal?.aborted) return;
+    await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal });
+    if (signal?.aborted) return;
     refreshMessageReadReceipts();
   } else {
     Promise.resolve().then(async () => {
       try {
-        if (!state.activeConversation || state.activeConversation.id !== id) return;
+        if (signal?.aborted || !state.activeConversation || state.activeConversation.id !== id) return;
         await fetchMessages();
-        if (state.activeConversation?.id === id) {
-          await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
-          refreshMessageReadReceipts();
-        }
+        if (signal?.aborted || state.activeConversation?.id !== id) return;
+        await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal });
+        if (signal?.aborted) return;
+        refreshMessageReadReceipts();
       } catch(_) {}
     });
   }
