@@ -4,6 +4,7 @@
  * Search messages across all conversations for a user.
  */
 function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }) {
+  const maxNeeded = offset + limit;
   const results = [];
   const userConvs = index.convByUser.get(authUser.id) || [];
   for (const conv of userConvs) {
@@ -27,8 +28,8 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
     }
   }
   results.sort((a, b) => b.createdAt - a.createdAt);
-  const paged = results.slice(offset, offset + limit);
-  return { results: paged, total: results.length, hasMore: offset + limit < results.length };
+  const paged = results.slice(offset, maxNeeded);
+  return { results: paged, total: results.length, hasMore: maxNeeded < results.length };
 }
 
 /**

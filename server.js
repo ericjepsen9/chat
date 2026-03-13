@@ -659,7 +659,7 @@ const routeCtx = {
   getClientIp, getLoginAttemptState, recordLoginAttempt,
   getPhoneCodeIpAttemptState, recordPhoneCodeIpAttempt,
   phoneCodeIpCooldownStore, PHONE_CODE_IP_COOLDOWN_MS,
-  generateUniqueAppNumberId, indexNewUser,
+  generateUniqueAppNumberId, indexNewUser, indexNewConversation,
   schedulePersist, schedulePersistCritical, appendWal,
   broadcastToUser, broadcastToConversation, broadcastAll,
   areFriends, getDirectConversation, getOrCreateDirectConversation,

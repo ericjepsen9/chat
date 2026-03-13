@@ -25,10 +25,9 @@ function updateFriendGroup({ authUser, friendId, groupRaw, friendshipByPair, nor
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
-function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipPair, rebuildIndexes, getDirectConversation, schedulePersist, broadcastToUser }) {
+function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipPair, getDirectConversation, schedulePersist, broadcastToUser }) {
   if (!usersById.has(friendId)) return { ok: false, status: 404, error: 'not_found' };
   removeFriendshipPair(authUser.id, friendId);
-  rebuildIndexes();
   const conv = getDirectConversation(authUser.id, friendId);
   if (conv) conv.clearedAt[authUser.id] = Date.now();
   schedulePersist('friend_delete', { userId: authUser.id, friendId });

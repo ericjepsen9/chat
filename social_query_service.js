@@ -10,12 +10,12 @@ function listFriends({ authUser, friendViewsByUser }) {
 
 function listConversations({ authUser, directConvBasesByUser, convById, buildConversationMeta }) {
   const uid = authUser.id;
-  const conversations = (directConvBasesByUser.get(uid) || []).map((base) => {
+  const conversations = (directConvBasesByUser.get(uid) || []).filter((base) => convById.has(base.id)).map((base) => {
     const conv = convById.get(base.id);
-    const members = conv?.members || [];
+    const members = conv.members || [];
     const peerId = members[0] === uid ? members[1] : members[0];
-    const pinned = conv?.pinnedBy ? conv.pinnedBy.indexOf(uid) !== -1 : false;
-    const muted = conv?.mutedBy ? conv.mutedBy.indexOf(uid) !== -1 : false;
+    const pinned = conv.pinnedBy ? conv.pinnedBy.indexOf(uid) !== -1 : false;
+    const muted = conv.mutedBy ? conv.mutedBy.indexOf(uid) !== -1 : false;
     const meta = buildConversationMeta(conv, uid);
     return {
       ...base,

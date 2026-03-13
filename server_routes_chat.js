@@ -13,7 +13,7 @@ module.exports = function createChatRoutes(ctx) {
     getDirectConversation, areFriends, addToMapArray, uid,
     index, db,
     schedulePersist, broadcastToUser, broadcastToConversation,
-    rebuildIndexes,
+    indexNewConversation,
     canAccessConversation,
   } = ctx;
 
@@ -43,7 +43,7 @@ module.exports = function createChatRoutes(ctx) {
         getDirectConversation,
         uid,
         db,
-        rebuildIndexes,
+        indexNewConversation,
         schedulePersist,
         broadcastToUser,
       });
