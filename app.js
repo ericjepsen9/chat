@@ -407,15 +407,13 @@ function populateSellerCategoryFilter(){
   // Also merge from presets if loaded
   (state._sellerCategoryPresets || []).forEach(c => cats.add(c));
   const prev = sel.value;
-  const defaultOpt = document.createElement('option');
+  const defaultOpt = createEl('option', '', '全部分类');
   defaultOpt.value = '';
-  defaultOpt.textContent = '全部分类';
   const frag = document.createDocumentFragment();
   frag.appendChild(defaultOpt);
   [...cats].sort().forEach(cat => {
-    const opt = document.createElement('option');
+    const opt = createEl('option', '', cat);
     opt.value = cat;
-    opt.textContent = cat;
     frag.appendChild(opt);
   });
   sel.replaceChildren(frag);
@@ -809,17 +807,13 @@ function renderProfileStore(){
           renderProfileStore();
         });
       }
-      const allTab = document.createElement('button');
+      const allTab = createEl('button', 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : ''), '全部');
       allTab.type = 'button';
-      allTab.className = 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : '');
-      allTab.textContent = '全部';
       allTab.dataset.cat = '';
       catTabsEl.appendChild(allTab);
       cats.forEach(cat => {
-        const tab = document.createElement('button');
+        const tab = createEl('button', 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : ''), cat);
         tab.type = 'button';
-        tab.className = 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : '');
-        tab.textContent = cat;
         tab.dataset.cat = cat;
         catTabsEl.appendChild(tab);
       });
@@ -851,7 +845,7 @@ function renderProfileStore(){
     const card = createEl('div', 'profile-store-item');
     card.addEventListener('click', () => openProductDetail(item, false));
 
-    const img = document.createElement('img');
+    const img = createEl('img', '');
     img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
     img.alt = item.title || '商品';
 
@@ -917,10 +911,8 @@ function openProductSpecSheet(item, mode = 'cart'){
   if(list){
     const frag = document.createDocumentFragment();
     specs.forEach(spec => {
-      const chip = document.createElement('button');
+      const chip = createEl('button', 'spec-option-chip' + (spec === state.selectedProfileSpec ? ' active' : ''), spec);
       chip.type = 'button';
-      chip.className = 'spec-option-chip' + (spec === state.selectedProfileSpec ? ' active' : '');
-      chip.textContent = spec;
       chip.addEventListener('click', () => {
         state.selectedProfileSpec = spec;
         list.querySelectorAll('.spec-option-chip').forEach(el => el.classList.toggle('active', el.textContent === spec));
@@ -1181,7 +1173,7 @@ function renderCartHubPage(){
       renderProfileCartPage();
       window.openSecondaryPage('profileCartPage', 'cartHubPage');
     });
-    line.appendChild(document.createElement('span'));
+    line.appendChild(createEl('span', ''));
     line.appendChild(goBtn);
     card.append(head, sub, line);
     frag.appendChild(card);
@@ -1345,8 +1337,7 @@ function renderProfileOrders(){
     const status = createEl('div', 'profile-order-status' + (order.status === 'completed' ? ' done' : ''));
     status.textContent = formatOrderStatusLabel(order.status);
 
-    const actions = document.createElement('div');
-    actions.className = 'profile-order-actions';
+    const actions = createEl('div', 'profile-order-actions');
     const canManage = state.currentUser?.id && state.currentUser.id === order.sellerId;
 
     if (canManage) {
@@ -1442,9 +1433,8 @@ function showTradePicker(title, items, renderLine, emptyText) {
   } else {
     const frag = document.createDocumentFragment();
     items.forEach((item, idx) => {
-      const btn = document.createElement('button');
+      const btn = createEl('button', 'profile-order-card');
       btn.type = 'button';
-      btn.className = 'profile-order-card';
       btn.appendChild(createEl('div', 'profile-order-title', `${idx + 1}. ${renderLine(item)}`));
       btn.addEventListener('click', () => close(item));
       frag.appendChild(btn);
@@ -1567,14 +1557,12 @@ function renderContactCardPicker(keyword){
   const frag = document.createDocumentFragment();
   grouped.forEach((members, groupName) => {
     if (!members.length) return;
-    const section = document.createElement('div');
+    const section = createEl('div');
     section.dataset.groupName = groupName;
 
     const header = createEl('div', 'qq-group-header expanded', groupName + ' ');
     header.dataset.role = 'friend-group-header';
-    const count = document.createElement('span');
-    count.className = 'friend-group-count';
-    count.textContent = String(members.length);
+    const count = createEl('span', 'friend-group-count', String(members.length));
     header.appendChild(count);
     header.addEventListener('click', () => window.toggleQQGroup(header));
 
@@ -1630,9 +1618,8 @@ async function renderProductCardPicker(){
   }
   const frag = document.createDocumentFragment();
   products.forEach((p) => {
-    const card = document.createElement('button');
+    const card = createEl('button', 'picker-product-card');
     card.type = 'button';
-    card.className = 'picker-product-card';
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
     const img = createEl('img', 'picker-product-img');
     img.src = imgUrl;
@@ -1679,9 +1666,8 @@ async function renderOrderCardPicker(filterTab){
     const role = isBuyer ? 'buyer' : 'seller';
     const roleLabel = isBuyer ? '买家' : '卖家';
     const itemsSummary = (o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，') || '订单内容';
-    const card = document.createElement('button');
+    const card = createEl('button', 'picker-order-card');
     card.type = 'button';
-    card.className = 'picker-order-card';
     const top = createEl('div', 'picker-order-top');
     top.append(createEl('span', 'picker-order-id', `#${formatOrderId(o.id)}`), createEl('span', `picker-order-role ${role}`, roleLabel));
     const bottom = createEl('div', 'picker-order-bottom');
@@ -1812,47 +1798,31 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
     let txt = msg.text;
     if (txt === '你撤回了一条消息' && msg.senderId !== state.currentUser.id) txt = '对方撤回了一条消息';
     node.className = 'message-row system-msg';
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = txt || '';
-    node.appendChild(bubble);
+    node.appendChild(createEl('div', 'bubble', txt || ''));
   } else {
-    const avatarWrap = document.createElement('div');
-    avatarWrap.className = 'avatar-click-wrap';
-    const avatarNode = createAvatarNode(userObj, finalName);
-    avatarWrap.appendChild(avatarNode);
+    const avatarWrap = createEl('div', 'avatar-click-wrap');
+    avatarWrap.appendChild(createAvatarNode(userObj, finalName));
     avatarWrap.addEventListener('click', (e) => {
-      const target = e.target;
-      if (!(target instanceof Element)) return;
-      if (!target.closest('.avatar')) return;
+      if (!(e.target instanceof Element) || !e.target.closest('.avatar')) return;
       e.stopPropagation();
       window.openUserProfile(msg.senderId, finalName);
     });
     node.appendChild(avatarWrap);
 
-    const wrap = document.createElement('div');
-    wrap.className = 'content-wrap';
+    const wrap = createEl('div', 'content-wrap');
     if (isTemp) wrap.style.opacity = '0.6';
 
     if (msg.type === 'audio') {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble audio-bubble';
-      const icon = document.createElement('span');
-      icon.textContent = '🔊';
-      const text = document.createElement('span');
-      text.textContent = '语音';
-      bubble.appendChild(icon);
-      bubble.appendChild(text);
+      const bubble = createEl('div', 'bubble audio-bubble');
+      bubble.append(createEl('span', null, '🔊'), createEl('span', null, '语音'));
       bubble.addEventListener('click', (e) => { e.stopPropagation(); window.playAudio(msg.audioUrl, bubble); });
       wrap.appendChild(bubble);
     } else if (msg.type === 'image') {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble image-bubble';
+      const bubble = createEl('div', 'bubble image-bubble');
       const safeImage = normalizeMediaUrl(msg.imageUrl);
       if (safeImage) {
-        const img = document.createElement('img');
+        const img = createEl('img', 'chat-img-clickable');
         img.src = safeImage;
-        img.className = 'chat-img-clickable';
         img.style.cursor = 'zoom-in';
         img.style.pointerEvents = 'auto';
         img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
@@ -1863,59 +1833,31 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
       wrap.appendChild(bubble);
     } else if (msg.type === 'card' && msg.card) {
       const c = msg.card;
-      const card = document.createElement('div');
-      card.className = 'trade-card';
+      const card = createEl('div', 'trade-card');
       const isContactCard = isContactCardPayload(c);
-      if (isContactCard) {
-        card.classList.add('contact-card-message');
-      }
+      if (isContactCard) card.classList.add('contact-card-message');
       const safeImage = normalizeMediaUrl(c.imageUrl || '');
       if (isContactCard) {
-        const head = document.createElement('div');
-        head.className = 'contact-card-message-head';
+        const head = createEl('div', 'contact-card-message-head');
         if (safeImage) {
-          const avatar = document.createElement('img');
-          avatar.className = 'contact-card-message-avatar';
+          const avatar = createEl('img', 'contact-card-message-avatar');
           avatar.src = safeImage;
           head.appendChild(avatar);
         } else {
-          const avatar = document.createElement('div');
-          avatar.className = 'contact-card-message-avatar-fallback';
-          avatar.textContent = firstChar(c.title || '友');
-          head.appendChild(avatar);
+          head.appendChild(createEl('div', 'contact-card-message-avatar-fallback', firstChar(c.title || '友')));
         }
-        const headMeta = document.createElement('div');
-        const headTitle = document.createElement('div');
-        headTitle.className = 'trade-card-title';
-        headTitle.textContent = c.title || '好友名片';
-        const label = document.createElement('div');
-        label.className = 'contact-card-label';
-        label.textContent = c.meta || '个人名片';
-        headMeta.append(headTitle, label);
+        const headMeta = createEl('div');
+        headMeta.append(createEl('div', 'trade-card-title', c.title || '好友名片'), createEl('div', 'contact-card-label', c.meta || '个人名片'));
         head.appendChild(headMeta);
         card.appendChild(head);
       } else if (safeImage) {
-        const img = document.createElement('img');
-        img.className = 'trade-card-img';
+        const img = createEl('img', 'trade-card-img');
         img.src = safeImage;
         card.appendChild(img);
       }
-      if (!isContactCard) {
-        const title = document.createElement('div');
-        title.className = 'trade-card-title';
-        title.textContent = c.title || '闲置';
-        card.appendChild(title);
-      }
-      const desc = document.createElement('div');
-      desc.className = 'trade-card-sub';
-      desc.textContent = c.description || '';
-      card.appendChild(desc);
-      if (!isContactCard) {
-        const meta = document.createElement('div');
-        meta.className = 'trade-card-price';
-        meta.textContent = c.meta || '';
-        card.appendChild(meta);
-      }
+      if (!isContactCard) card.appendChild(createEl('div', 'trade-card-title', c.title || '闲置'));
+      card.appendChild(createEl('div', 'trade-card-sub', c.description || ''));
+      if (!isContactCard) card.appendChild(createEl('div', 'trade-card-price', c.meta || ''));
       const contactTargetUserId = isContactCard ? extractContactCardUserId(c) : '';
       if (isContactCard && contactTargetUserId) {
         card.classList.add('clickable-card');
@@ -1955,13 +1897,12 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
     } else if (msg.type === 'broadcast_card' && msg.broadcast) {
       wrap.appendChild(buildBroadcastCardMessage(msg));
     } else {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble';
+      const bubble = createEl('div', 'bubble');
       const parts = String(msg.text || '').split('\n');
-      parts.forEach((part, idx) => {
-        if (idx > 0) bubble.appendChild(document.createElement('br'));
-        bubble.appendChild(document.createTextNode(part));
-      });
+      for (let pi = 0; pi < parts.length; pi++) {
+        if (pi > 0) bubble.appendChild(createEl('br', ''));
+        bubble.appendChild(document.createTextNode(parts[pi]));
+      }
       wrap.appendChild(bubble);
     }
 
@@ -2068,8 +2009,7 @@ function buildBroadcastCardMessage(msg){
     img.alt = 'broadcast';
     card.appendChild(img);
   }
-  const actions = document.createElement('div');
-  actions.className = 'trade-card-actions';
+  const actions = createEl('div', 'trade-card-actions');
   actions.appendChild(createStopBtn('primary-btn', '查看详情', () => {
     openBroadcastDetail(
       (msg.broadcast && msg.broadcast.title) || '图文通知',
@@ -2627,7 +2567,7 @@ function patchFriendRow(row, item, groupName = '') {
   return replacement;
 }
 function createFriendGroupSection(groupName, members) {
-  const wrap = document.createElement('div');
+  const wrap = createEl('div', '');
   wrap.dataset.groupName = groupName;
   const header = createEl('div', 'qq-group-header');
   header.dataset.role = 'friend-group-header';
@@ -2642,22 +2582,18 @@ function patchFriendGroupSection(section, groupName, members) {
   section.dataset.groupName = groupName;
   let header = section.querySelector('[data-role="friend-group-header"]');
   if (!header) {
-    header = document.createElement('div');
-    header.className = 'qq-group-header';
+    header = createEl('div', 'qq-group-header');
     header.dataset.role = 'friend-group-header';
     header.addEventListener('click', () => window.toggleQQGroup(header));
     section.prepend(header);
   }
   header.replaceChildren();
   header.append(document.createTextNode(groupName + ' '));
-  const count = document.createElement('span');
-  count.className = 'friend-group-count';
-  count.textContent = String(members.length);
+  const count = createEl('span', 'friend-group-count', String(members.length));
   header.appendChild(count);
   let content = section.querySelector('[data-role="friend-group-content"]');
   if (!content) {
-    content = document.createElement('div');
-    content.className = 'qq-group-content';
+    content = createEl('div', 'qq-group-content');
     content.dataset.role = 'friend-group-content';
     section.appendChild(content);
   }
@@ -2692,7 +2628,7 @@ function patchMallCard(card, product) {
   replacement.addEventListener('click', () => openProductDetail(product, false));
   const safeImage = normalizeMediaUrl(product.image);
   if (safeImage) {
-    const img = document.createElement('img');
+    const img = createEl('img', '');
     img.src = safeImage;
     img.alt = product.title || '商品图';
     replacement.appendChild(img);
@@ -2949,9 +2885,8 @@ window.forwardMsg = (msgId) => {
   if(list) {
     list.replaceChildren();
     state.conversations.forEach(c => {
-      const btn = document.createElement('button');
+      const btn = createEl('button', 'chat-item');
       btn.type = 'button';
-      btn.className = 'chat-item';
       appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
       btn.addEventListener('click', () => window.confirmForward(c.id));
       list.appendChild(btn);
@@ -3095,10 +3030,8 @@ window.openGroupSelect = (targetUserId) => {
     if (list) {
       list.replaceChildren();
       cg.forEach((g) => {
-        const btn = document.createElement('button');
-        btn.className = 'primary-btn';
+        const btn = createEl('button', 'primary-btn', g);
         btn.style.cssText = 'background:#f2f2f6; color:#000; width:100%; border-radius:8px; padding:12px; margin-bottom:10px;';
-        btn.textContent = g;
         btn.addEventListener('click', () => window.confirmMoveGroup(g));
         list.appendChild(btn);
       });
@@ -3733,13 +3666,9 @@ function bindProductEvents() {
     function render() {
       wrap.querySelectorAll('.tag-item').forEach(el => el.remove());
       tags.forEach((tag, i) => {
-        const span = document.createElement('span');
-        span.className = 'tag-item';
-        span.textContent = tag;
-        const btn = document.createElement('button');
-        btn.className = 'tag-item-remove';
+        const span = createEl('span', 'tag-item', tag);
+        const btn = createEl('button', 'tag-item-remove', '\u00d7');
         btn.type = 'button';
-        btn.textContent = '\u00d7';
         btn.addEventListener('click', (e) => { e.stopPropagation(); tags.splice(i, 1); render(); renderPresetChips(); });
         span.appendChild(btn);
         wrap.insertBefore(span, input);
@@ -3796,10 +3725,8 @@ function bindProductEvents() {
       const selectedCats = new Set(categoryTags.getTags());
       const catFrag = document.createDocumentFragment();
       _categoryPresets.forEach(cat => {
-        const chip = document.createElement('button');
+        const chip = createEl('button', 'preset-chip' + (selectedCats.has(cat) ? ' selected' : ''), cat);
         chip.type = 'button';
-        chip.className = 'preset-chip' + (selectedCats.has(cat) ? ' selected' : '');
-        chip.textContent = cat;
         chip.addEventListener('click', () => {
           if (selectedCats.has(cat)) categoryTags.removeTag(cat);
           else categoryTags.addTag(cat);
@@ -3813,10 +3740,8 @@ function bindProductEvents() {
       const selectedSpecs = new Set(specsTags.getTags());
       const specFrag = document.createDocumentFragment();
       _specPresets.forEach(spec => {
-        const chip = document.createElement('button');
+        const chip = createEl('button', 'preset-chip' + (selectedSpecs.has(spec) ? ' selected' : ''), spec);
         chip.type = 'button';
-        chip.className = 'preset-chip' + (selectedSpecs.has(spec) ? ' selected' : '');
-        chip.textContent = spec;
         chip.addEventListener('click', () => {
           if (selectedSpecs.has(spec)) specsTags.removeTag(spec);
           else specsTags.addTag(spec);
@@ -3935,8 +3860,7 @@ function bindProductEvents() {
     }
     const _pmFrag = document.createDocumentFragment();
     items.forEach((item, i) => {
-      const row = document.createElement('div');
-      row.className = 'preset-manage-item';
+      const row = createEl('div', 'preset-manage-item');
       row.setAttribute('data-idx', i);
       const handle = createEl('span', 'preset-drag-handle', '☰');
       const textSpan = createEl('span', 'preset-manage-item-text', item);
@@ -3949,8 +3873,7 @@ function bindProductEvents() {
       handle.addEventListener('touchstart', (e) => { _startDrag(e, i, row); }, { passive: false });
       editBtn.addEventListener('click', () => {
         const textEl = textSpan;
-        const inp = document.createElement('input');
-        inp.className = 'preset-manage-input';
+        const inp = createEl('input', 'preset-manage-input');
         inp.value = item;
         inp.classList.add('preset-edit-input');
         textEl.replaceWith(inp);
@@ -4388,11 +4311,9 @@ function bindSocialEvents() {
           else {
             list.replaceChildren();
             blacklist.forEach((u) => {
-              const row = document.createElement('div');
-              row.className = 'chat-item';
+              const row = createEl('div', 'chat-item');
               appendUserInfo(row, u, u.displayName || '');
-              const btn = document.createElement('button');
-              btn.className = 'primary-btn';
+              const btn = createEl('button', 'primary-btn');
               btn.style.background = '#ff3b30';
               btn.textContent = '移出';
               btn.addEventListener('click', () => window.removeFromBlacklist(u.id));
@@ -4417,9 +4338,8 @@ function bindSocialEvents() {
       profileCard.onclick = null;
       profileCard.style.opacity = '0.5';
       if(!peerId) {
-        const hint = document.createElement('div');
+        const hint = createEl('div', '', '当前会话暂无可查看的用户资料');
         hint.style.cssText = 'padding:12px 0; color:var(--text-muted); font-size:14px;';
-        hint.textContent = '当前会话暂无可查看的用户资料';
         profileCard.appendChild(hint);
         return;
       }
@@ -5093,9 +5013,7 @@ function bindSearchAndEmojiEvents() {
   function showCooldownToast(seconds) {
     let toast = document.querySelector('.search-cooldown-toast');
     if (toast) toast.remove();
-    toast = document.createElement('div');
-    toast.className = 'search-cooldown-toast';
-    toast.textContent = `搜索太频繁，请 ${seconds} 秒后再试`;
+    toast = createEl('div', 'search-cooldown-toast', `搜索太频繁，请 ${seconds} 秒后再试`);
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 1500);
   }
@@ -5135,9 +5053,7 @@ function bindSearchAndEmojiEvents() {
         let lastIdx = 0;
         truncated.replace(kwRe, (match, offset) => {
           if (offset > lastIdx) parent.appendChild(document.createTextNode(truncated.slice(lastIdx, offset)));
-          const mark = document.createElement('mark');
-          mark.className = 'search-highlight';
-          mark.textContent = match;
+          const mark = createEl('mark', 'search-highlight', match);
           parent.appendChild(mark);
           lastIdx = offset + match.length;
           return match;
@@ -5246,8 +5162,7 @@ function bindSearchAndEmojiEvents() {
             const range = document.createRange();
             range.setStart(node, idx);
             range.setEnd(node, idx + keyword.length);
-            const mark = document.createElement('span');
-            mark.className = 'search-highlight';
+            const mark = createEl('span', 'search-highlight');
             mark.style.cssText = 'background:#b4efc8;padding:0 1px;border-radius:2px;';
             range.surroundContents(mark);
             matches.push(mark);
@@ -5281,8 +5196,7 @@ function bindSearchAndEmojiEvents() {
   if($("emojiPanel")) {
     $("emojiPanel").replaceChildren();
     emojiList.forEach((e) => {
-      const span = document.createElement('span');
-      span.textContent = e;
+      const span = createEl('span', '', e);
       span.addEventListener('click', () => window.insertEmoji(e));
       $("emojiPanel").appendChild(span);
     });
@@ -5422,8 +5336,7 @@ const loadMall = singleFlight(async function _loadMallImpl() {
     }
     if (nextSignature === state.mallListSignature && grid) return;
     if (!grid || list.children.length !== 1 || list.firstElementChild !== grid) {
-      grid = document.createElement('div');
-      grid.className = 'mall-grid';
+      grid = createEl('div', 'mall-grid');
       list.replaceChildren(grid);
     }
     state.mallItemSignatures = reconcileList(grid, products, {
@@ -5454,8 +5367,7 @@ async function doMallSearchPage() {
       showEmptyState(el, '未找到相关商品');
       return;
     }
-    const grid = document.createElement('div');
-    grid.className = 'mall-grid';
+    const grid = createEl('div', 'mall-grid');
     products.forEach(p => grid.appendChild(buildMallCard(p)));
     el.replaceChildren(grid);
   } catch (_) {
@@ -5491,14 +5403,12 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
         const avatarWrap = createEl('div', 'avatar-click-wrap');
         setAvatarContainer(avatarWrap, sender, senderName);
         row.appendChild(avatarWrap);
-        const info = document.createElement('div');
-        info.className = 'friend-req-info';
+        const info = createEl('div', 'friend-req-info');
         info.append(createEl('strong', '', senderName), createEl('div', 'preview', r.greeting || ''));
         row.appendChild(info);
         row.addEventListener('click', () => { if(sender.id) window.openUserProfile(sender.id, senderName); });
         if (r.status === 'pending') {
-          const actions = document.createElement('div');
-          actions.className = 'friend-req-actions';
+          const actions = createEl('div', 'friend-req-actions');
           const acceptBtn = createEl('button', 'primary-btn', '同意');
           acceptBtn.classList.add('friend-req-accept-btn');
           acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); window.acceptRequest(r.id); });
@@ -5507,9 +5417,7 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
           actions.append(rejectBtn, acceptBtn);
           row.appendChild(actions);
         } else {
-          const done = document.createElement('span');
-          done.className = 'friend-req-done';
-          done.textContent = r.status === 'rejected' ? '已拒绝' : '已处理';
+          const done = createEl('span', 'friend-req-done', r.status === 'rejected' ? '已拒绝' : '已处理');
           row.appendChild(done);
         }
         container.appendChild(row);
@@ -5581,6 +5489,10 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
 
 function applyLastOutgoingReadState(){
   refreshMessageReadReceipts();
+}
+function markConversationRead(convId) {
+  if (!convId || !state.currentUser) return;
+  api(`/api/conversations/${convId}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
 }
 
 function renderMessages(preserveScroll = false) {
@@ -5666,10 +5578,10 @@ async function connectRealtime() {
   applyLastOutgoingReadState();
       state.oldestMessageTime = state.messages[0]?.createdAt || 0;
       syncAndRenderConvList(true);
-      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
+      markConversationRead(state.activeConversation.id);
     } else if(state.activeConversation && state.activeConversation.id === data.conversationId) {
       await fetchMessages();
-      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
+      markConversationRead(state.activeConversation.id);
       syncAndRenderConvList(true);
     } else if (data.message) {
       applyIncomingConversationMeta(data.conversationId, data.message);
@@ -5923,17 +5835,16 @@ function renderSidebar() {
   _sidebarSignature = sig;
 
   const frag = document.createDocumentFragment();
-  visible.forEach(conv => {
-    const item = document.createElement('div');
-    item.className = 'sidebar-item';
-    if (state.activeConversation && state.activeConversation.id === conv.id) item.classList.add('is-active');
+  const expanded = state.sidebarMode === 'expanded';
+  const activeId = state.activeConversation?.id;
+  for (const conv of visible) {
+    const item = createEl('div', 'sidebar-item' + (activeId === conv.id ? ' is-active' : ''));
     item.dataset.convId = conv.id;
 
-    const avatarWrap = document.createElement('div');
-    avatarWrap.className = 'sidebar-item-avatar';
+    const avatarWrap = createEl('div', 'sidebar-item-avatar');
     const safeAvatar = normalizeMediaUrl(conv.peerAvatarUrl);
     if (safeAvatar) {
-      const img = document.createElement('img');
+      const img = createEl('img');
       img.src = safeAvatar;
       img.alt = '';
       img.onerror = function() { this.remove(); avatarWrap.textContent = firstChar(conv.title); };
@@ -5942,32 +5853,18 @@ function renderSidebar() {
       avatarWrap.textContent = firstChar(conv.title);
     }
 
-    if (conv.unread && conv.unread > 0) {
-      const badge = document.createElement('span');
-      const isMuted = isConversationMuted(conv);
-      if (isMuted) {
-        badge.className = 'sidebar-badge-dot';
-      } else {
-        badge.className = 'sidebar-badge';
-        badge.textContent = conv.unread > 99 ? '99+' : String(conv.unread);
-      }
-      avatarWrap.appendChild(badge);
+    if (conv.unread > 0) {
+      const muted = isConversationMuted(conv);
+      avatarWrap.appendChild(createEl('span', muted ? 'sidebar-badge-dot' : 'sidebar-badge', muted ? null : (conv.unread > 99 ? '99+' : String(conv.unread))));
     }
     item.appendChild(avatarWrap);
 
-    if (state.sidebarMode === 'expanded') {
-      const name = document.createElement('div');
-      name.className = 'sidebar-item-name';
-      name.textContent = conv.title || '';
-      item.appendChild(name);
-      const preview = document.createElement('div');
-      preview.className = 'sidebar-item-preview';
-      preview.textContent = conv.preview || '';
-      item.appendChild(preview);
+    if (expanded) {
+      item.append(createEl('div', 'sidebar-item-name', conv.title || ''), createEl('div', 'sidebar-item-preview', conv.preview || ''));
     }
 
     frag.appendChild(item);
-  });
+  }
   list.replaceChildren(frag);
 }
 
@@ -6122,10 +6019,8 @@ function renderSystemMessagesList(){
   const frag = document.createDocumentFragment();
   msgs.forEach(msg => {
     const card = buildProfileCard(msg.title || '系统通知', msg.summary || msg.text || '', 'button');
-    const time = document.createElement('div');
-    time.className = 'order-card-time';
+    const time = createEl('div', 'order-card-time', msg.createdAt ? formatTime(msg.createdAt) : '');
     time.style.marginTop = '6px';
-    time.textContent = msg.createdAt ? formatTime(msg.createdAt) : '';
     card.appendChild(time);
     card.addEventListener('click', () => openBroadcastDetail(msg.title || '系统消息', msg.summary || msg.text || ''));
     frag.appendChild(card);
