@@ -307,7 +307,7 @@ function broadcastToConversation(conversationId, event, payload) {
 }
 function broadcastAll(event, payload) {
   const chunk = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-  for (const userId of sseClientsByUser.keys()) broadcastToUser(userId, event, payload, chunk);
+  for (const userId of Array.from(sseClientsByUser.keys())) broadcastToUser(userId, event, payload, chunk);
 }
 
 function sendJson(res, status, payload) {

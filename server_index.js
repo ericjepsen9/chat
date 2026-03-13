@@ -198,8 +198,8 @@ function rebuildIndexes() {
         if (cats && p.category) { const parts = p.category.split(/[\/,、]/); for (let j = 0; j < parts.length; j++) { const c = parts[j].trim(); if (c) cats.add(c); } }
         if (specs && Array.isArray(p.specs)) { for (let j = 0; j < p.specs.length; j++) { if (p.specs[j]) specs.add(p.specs[j]); } }
       }
-      if (cats) user.categoryPresets = [...cats];
-      if (specs) user.specPresets = [...specs];
+      if (cats) user.categoryPresets = [...cats].slice(0, 50);
+      if (specs) user.specPresets = [...specs].slice(0, 50);
     }
     if (!user.appNumberId) {
       user.appNumberId = generateUniqueAppNumberId();

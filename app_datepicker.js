@@ -123,7 +123,7 @@ function openDatePicker(role, which, currentVal) {
   _dp.ranges.minute = minutes;
   // Snap minute to nearest 5
   _dp.selected.minute = Math.round(_dp.selected.minute / 5) * 5;
-  if (_dp.selected.minute >= 60) _dp.selected.minute = 55;
+  if (_dp.selected.minute >= 60) { _dp.selected.minute = 0; _dp.selected.hour = (_dp.selected.hour + 1) % 24; }
 
   dpBuildItems(_dp.cols.year, years, _dp.selected.year);
   dpBuildItems(_dp.cols.month, months, _dp.selected.month);

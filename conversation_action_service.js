@@ -56,6 +56,8 @@ function recallConversationMessage({ conversationId, messageId, authUser, index,
   msg.imageUrl = null;
   msg.audioUrl = null;
   msg.card = null;
+  msg.order = null;
+  msg.broadcast = null;
   schedulePersist(persistEvent, { conversationId, messageId: msg.id });
   broadcastToConversation(conversationId, 'message_recalled', { conversationId, messageId: msg.id, message: msg });
   broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
