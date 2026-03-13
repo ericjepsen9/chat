@@ -50,17 +50,24 @@ function getPendingFriendRequest(userId) {
   return state.friendRequests.find(r => r.status === 'pending' && (r.sender?.id === userId || r.fromUser?.id === userId));
 }
 
+let _profileActionEls = null;
+function _getProfileActionEls() {
+  if (!_profileActionEls) _profileActionEls = {
+    addBtn: $("profileAddFriendBtn"), hint: $("profileStrangerHint"),
+    remarkBtn: $("profileActionRemarkBtn"), moveBtn: $("profileActionMoveGroupBtn"),
+    sendBtn: $("profileSendMessageBtn"), primaryActs: $("profilePrimaryActions"),
+    reqActs: $("profileFriendRequestActions"),
+    acceptBtn: $("profileAcceptRequestBtn"), rejectBtn: $("profileRejectRequestBtn")
+  };
+  return _profileActionEls;
+}
 function updateProfileDetailActions(){
   const p = state.currentProfileUser;
   if(!p) return;
   const isFriend = !!p.isFriend || isFriendUser(p.id);
   const isSelf = p.id === state.currentUser?.id;
   const pendingReq = !isFriend && !isSelf ? getPendingFriendRequest(p.id) : null;
-  const addBtn = $("profileAddFriendBtn"), hint = $("profileStrangerHint"),
-    remarkBtn = $("profileActionRemarkBtn"), moveBtn = $("profileActionMoveGroupBtn"),
-    sendBtn = $("profileSendMessageBtn"), primaryActs = $("profilePrimaryActions"),
-    reqActs = $("profileFriendRequestActions"),
-    acceptBtn = $("profileAcceptRequestBtn"), rejectBtn = $("profileRejectRequestBtn");
+  const { addBtn, hint, remarkBtn, moveBtn, sendBtn, primaryActs, reqActs, acceptBtn, rejectBtn } = _getProfileActionEls();
   if(addBtn) addBtn.classList.toggle("hidden", isFriend || !!pendingReq);
   if(hint) hint.classList.toggle("hidden", isFriend || isSelf);
   if(remarkBtn) remarkBtn.style.display = isFriend ? '' : 'none';
@@ -487,6 +494,16 @@ function getFilteredSellerProducts(){
 const renderSellerProductsManage = safeRender(function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
+  if (list.dataset.spClickBound !== '1') {
+    list.dataset.spClickBound = '1';
+    list.addEventListener('click', (e) => {
+      if (e.target.closest('.sp-card-actions')) return;
+      const card = e.target.closest('.sp-card[data-product-id]');
+      if (!card) return;
+      const item = (state.sellerProducts || []).find(p => String(p.id) === card.dataset.productId);
+      if (item) openProductDetail(item, true);
+    });
+  }
   populateSellerCategoryFilter();
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
@@ -496,7 +513,8 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
   const frag = document.createDocumentFragment();
   products.forEach(item => {
     const card = createEl('div', 'sp-card');
-    card.addEventListener('click', () => openProductDetail(item, true));
+    card.dataset.productId = String(item.id || '');
+    // Card click handled via delegation on sellerProductsList
 
     const imgUrl = normalizeMediaUrl(item.image || item.imageUrl) || '';
     if (imgUrl) {
@@ -1206,14 +1224,10 @@ function renderCartHubPage(){
     showEmptyState(list, '暂无待结算商品');
     return;
   }
-  // Build sellerName cache from orders for O(1) lookup
-  const _sellerNameCache = new Map();
-  for (const o of (state.sellerOrders || [])) if (o.sellerId && o.sellerName) _sellerNameCache.set(o.sellerId, o.sellerName);
-  for (const o of (state.buyerOrders || [])) if (o.sellerId && o.sellerName && !_sellerNameCache.has(o.sellerId)) _sellerNameCache.set(o.sellerId, o.sellerName);
   const frag = document.createDocumentFragment();
   groups.forEach(([sellerId, arr]) => {
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    const knownSeller = _sellerNameCache.get(sellerId);
+    const knownSeller = state.sellerNameCache?.get(sellerId) || '';
     const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
     const { count, total } = sumCartTotals(arr);
     const card = createEl('div', 'cart-hub-card');
@@ -1466,12 +1480,13 @@ async function sendFriendRequestToCurrentProfile(){
 }
 
 function applyChatRelationshipState(){
-  if(!$("chatSubtitle")) return;
+  const el = $("chatSubtitle");
+  if(!el) return;
   const peerId = conversationPeerId(state.activeConversation);
-  if(!peerId) { $("chatSubtitle").textContent = ''; return; }
+  if(!peerId) { el.textContent = ''; return; }
   const convFriendState = state.activeConversation?.peerIsFriend === true
     || state.conversationsById?.get(state.activeConversation?.id)?.peerIsFriend === true;
-  $("chatSubtitle").textContent = (convFriendState || isFriendUser(peerId)) ? '' : '对方还不是你的好友';
+  el.textContent = (convFriendState || isFriendUser(peerId)) ? '' : '对方还不是你的好友';
 }
 
 
@@ -1870,12 +1885,10 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
     node.appendChild(createEl('div', 'bubble', txt || ''));
   } else {
     const avatarWrap = createEl('div', 'avatar-click-wrap');
+    avatarWrap.dataset.senderId = msg.senderId;
+    avatarWrap.dataset.senderName = finalName;
     avatarWrap.appendChild(createAvatarNode(userObj, finalName));
-    avatarWrap.addEventListener('click', (e) => {
-      if (!(e.target instanceof Element) || !e.target.closest('.avatar')) return;
-      e.stopPropagation();
-      window.openUserProfile(msg.senderId, finalName);
-    });
+    // Click handled via delegation on chatView
     node.appendChild(avatarWrap);
 
     const wrap = createEl('div', 'content-wrap');
@@ -1883,8 +1896,9 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
 
     if (msg.type === 'audio') {
       const bubble = createEl('div', 'bubble audio-bubble');
+      bubble.dataset.audioUrl = msg.audioUrl || '';
       bubble.append(createEl('span', null, '🔊'), createEl('span', null, '语音'));
-      bubble.addEventListener('click', (e) => { e.stopPropagation(); window.playAudio(msg.audioUrl, bubble); });
+      // Click handled via delegation on chatView
       wrap.appendChild(bubble);
     } else if (msg.type === 'image') {
       const bubble = createEl('div', 'bubble image-bubble');
@@ -1894,7 +1908,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         img.src = safeImage;
         img.style.cursor = 'zoom-in';
         img.style.pointerEvents = 'auto';
-        img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
+        // Click handled via delegation on chatView
         bubble.appendChild(img);
       } else {
         bubble.textContent = '图片已失效';
@@ -2001,13 +2015,11 @@ function buildOrderCardMessage(msg){
 
   const safeOrderImage = normalizeMediaUrl(order.imageUrl || (order.items || []).find((item) => item && item.imageUrl)?.imageUrl || '');
   if (safeOrderImage) {
-    const cover = createEl('img', 'trade-card-cover');
+    const cover = createEl('img', 'trade-card-cover chat-img-clickable');
     cover.src = safeOrderImage;
     cover.alt = order.title || '订单商品';
-    cover.addEventListener('click', (e) => {
-      e.stopPropagation();
-      window.openImageViewer(safeOrderImage);
-    });
+    cover.style.cursor = 'zoom-in';
+    // Click handled via chatView delegation (chat-img-clickable class)
     wrap.appendChild(cover);
   }
 
@@ -2347,10 +2359,15 @@ function createEmptyChatListNode() {
 }
 
 function closeConversationSwipeRows(exceptWrap = null) {
-  document.querySelectorAll('.chat-swipe-row.revealed').forEach((row) => {
-    if (exceptWrap && row === exceptWrap) return;
+  const list = $("chatList");
+  if (!list) return;
+  const rows = list.getElementsByClassName('revealed');
+  // Iterate backwards since removing 'revealed' class mutates live collection
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (exceptWrap && row === exceptWrap) continue;
     row.classList.remove('revealed');
-  });
+  }
 }
 
 function bindConversationSwipeDismiss(){
@@ -5242,30 +5259,30 @@ function bindSearchAndEmojiEvents() {
     state._chatSearchResults = [];
     state._chatSearchIdx = -1;
   });
-  on("chatSearchCloseBtn", "click", () => {
-    hideEl("chatSearchBar");
-    // Remove highlights
-    document.querySelectorAll('#chatView .search-highlight').forEach(el => {
+  function clearSearchHighlights() {
+    const cv = $("chatView");
+    if (!cv) return;
+    const marks = cv.getElementsByClassName('search-highlight');
+    // Iterate backwards since DOM mutates during replacement
+    for (let i = marks.length - 1; i >= 0; i--) {
+      const el = marks[i];
       const parent = el.parentNode;
       parent.replaceChild(document.createTextNode(el.textContent), el);
       parent.normalize();
-    });
+    }
     state._chatSearchResults = [];
     state._chatSearchIdx = -1;
+  }
+  on("chatSearchCloseBtn", "click", () => {
+    hideEl("chatSearchBar");
+    clearSearchHighlights();
   });
   let _chatSearchTimer = null;
   on("chatSearchInput", "input", () => {
     clearTimeout(_chatSearchTimer);
     _chatSearchTimer = setTimeout(() => {
       const keyword = ($("chatSearchInput")?.value || '').trim().toLowerCase();
-      // Remove old highlights
-      document.querySelectorAll('#chatView .search-highlight').forEach(el => {
-        const parent = el.parentNode;
-        parent.replaceChild(document.createTextNode(el.textContent), el);
-        parent.normalize();
-      });
-      state._chatSearchResults = [];
-      state._chatSearchIdx = -1;
+      clearSearchHighlights();
       if (!keyword) { if ($("chatSearchCount")) $("chatSearchCount").textContent = ''; return; }
       // Search in loaded messages DOM
       const chatView = $("chatView");
@@ -5640,8 +5657,38 @@ function markConversationRead(convId) {
   api(`/api/conversations/${convId}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
 }
 
+function bindChatViewDelegation(chatView) {
+  if (chatView.dataset.msgClickBound === '1') return;
+  chatView.dataset.msgClickBound = '1';
+  chatView.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    // Avatar click → open profile
+    const avatarWrap = target.closest('.avatar-click-wrap[data-sender-id]');
+    if (avatarWrap && target.closest('.avatar')) {
+      e.stopPropagation();
+      window.openUserProfile(avatarWrap.dataset.senderId, avatarWrap.dataset.senderName || '');
+      return;
+    }
+    // Image click → open viewer
+    const imgEl = target.closest('.chat-img-clickable');
+    if (imgEl) {
+      e.stopPropagation();
+      window.openImageViewer(imgEl.src);
+      return;
+    }
+    // Audio bubble click → play audio
+    const audioBubble = target.closest('.audio-bubble[data-audio-url]');
+    if (audioBubble) {
+      e.stopPropagation();
+      window.playAudio(audioBubble.dataset.audioUrl, audioBubble);
+      return;
+    }
+  });
+}
 const renderMessages = safeRender(function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
+  bindChatViewDelegation(chatView);
   // Build lightweight signature: id|type|recalled for each message
   const sigParts = new Array(state.messages.length + 1);
   sigParts[0] = state.messages.length + ':';

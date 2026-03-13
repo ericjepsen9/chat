@@ -77,10 +77,13 @@ function createConversationMessage({
   if (body.type === 'card' && body.card?.cardType === '收款码') {
     if (conv.type !== 'direct') return { ok: false, status: 400, error: 'payment_code_only_for_direct_chat' };
     const codes = authUser.paymentCodes || {};
-    const allowed = [codes.wechat, codes.alipay, codes.cloudpay].filter(Boolean);
-    if (!allowed.length) return { ok: false, status: 400, error: 'payment_code_not_configured' };
+    const allowedSet = new Set();
+    if (codes.wechat) allowedSet.add(codes.wechat);
+    if (codes.alipay) allowedSet.add(codes.alipay);
+    if (codes.cloudpay) allowedSet.add(codes.cloudpay);
+    if (!allowedSet.size) return { ok: false, status: 400, error: 'payment_code_not_configured' };
     const imageUrl = String(body.card.imageUrl || '').trim();
-    if (!imageUrl || !allowed.includes(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
+    if (!imageUrl || !allowedSet.has(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
   }
 
   if (body.clientMessageId) {
