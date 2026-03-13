@@ -1,8 +1,10 @@
 // Session, API, UI utilities moved to app_utils.js
 
 // ---- Constants: delays, limits, and reusable values ----
-const DELAYS = { TYPING_TIMEOUT: 3000, ANIMATION: 1500, SCAN_DETECT: 350, SCAN_INIT: 400, RESEND_COUNTDOWN: 60 };
+const DELAYS = { TYPING_TIMEOUT: 3000, ANIMATION: 1500, SCAN_DETECT: 350, SCAN_INIT: 400, RESEND_COUNTDOWN: 60, INCOMING_CALL_TIMEOUT: 30000, MESSAGE_RECALL_WINDOW: 120000, TIME_SEPARATOR_GAP: 180000, PERMISSION_WAIT: 1500 };
 const LIMITS = { STORE_PREVIEW: 6, SWIPE_ACTION_WIDTH: 156, DRAG_THRESHOLD: 48 };
+function disableTextSelection() { document.body.style.userSelect = 'none'; document.body.style.webkitUserSelect = 'none'; }
+function enableTextSelection() { document.body.style.userSelect = ''; document.body.style.webkitUserSelect = ''; }
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', COMPLETED: 'completed', PROCESSING: 'processing', IN_PROGRESS: 'in_progress' };
 const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
@@ -1562,7 +1564,7 @@ function renderContactCardPicker(keyword){
     const header = createEl('div', 'qq-group-header expanded', groupName + ' ');
     header.dataset.role = 'friend-group-header';
     const count = document.createElement('span');
-    count.style.cssText = 'color:#8e8e93;font-size:12px;margin-left:6px;';
+    count.className = 'friend-group-count';
     count.textContent = String(members.length);
     header.appendChild(count);
     header.addEventListener('click', () => window.toggleQQGroup(header));
@@ -1780,7 +1782,7 @@ function upsertMessage(msg) {
 }
 function buildMessageChunk(msg, prevCreatedAt = 0) {
   const fragment = document.createDocumentFragment();
-  if ((msg.createdAt || 0) - prevCreatedAt > 180000) {
+  if ((msg.createdAt || 0) - prevCreatedAt > DELAYS.TIME_SEPARATOR_GAP) {
     const t = createEl('div', 'time-stamp');
     t.appendChild(createEl('span', null, formatTime(msg.createdAt)));
     fragment.appendChild(t);
@@ -2119,7 +2121,7 @@ function prependMessagesToView(messages, oldFirstMessage = null) {
     lastTime = msg.createdAt || lastTime;
   });
   chatView.prepend(fragment);
-  if (oldFirstMessage && lastTime && ((oldFirstMessage.createdAt || 0) - lastTime) <= 180000) {
+  if (oldFirstMessage && lastTime && ((oldFirstMessage.createdAt || 0) - lastTime) <= DELAYS.TIME_SEPARATOR_GAP) {
     const firstArticle = chatView.querySelector('article.message-row');
     const maybeStamp = firstArticle?.previousElementSibling;
     if (maybeStamp && maybeStamp.classList && maybeStamp.classList.contains('time-stamp')) maybeStamp.remove();
@@ -2628,7 +2630,7 @@ function patchFriendGroupSection(section, groupName, members) {
   header.replaceChildren();
   header.append(document.createTextNode(groupName + ' '));
   const count = document.createElement('span');
-  count.style.cssText = 'color:#8e8e93; font-size:12px; margin-left:6px;';
+  count.className = 'friend-group-count';
   count.textContent = String(members.length);
   header.appendChild(count);
   let content = section.querySelector('[data-role="friend-group-content"]');
@@ -2675,7 +2677,7 @@ function patchMallCard(card, product) {
     replacement.appendChild(img);
   } else {
     const placeholder = createEl('div', '', '无图片');
-    placeholder.style.cssText = 'height:140px;display:flex;align-items:center;justify-content:center;background:#f4f4f5;color:#8e8e93;';
+    placeholder.className = 'empty-placeholder';
     replacement.appendChild(placeholder);
   }
   const info = createEl('div', 'product-info');
@@ -2947,7 +2949,7 @@ window.showContextMenu = function(event, msg) {
   if (msg.type === 'text') appendActionButton(menu, '复制', () => window.copyText(encodeURIComponent(msg.text || '')));
   appendActionButton(menu, '转发', () => window.forwardMsg(msg.id));
   appendActionButton(menu, '删除', () => window.deleteLocalMsg(msg.id));
-  if (msg.senderId === state.currentUser.id && (Date.now() - msg.createdAt < 120000)) {
+  if (msg.senderId === state.currentUser.id && (Date.now() - msg.createdAt < DELAYS.MESSAGE_RECALL_WINDOW)) {
      appendActionButton(menu, '撤回', () => window.recallMsg(msg.id));
   }
   menu.style.visibility = 'hidden';
@@ -3135,7 +3137,7 @@ async function startScanCamera(){
     if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasCameraPermission()) {
       window.NativeBridge.requestCameraPermission();
       // Wait briefly for user to respond to permission dialog
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, DELAYS.PERMISSION_WAIT));
       if (!window.NativeBridge.hasCameraPermission()) {
         if ($('scanHintText')) $('scanHintText').textContent = '需要相机权限才能扫码，请在设置中开启';
         showEl('scanFallbackBox');
@@ -3851,8 +3853,7 @@ function bindProductEvents() {
       listEl: list,
       listTop: listRect.top,
     };
-    document.body.style.userSelect = 'none';
-    document.body.style.webkitUserSelect = 'none';
+    disableTextSelection();
   }
 
   function _moveDrag(e) {
@@ -3884,8 +3885,7 @@ function bindProductEvents() {
     if (!_dragState) return;
     const { startIdx, currentIdx, ghostEl } = _dragState;
     ghostEl.remove();
-    document.body.style.userSelect = '';
-    document.body.style.webkitUserSelect = '';
+    enableTextSelection();
     if (startIdx !== currentIdx) {
       const arr = _getPresetArr();
       const [moved] = arr.splice(startIdx, 1);
@@ -3924,7 +3924,7 @@ function bindProductEvents() {
         const inp = document.createElement('input');
         inp.className = 'preset-manage-input';
         inp.value = item;
-        inp.style.cssText = 'flex:1;height:30px;';
+        inp.classList.add('preset-edit-input');
         textEl.replaceWith(inp);
         inp.focus();
         inp.select();
@@ -4829,7 +4829,7 @@ function bindChatEvents() {
           // On Android native app, ensure mic permission before recording
           if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasMicrophonePermission()) {
             window.NativeBridge.requestMicrophonePermission();
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, DELAYS.PERMISSION_WAIT));
             if (!window.NativeBridge.hasMicrophonePermission()) throw new Error('需要麦克风权限才能录音，请在设置中开启');
           }
           _pttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -5464,15 +5464,15 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
         setAvatarContainer(avatarWrap, sender, senderName);
         row.appendChild(avatarWrap);
         const info = document.createElement('div');
-        info.style.cssText = 'flex:1;min-width:0;text-align:left;';
+        info.className = 'friend-req-info';
         info.append(createEl('strong', '', senderName), createEl('div', 'preview', r.greeting || ''));
         row.appendChild(info);
         row.addEventListener('click', () => { if(sender.id) window.openUserProfile(sender.id, senderName); });
         if (r.status === 'pending') {
           const actions = document.createElement('div');
-          actions.style.cssText = 'display:flex; gap:8px; margin-left:auto;';
+          actions.className = 'friend-req-actions';
           const acceptBtn = createEl('button', 'primary-btn', '同意');
-          acceptBtn.style.cssText = 'min-height:36px; padding:0 14px; font-size:13px;';
+          acceptBtn.classList.add('friend-req-accept-btn');
           acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); window.acceptRequest(r.id); });
           const rejectBtn = createEl('button', 'secondary-btn', '拒绝');
           rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); window.rejectRequest(r.id); });
@@ -5480,7 +5480,7 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
           row.appendChild(actions);
         } else {
           const done = document.createElement('span');
-          done.style.cssText = 'color:#8e8e93; font-size:14px;';
+          done.className = 'friend-req-done';
           done.textContent = r.status === 'rejected' ? '已拒绝' : '已处理';
           row.appendChild(done);
         }
@@ -5719,7 +5719,7 @@ async function connectRealtime() {
       }
       clearTimeout(outgoingTimeoutTimer);
       clearTimeout(incomingTimeoutTimer);
-      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, 30000);
+      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, DELAYS.INCOMING_CALL_TIMEOUT);
       if (state.activeConversation?.id !== payload.conversationId) window.openConversation(payload.conversationId, { skipFetch: true });
       syncCallConversationState(payload.conversationId, payload.senderId, payload.senderName || payload.senderId);
       setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');
@@ -5774,7 +5774,7 @@ async function connectRealtime() {
         setCallActionLayout('incoming');
       }
       clearTimeout(incomingTimeoutTimer);
-      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, 30000);
+      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, DELAYS.INCOMING_CALL_TIMEOUT);
       if (state.activeConversation?.id !== payload.conversationId) window.openConversation(payload.conversationId, { skipFetch: true });
       syncCallConversationState(payload.conversationId, payload.senderId, payload.senderName || payload.senderId);
       setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');

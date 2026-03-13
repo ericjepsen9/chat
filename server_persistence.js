@@ -1,5 +1,9 @@
 const fs = require('fs');
 
+const MAX_WAL_BYTES = 5 * 1024 * 1024;
+const PERSIST_DEBOUNCE_MS = 150;
+const ERROR_WINDOW_MS = 5 * 60 * 1000;
+
 function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null }) {
   let persistTimer = null;
   let persistInFlight = false;
@@ -48,7 +52,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     }, 'append_wal_guaranteed', { propagate: true });
   }
 
-  function truncateWalIfLarge(maxBytes = 5 * 1024 * 1024) {
+  function truncateWalIfLarge(maxBytes = MAX_WAL_BYTES) {
     runWalTask(async () => {
       const st = await fs.promises.stat(msgWalFile);
       if (st.size <= maxBytes) return;
@@ -110,7 +114,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     persistTimer = setTimeout(() => {
       persistTimer = null;
       flushPersist();
-    }, 150);
+    }, PERSIST_DEBOUNCE_MS);
   }
 
   async function schedulePersistCritical(reason = 'critical_update', payload = {}) {
@@ -132,7 +136,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
   function getStats() {
     return {
       ...stats,
-      hasRecentError: stats.lastErrorAt > 0 && (Date.now() - stats.lastErrorAt) < 300000,
+      hasRecentError: stats.lastErrorAt > 0 && (Date.now() - stats.lastErrorAt) < ERROR_WINDOW_MS,
       persistInFlight,
       persistDirty,
     };

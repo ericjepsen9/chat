@@ -7,6 +7,16 @@ function addToMapArray(map, key, value) {
 const DEFAULT_GROUP = '我的好友';
 const MAX_GROUPS = 20;
 const MAX_GROUP_NAME_LEN = 20;
+const MAX_PAYMENT_CODE_LEN = 512;
+
+function normalizePaymentCodes(codes) {
+  if (!codes || typeof codes !== 'object') return { wechat: '', alipay: '', cloudpay: '' };
+  return {
+    wechat: String(codes.wechat || '').slice(0, MAX_PAYMENT_CODE_LEN),
+    alipay: String(codes.alipay || '').slice(0, MAX_PAYMENT_CODE_LEN),
+    cloudpay: String(codes.cloudpay || '').slice(0, MAX_PAYMENT_CODE_LEN),
+  };
+}
 
 function normalizeUserCustomGroups(groups) {
   const ordered = [];
@@ -173,12 +183,7 @@ function rebuildIndexes() {
       next.listed = next.listed !== false;
       return next;
     });
-    if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
-    user.paymentCodes = {
-      wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
-      alipay: String(user.paymentCodes.alipay || '').slice(0, 512),
-      cloudpay: String(user.paymentCodes.cloudpay || '').slice(0, 512),
-    };
+    user.paymentCodes = normalizePaymentCodes(user.paymentCodes);
     user.role = normalizeUserRole(user);
     if (!user.status) user.status = 'active';
     user.customGroups = normalizeUserCustomGroups(user.customGroups);
@@ -255,7 +260,7 @@ function indexNewUser(user) {
   if (!user.status) user.status = 'active';
   if (!Array.isArray(user.blacklist)) user.blacklist = [];
   if (!Array.isArray(user.products)) user.products = [];
-  if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
+  user.paymentCodes = normalizePaymentCodes(user.paymentCodes);
   user.customGroups = normalizeUserCustomGroups(user.customGroups);
   user.phone = normalizePhone(user.phone || '');
   if (!Array.isArray(user.categoryPresets)) user.categoryPresets = [];

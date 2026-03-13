@@ -80,6 +80,13 @@ const MESSAGE_RETENTION_DAYS = parseInt(process.env.MESSAGE_RETENTION_DAYS || '9
 const BODY_LIMIT = 2 * 1024 * 1024;
 const UPLOAD_LIMIT = 8 * 1024 * 1024;
 const UPLOAD_ROOT = path.join(ROOT, 'uploads');
+const SSE_HEARTBEAT_MS = 15 * 1000;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
+const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
+const CACHE_MAX_AGE_DEFAULT = 300;       // 5 minutes
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
 const serverStartedAt = Date.now();
 
 function generateUniqueAppNumberId() {
@@ -227,7 +234,7 @@ function addSseClient(userId, res) {
   conns.add(res);
   const timer = setInterval(() => {
     try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
-  }, 15000);
+  }, SSE_HEARTBEAT_MS);
   sseHeartbeatByRes.set(res, timer);
 }
 function removeSseClient(userId, res) {
@@ -503,7 +510,7 @@ function matchRoute(route, target) {
   return false;
 }
 
-function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
+function issueSession(userId, ttlMs = SESSION_TTL_MS) {
   const token = crypto.randomBytes(24).toString('hex');
   sessions.set(token, { userId, createdAt: Date.now(), expiresAt: Date.now() + ttlMs });
   return token;
@@ -519,7 +526,7 @@ function revokeSessionsForUser(userId) {
   }
 }
 
-function issueSseSessionToken(userId, ttlMs = 10 * 60 * 1000) {
+function issueSseSessionToken(userId, ttlMs = SSE_TOKEN_TTL_MS) {
   const token = crypto.randomBytes(24).toString('hex');
   sseSessionTokens.set(token, { userId, expiresAt: Date.now() + ttlMs });
   return token;
@@ -780,7 +787,7 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthedUser(req, res);
       if (!authUser) return;
       const sseToken = issueSseSessionToken(authUser.id);
-      return sendJson(res, 200, { sseToken, expiresInMs: 10 * 60 * 1000 });
+      return sendJson(res, 200, { sseToken, expiresInMs: SSE_TOKEN_TTL_MS });
     }
 
     if (matchRoute(pathname, '/api/events') && req.method === 'GET') {
@@ -837,11 +844,11 @@ const server = http.createServer(async (req, res) => {
         const headers = { 'Content-Type': contentType };
         // Uploaded files have unique names; cache aggressively
         if (pathname.startsWith('/uploads/')) {
-          headers['Cache-Control'] = 'public, max-age=2592000, immutable';
+          headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_UPLOADS}, immutable`;
         } else if (ext === '.html') {
           headers['Cache-Control'] = 'no-cache';
         } else {
-          headers['Cache-Control'] = 'public, max-age=300';
+          headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_DEFAULT}`;
         }
         res.writeHead(200, headers);
         res.end(data);
@@ -899,7 +906,7 @@ setInterval(runCleanupAuthState, 60 * 1000).unref();
 
 // Message retention cleanup — runs daily, removes messages older than MESSAGE_RETENTION_DAYS
 function cleanupExpiredMessages() {
-  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * CLEANUP_INTERVAL_MS;
   const before = db.messages.length;
   db.messages = db.messages.filter((m) => m.createdAt > cutoff);
   if (db.messages.length < before) {
@@ -908,8 +915,8 @@ function cleanupExpiredMessages() {
     console.log(`[retention] cleaned ${before - db.messages.length} messages older than ${MESSAGE_RETENTION_DAYS} days`);
   }
 }
-setInterval(cleanupExpiredMessages, 24 * 60 * 60 * 1000).unref();
-setTimeout(cleanupExpiredMessages, 30 * 1000); // run once shortly after startup
+setInterval(cleanupExpiredMessages, CLEANUP_INTERVAL_MS).unref();
+setTimeout(cleanupExpiredMessages, CLEANUP_STARTUP_DELAY_MS); // run once shortly after startup
 
 process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });

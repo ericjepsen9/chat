@@ -202,6 +202,15 @@ input, textarea { font-size: var(--font-body); }
 .my-product-price { color: #ff3b30; font-weight: bold; font-size: var(--font-body-sm); }
 .my-product-delist-btn { background: #ff3b30; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: var(--font-micro); cursor: pointer; }
 
+/* Shared inline-style extractions */
+.friend-group-count { color: var(--text-muted); font-size: var(--font-micro); margin-left: 6px; }
+.empty-placeholder { height: 140px; display: flex; align-items: center; justify-content: center; background: #f4f4f5; color: var(--text-muted); }
+.preset-edit-input { flex: 1; height: 30px; }
+.friend-req-info { flex: 1; min-width: 0; text-align: left; }
+.friend-req-actions { display: flex; gap: 8px; margin-left: auto; }
+.friend-req-accept-btn { min-height: 36px; padding: 0 14px; font-size: var(--font-caption); }
+.friend-req-done { color: var(--text-muted); font-size: var(--font-body-sm); }
+
 /* V33 interaction polish */
 #audioPlaying,.audio-playing,.playing{ transition: box-shadow .12s ease, transform .12s ease; }
 .audio-playing,.playing{ box-shadow: 0 0 0 2px rgba(59,130,246,.18) inset; }

@@ -1,5 +1,7 @@
 /* server_routes_products.js — Product, mall, and broadcast route handlers */
 
+const MAX_PRESETS = 50;
+
 module.exports = function createProductRoutes(ctx) {
   const {
     matchRoute, sendJson, sendResult,
@@ -87,10 +89,10 @@ module.exports = function createProductRoutes(ctx) {
       if (!context) return true;
       const { categoryPresets, specPresets } = context.body;
       if (Array.isArray(categoryPresets)) {
-        context.authUser.categoryPresets = categoryPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
+        context.authUser.categoryPresets = categoryPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, MAX_PRESETS);
       }
       if (Array.isArray(specPresets)) {
-        context.authUser.specPresets = specPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
+        context.authUser.specPresets = specPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, MAX_PRESETS);
       }
       schedulePersist('product_presets_update', { userId: context.authUser.id });
       return sendJson(res, 200, {
