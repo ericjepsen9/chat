@@ -393,7 +393,11 @@ module.exports = function createAdminExtRoutes(ctx) {
       for (const m of msgs) index.messagesById.delete(m.id);
       index.messagesByConv.delete(convId);
       if (Array.isArray(db.messages)) {
-        db.messages = db.messages.filter(m => m.conversationId !== convId);
+        let w = 0;
+        for (let r = 0; r < db.messages.length; r++) {
+          if (db.messages[r].conversationId !== convId) db.messages[w++] = db.messages[r];
+        }
+        db.messages.length = w;
       }
       // Remove conversation
       const ci = (db.conversations || []).indexOf(conv);

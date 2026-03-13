@@ -19,12 +19,12 @@ module.exports = function createOrderRoutes(ctx) {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
       const data = queryOrders({ db, authUser, searchParams, isAdmin, index });
-      (data.orders || []).forEach(o => {
-        const buyer = index.usersById.get(o.buyerId);
-        const seller = index.usersById.get(o.sellerId);
-        o.buyerName = buyer?.displayName || '';
-        o.sellerName = seller?.displayName || '';
-      });
+      const orders = data.orders;
+      for (let i = 0; i < orders.length; i++) {
+        const o = orders[i];
+        if (!o.buyerName) o.buyerName = index.usersById.get(o.buyerId)?.displayName || '';
+        if (!o.sellerName) o.sellerName = index.usersById.get(o.sellerId)?.displayName || '';
+      }
       return sendJson(res, 200, data);
     }
 
@@ -56,15 +56,14 @@ module.exports = function createOrderRoutes(ctx) {
       const action = orderActionMatch[2];
       const context = await getAuthedBody(req, res);
       if (!context) return true;
-      const commonArgs = { authUser: context.authUser, orderId, body: context.body, db, usersById: index.usersById, schedulePersist, ordersById: index.ordersById };
-      const tradeArgs = { ...commonArgs, getOrCreateDirectConversation, addTradeMessage };
+      const args = { authUser: context.authUser, orderId, body: context.body, db, usersById: index.usersById, schedulePersist, ordersById: index.ordersById, getOrCreateDirectConversation, addTradeMessage };
       let result;
-      if (action === 'accept') result = acceptOrder(tradeArgs);
-      else if (action === 'price') result = updateOrderPrice(tradeArgs);
-      else if (action === 'price-request') result = requestOrderPriceChange(tradeArgs);
-      else if (action === 'price-confirm') result = confirmOrderPriceChange(tradeArgs);
-      else if (action === 'status') result = updateOrderStatus(tradeArgs);
-      else result = deleteOrder(commonArgs);
+      if (action === 'accept') result = acceptOrder(args);
+      else if (action === 'price') result = updateOrderPrice(args);
+      else if (action === 'price-request') result = requestOrderPriceChange(args);
+      else if (action === 'price-confirm') result = confirmOrderPriceChange(args);
+      else if (action === 'status') result = updateOrderStatus(args);
+      else result = deleteOrder(args);
       return sendResult(res, result);
     }
 

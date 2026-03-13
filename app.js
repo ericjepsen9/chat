@@ -1587,19 +1587,24 @@ function extractContactCardUserId(card = {}){
   const appMatch = fromText.match(/CT\d{5,}/i);
   const appId = appMatch ? appMatch[0].toUpperCase() : '';
 
-  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
+  const srcFriends = state.friends || [];
   if (appId) {
-    const friend = friends.find((f) => String(f.appNumberId || '').toUpperCase() === appId);
-    if (friend?.id) return friend.id;
+    for (let i = 0; i < srcFriends.length; i++) {
+      const f = srcFriends[i].friend;
+      if (f && String(f.appNumberId || '').toUpperCase() === appId && f.id) return f.id;
+    }
   }
 
   const title = String(card.title || '').trim();
   if (title) {
-    const friend = friends.find((f) => {
-      const names = [f.remark, f.displayName, f.username].map((v) => String(v || '').trim()).filter(Boolean);
-      return names.includes(title);
-    });
-    if (friend?.id) return friend.id;
+    for (let i = 0; i < srcFriends.length; i++) {
+      const f = srcFriends[i].friend;
+      if (!f) continue;
+      const r = String(f.remark || '').trim();
+      const d = String(f.displayName || '').trim();
+      const u = String(f.username || '').trim();
+      if ((r && r === title) || (d && d === title) || (u && u === title)) return f.id;
+    }
   }
   return '';
 }
@@ -1821,7 +1826,7 @@ function syncSessionGroups(groups) {
 // Media/time utilities moved to app_utils.js
 
 function rebuildMessagesById() {
-  state.messagesById = new Map();
+  state.messagesById.clear();
   for (let i = 0; i < state.messages.length; i++) state.messagesById.set(state.messages[i].id, i);
   _messagesSig = '';
 }
@@ -1844,7 +1849,7 @@ function findMessageIndex(msg) {
 function upsertMessage(msg) {
   const idx = findMessageIndex(msg);
   if (idx >= 0) {
-    state.messages[idx] = { ...state.messages[idx], ...msg };
+    Object.assign(state.messages[idx], msg);
     state.messagesById.set(msg.id, idx);
     return { action: 'replace', index: idx };
   }
@@ -2146,10 +2151,11 @@ function prependMessagesToView(messages, oldFirstMessage = null) {
   const oldHeight = chatView.scrollHeight;
   const fragment = document.createDocumentFragment();
   let lastTime = 0;
-  messages.forEach((msg) => {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     fragment.appendChild(buildMessageChunk(msg, lastTime));
     lastTime = msg.createdAt || lastTime;
-  });
+  }
   chatView.prepend(fragment);
   if (oldFirstMessage && lastTime && ((oldFirstMessage.createdAt || 0) - lastTime) <= DELAYS.TIME_SEPARATOR_GAP) {
     const firstArticle = chatView.querySelector('article.message-row');
@@ -3318,19 +3324,21 @@ window.openConversation = async (id, options = {}) => {
   applyChatRelationshipState();
   const signal = ac ? ac.signal : null;
   if (!skipFetch) {
-    await fetchMessages();
-    if (signal?.aborted) return;
-    await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal });
+    await Promise.all([
+      fetchMessages(),
+      api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal }).catch(() => {})
+    ]);
     if (signal?.aborted) return;
     refreshMessageReadReceipts();
   } else {
     Promise.resolve().then(async () => {
       try {
         if (signal?.aborted || !state.activeConversation || state.activeConversation.id !== id) return;
-        await fetchMessages();
+        await Promise.all([
+          fetchMessages(),
+          api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal }).catch(() => {})
+        ]);
         if (signal?.aborted || state.activeConversation?.id !== id) return;
-        await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal });
-        if (signal?.aborted) return;
         refreshMessageReadReceipts();
       } catch(_) {}
     });
@@ -5731,8 +5739,18 @@ async function fetchMessages(before = 0) {
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
       const MAX_CLIENT_MESSAGES = 500;
-      const combined = data.messages.concat(state.messages);
-      state.messages = combined.length > MAX_CLIENT_MESSAGES ? combined.slice(combined.length - MAX_CLIENT_MESSAGES) : combined;
+      // Prepend older messages; avoid double allocation from concat+slice
+      const newMsgs = data.messages;
+      const total = newMsgs.length + state.messages.length;
+      if (total > MAX_CLIENT_MESSAGES) {
+        // Keep only the most recent MAX_CLIENT_MESSAGES
+        const drop = total - MAX_CLIENT_MESSAGES;
+        state.messages = drop >= newMsgs.length
+          ? state.messages.slice(drop - newMsgs.length)
+          : newMsgs.slice(drop).concat(state.messages);
+      } else {
+        state.messages.unshift(...newMsgs);
+      }
       rebuildMessagesById();
       prependMessagesToView(data.messages, oldFirst);
     }
