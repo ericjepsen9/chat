@@ -20,6 +20,8 @@ let isMuted = false, isCameraOff = false, isSpeaker = false;
 const CATEGORY_SPLIT_RE = /[\/,、]/;
 const formatOrderId = (id) => String(id || '').slice(-6);
 const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
+const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'processing' || s === 'in_progress') ? ' s-active' : ' s-pending'); };
+const tradeStatusCls = (st) => 'trade-card-status' + (st === 'completed' ? ' done' : st === 'accepted' ? ' active' : '');
 
 const isFriendUser = (userId) => !!(userId && (state.friendsById ? state.friendsById.has(userId) : (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId)));
 
@@ -309,8 +311,7 @@ function buildOrderCard(order, role){
   const card = createEl('button', 'profile-order-card');
   card.type = 'button';
 
-  const st = String(order.status || '').toLowerCase();
-  const statusCls = 'order-card-status' + (st === 'completed' ? ' s-done' : (st === 'accepted' || st === 'processing' || st === 'in_progress') ? ' s-active' : ' s-pending');
+  const statusCls = orderStatusCls('order-card-status', order.status);
   const header = createEl('div', 'order-card-header');
   header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id)}`), createEl('span', statusCls, orderStatusText(order.status)));
 
@@ -459,7 +460,7 @@ function renderSellerProductsManage(){
       const img = createEl('img', 'sp-card-img');
       img.src = imgUrl;
       img.alt = item.title || '商品';
-      img.onerror = function() { this.style.display = 'none'; };
+      hideOnError(img);
       card.appendChild(img);
     }
 
@@ -498,7 +499,7 @@ function openProductDetail(item, fromSeller = false){
   if(!item) return;
   state.selectedProductDetail = { ...item, fromSeller: !!fromSeller };
   const _pdImg = $("productDetailImage");
-  if(_pdImg) { _pdImg.style.display = ''; _pdImg.onerror = function() { this.style.display = 'none'; }; _pdImg.src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
+  if(_pdImg) { _pdImg.style.display = ''; hideOnError(_pdImg); _pdImg.src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
   setText("productDetailTitle", item.title || '商品');
   setText("productDetailDesc", item.desc || '商品详情页为图片、文字、价格与规格');
   setText("productDetailPrice", formatMoney(item.price));
@@ -508,12 +509,7 @@ function openProductDetail(item, fromSeller = false){
   if(specsEl){
     const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
     const frag = document.createDocumentFragment();
-    specs.forEach(spec => {
-      const chip = document.createElement('span');
-      chip.className = 'spec-option-chip';
-      chip.textContent = spec;
-      frag.appendChild(chip);
-    });
+    specs.forEach(spec => frag.appendChild(createEl('span', 'spec-option-chip', spec)));
     specsEl.replaceChildren(frag);
   }
   const isOwnProduct = !fromSeller && item.sellerId && item.sellerId === state.currentUser?.id;
@@ -553,8 +549,7 @@ function renderOrderDetailPage(){
   box.replaceChildren();
 
   // Order number & time
-  const headerDiv = document.createElement('div');
-  headerDiv.className = 'od-section';
+  const headerDiv = createEl('div', 'od-section');
   headerDiv.innerHTML = `<div class="od-row"><span class="od-label">订单编号</span><span class="od-value">${escapeHTML(String(order.id || '-'))}</span></div>`
     + `<div class="od-row"><span class="od-label">下单时间</span><span class="od-value">${order.createdAt ? formatTime(order.createdAt) : '-'}</span></div>`
     + `<div class="od-row"><span class="od-label">订单状态</span><span class="od-value od-status-${order.status === 'completed' ? 'done' : 'active'}">${escapeHTML(orderStatusText(order.status))}</span></div>`;
@@ -564,8 +559,7 @@ function renderOrderDetailPage(){
   const counterLabel = role === 'buyer' ? '卖家' : '买家';
   const counterId = role === 'buyer' ? order.sellerId : order.buyerId;
   const counterName = role === 'buyer' ? (order.sellerName || '') : (order.buyerName || '');
-  const partyDiv = document.createElement('div');
-  partyDiv.className = 'od-section';
+  const partyDiv = createEl('div', 'od-section');
   partyDiv.innerHTML = `<div class="od-row"><span class="od-label">${escapeHTML(counterLabel)}</span><span class="od-value od-link" id="odCounterpartyLink">${escapeHTML(counterName || counterId || '-')}</span></div>`;
   box.appendChild(partyDiv);
   const counterLink = box.querySelector('#odCounterpartyLink');
@@ -576,15 +570,11 @@ function renderOrderDetailPage(){
   }
 
   // Item list
-  const itemsDiv = document.createElement('div');
-  itemsDiv.className = 'od-section';
-  const itemsTitle = document.createElement('div');
-  itemsTitle.className = 'od-section-title';
-  itemsTitle.textContent = '商品清单';
+  const itemsDiv = createEl('div', 'od-section');
+  const itemsTitle = createEl('div', 'od-section-title', '商品清单');
   itemsDiv.appendChild(itemsTitle);
   (order.items || []).forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'od-item-row';
+    const row = createEl('div', 'od-item-row');
     const imgUrl = normalizeMediaUrl(item.imageUrl || item.image || '');
     row.innerHTML = (imgUrl ? `<img class="od-item-img" src="${escapeHTML(imgUrl)}" alt="" />` : '')
       + `<div class="od-item-info"><div class="od-item-name">${escapeHTML(item.title || '商品')}</div>`
@@ -595,8 +585,7 @@ function renderOrderDetailPage(){
   box.appendChild(itemsDiv);
 
   // Total
-  const totalDiv = document.createElement('div');
-  totalDiv.className = 'od-section od-total-section';
+  const totalDiv = createEl('div', 'od-section od-total-section');
   let totalHtml = `<div class="od-row"><span class="od-label">合计</span><span class="od-value od-total">${escapeHTML(formatMoney(order.total))}</span></div>`;
   if(order.pendingPrice != null && order.pendingPriceRequestedBy){
     totalHtml += `<div class="od-row"><span class="od-label">改价申请中</span><span class="od-value" style="color:#ff9500;">${escapeHTML(formatMoney(order.pendingPrice))}</span></div>`;
@@ -609,8 +598,7 @@ function renderOrderDetailPage(){
 
   // Remark
   if(order.remark){
-    const remarkDiv = document.createElement('div');
-    remarkDiv.className = 'od-section';
+    const remarkDiv = createEl('div', 'od-section');
     remarkDiv.innerHTML = `<div class="od-row"><span class="od-label">备注</span><span class="od-value">${escapeHTML(order.remark)}</span></div>`;
     box.appendChild(remarkDiv);
   }
@@ -819,64 +807,45 @@ function renderProfileStore(){
   }
   const frag = document.createDocumentFragment();
   items.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'profile-store-item';
+    const card = createEl('div', 'profile-store-item');
     card.addEventListener('click', () => openProductDetail(item, false));
 
     const img = document.createElement('img');
     img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
     img.alt = item.title || '商品';
 
-    const info = document.createElement('div');
-    info.className = 'profile-store-info';
-    const title = document.createElement('div');
-    title.className = 'profile-store-title';
-    title.textContent = item.title || '未命名商品';
-    const desc = document.createElement('div');
-    desc.className = 'profile-store-desc';
+    const info = createEl('div', 'profile-store-info');
     const categoryText = item.category ? `【${item.category}】` : '';
-    desc.textContent = `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`;
-    const price = document.createElement('div');
-    price.className = 'profile-store-price';
-    price.textContent = formatMoney(item.price);
-    const stock = document.createElement('div');
-    stock.className = 'profile-store-desc';
-    stock.textContent = `库存：${getItemAvailableStock(item)}`;
-    info.append(title, desc, price, stock);
+    info.append(
+      createEl('div', 'profile-store-title', item.title || '未命名商品'),
+      createEl('div', 'profile-store-desc', `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`),
+      createEl('div', 'profile-store-price', formatMoney(item.price)),
+      createEl('div', 'profile-store-desc', `库存：${getItemAvailableStock(item)}`)
+    );
 
-    const side = document.createElement('div');
-    side.className = 'profile-store-side';
+    const side = createEl('div', 'profile-store-side');
     const hasMultiSpecs = Array.isArray(item.specs) && item.specs.length > 1;
     const qty = getProfileStoreItemCartQuantity(item);
     if(hasMultiSpecs){
-      const btn = document.createElement('button');
+      const btn = createEl('button', 'secondary-btn', qty > 0 ? `选规格 (${qty})` : '选规格');
       btn.type = 'button';
-      btn.className = 'secondary-btn';
-      btn.textContent = qty > 0 ? `选规格 (${qty})` : '选规格';
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         openProductSpecSheet(item);
       });
       side.appendChild(btn);
     }else{
-      const stepper = document.createElement('div');
-      stepper.className = 'profile-qty-stepper';
-      const minus = document.createElement('button');
+      const stepper = createEl('div', 'profile-qty-stepper');
+      const minus = createEl('button', 'qty-btn', '−');
       minus.type = 'button';
-      minus.className = 'qty-btn';
-      minus.textContent = '−';
       minus.disabled = qty <= 0;
       minus.addEventListener('click', (e) => {
         e.stopPropagation();
         adjustProfileStoreItemQuantity(item, -1);
       });
-      const qtyText = document.createElement('span');
-      qtyText.className = 'qty-num';
-      qtyText.textContent = String(qty);
-      const plus = document.createElement('button');
+      const qtyText = createEl('span', 'qty-num', String(qty));
+      const plus = createEl('button', 'qty-btn primary', '+');
       plus.type = 'button';
-      plus.className = 'qty-btn primary';
-      plus.textContent = '+';
       plus.addEventListener('click', (e) => {
         e.stopPropagation();
         adjustProfileStoreItemQuantity(item, 1);
@@ -1056,40 +1025,26 @@ function renderProfileCartPage(){
 
   const frag = document.createDocumentFragment();
   currentCart.forEach((item) => {
-    const card = document.createElement('div');
-    card.className = 'order-cart-item checkout-item';
+    const card = createEl('div', 'order-cart-item checkout-item');
 
     // Product image + info row
-    const row = document.createElement('div');
-    row.className = 'checkout-item-row';
+    const row = createEl('div', 'checkout-item-row');
     const imgUrl = normalizeMediaUrl(item.image || '');
     if(imgUrl){
-      const img = document.createElement('img');
-      img.className = 'checkout-item-img';
+      const img = createEl('img', 'checkout-item-img');
       img.src = imgUrl;
       img.alt = item.title || '';
       row.appendChild(img);
     }
-    const info = document.createElement('div');
-    info.className = 'checkout-item-info';
-    const title = document.createElement('div');
-    title.className = 'order-cart-title';
-    title.textContent = item.title || '商品';
-    const spec = document.createElement('div');
-    spec.className = 'order-cart-sub';
-    spec.textContent = item.spec || '默认规格';
-    info.append(title, spec);
+    const info = createEl('div', 'checkout-item-info');
+    info.append(createEl('div', 'order-cart-title', item.title || '商品'), createEl('div', 'order-cart-sub', item.spec || '默认规格'));
     row.appendChild(info);
     card.appendChild(row);
 
     // Price + quantity + remove row
-    const line = document.createElement('div');
-    line.className = 'checkout-item-bottom';
-    const priceWrap = document.createElement('div');
-    priceWrap.className = 'checkout-price-wrap';
-    const priceLabel = document.createElement('span');
-    priceLabel.className = 'checkout-price checkout-price-editable';
-    priceLabel.textContent = formatMoney(Number(item.unitPrice || 0));
+    const line = createEl('div', 'checkout-item-bottom');
+    const priceWrap = createEl('div', 'checkout-price-wrap');
+    const priceLabel = createEl('span', 'checkout-price checkout-price-editable', formatMoney(Number(item.unitPrice || 0)));
     priceLabel.title = '点击修改价格';
     const editPrice = () => {
       showPrompt('请输入新的单价', String(item.unitPrice || 0), (raw) => {
@@ -1101,27 +1056,18 @@ function renderProfileCartPage(){
       });
     };
     priceLabel.addEventListener('click', editPrice);
-    const priceEditBtn = document.createElement('button');
+    const priceEditBtn = createEl('button', 'checkout-price-edit-btn', '改价');
     priceEditBtn.type = 'button';
-    priceEditBtn.className = 'checkout-price-edit-btn';
-    priceEditBtn.textContent = '改价';
     priceEditBtn.addEventListener('click', editPrice);
     priceWrap.append(priceLabel, priceEditBtn);
 
     // Quantity controls
-    const qtyWrap = document.createElement('div');
-    qtyWrap.className = 'checkout-qty-wrap';
-    const minusBtn = document.createElement('button');
+    const qtyWrap = createEl('div', 'checkout-qty-wrap');
+    const minusBtn = createEl('button', 'checkout-qty-btn', '\u2212');
     minusBtn.type = 'button';
-    minusBtn.className = 'checkout-qty-btn';
-    minusBtn.textContent = '\u2212';
-    const qtySpan = document.createElement('span');
-    qtySpan.className = 'checkout-qty-val';
-    qtySpan.textContent = String(item.quantity || 1);
-    const plusBtn = document.createElement('button');
+    const qtySpan = createEl('span', 'checkout-qty-val', String(item.quantity || 1));
+    const plusBtn = createEl('button', 'checkout-qty-btn', '+');
     plusBtn.type = 'button';
-    plusBtn.className = 'checkout-qty-btn';
-    plusBtn.textContent = '+';
 
     minusBtn.addEventListener('click', () => {
       const q = Math.max(0, (Number(item.quantity)||1) - 1);
@@ -1145,10 +1091,8 @@ function renderProfileCartPage(){
     });
     qtyWrap.append(minusBtn, qtySpan, plusBtn);
 
-    const removeBtn = document.createElement('button');
+    const removeBtn = createEl('button', 'checkout-remove-btn', '删除');
     removeBtn.type = 'button';
-    removeBtn.className = 'checkout-remove-btn';
-    removeBtn.textContent = '删除';
     removeBtn.addEventListener('click', () => {
       const i = currentCart.indexOf(item);
       if(i >= 0) currentCart.splice(i, 1);
@@ -1185,20 +1129,12 @@ function renderCartHubPage(){
     const knownSeller = _sellerNameCache.get(sellerId);
     const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
     const { count, total } = sumCartTotals(arr);
-    const card = document.createElement('div');
-    card.className = 'cart-hub-card';
-    const head = document.createElement('div');
-    head.className = 'cart-hub-title';
-    head.textContent = title;
-    const sub = document.createElement('div');
-    sub.className = 'cart-hub-sub';
-    sub.textContent = `${count} 件商品 · ${formatMoney(total)}`;
-    const line = document.createElement('div');
-    line.className = 'cart-hub-line';
-    const goBtn = document.createElement('button');
+    const card = createEl('div', 'cart-hub-card');
+    const head = createEl('div', 'cart-hub-title', title);
+    const sub = createEl('div', 'cart-hub-sub', `${count} 件商品 · ${formatMoney(total)}`);
+    const line = createEl('div', 'cart-hub-line');
+    const goBtn = createEl('button', 'primary-btn', '去结算');
     goBtn.type = 'button';
-    goBtn.className = 'primary-btn';
-    goBtn.textContent = '去结算';
     goBtn.addEventListener('click', () => {
       state.currentCartSellerId = sellerId;
       renderProfileCartPage();
@@ -1297,15 +1233,8 @@ function renderAdminCenter(){
   ];
   const frag = document.createDocumentFragment();
   items.forEach(([label, value]) => {
-    const card = document.createElement('div');
-    card.className = 'admin-stat-card';
-    const l = document.createElement('div');
-    l.className = 'admin-stat-label';
-    l.textContent = label;
-    const v = document.createElement('div');
-    v.className = 'admin-stat-value';
-    v.textContent = String(value);
-    card.append(l, v);
+    const card = createEl('div', 'admin-stat-card');
+    card.append(createEl('div', 'admin-stat-label', label), createEl('div', 'admin-stat-value', String(value)));
     frag.appendChild(card);
   });
   grid.replaceChildren(frag);
@@ -1324,12 +1253,8 @@ function renderAdminList(listId, sigKey, dataKey, sigFn, emptyMsg, buildCardFn) 
 }
 
 function addAdminTag(card, text, warn) {
-  const line = document.createElement('div');
-  line.className = 'admin-list-line';
-  const tag = document.createElement('span');
-  tag.className = 'admin-tag' + (warn ? ' warn' : '');
-  tag.textContent = text;
-  line.appendChild(tag);
+  const line = createEl('div', 'admin-list-line');
+  line.appendChild(createEl('span', 'admin-tag' + (warn ? ' warn' : ''), text));
   card.appendChild(line);
   return card;
 }
@@ -1376,8 +1301,7 @@ function renderProfileOrders(){
   state.profileOrders.forEach(order => {
     const names = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，');
     const card = buildProfileCard(`订单 #${formatOrderId(order.id) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
-    const status = document.createElement('div');
-    status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
+    const status = createEl('div', 'profile-order-status' + (order.status === 'completed' ? ' done' : ''));
     status.textContent = formatOrderStatusLabel(order.status);
 
     const actions = document.createElement('div');
@@ -1605,38 +1529,26 @@ function renderContactCardPicker(keyword){
     const section = document.createElement('div');
     section.dataset.groupName = groupName;
 
-    const header = document.createElement('div');
-    header.className = 'qq-group-header expanded';
+    const header = createEl('div', 'qq-group-header expanded', groupName + ' ');
     header.dataset.role = 'friend-group-header';
-    header.textContent = groupName + ' ';
     const count = document.createElement('span');
     count.style.cssText = 'color:#8e8e93;font-size:12px;margin-left:6px;';
     count.textContent = String(members.length);
     header.appendChild(count);
     header.addEventListener('click', () => window.toggleQQGroup(header));
 
-    const content = document.createElement('div');
-    content.className = 'qq-group-content expanded';
+    const content = createEl('div', 'qq-group-content expanded');
     content.dataset.role = 'friend-group-content';
 
     members.forEach(f => {
-      const row = document.createElement('button');
+      const row = createEl('button', 'ccp-friend-row');
       row.type = 'button';
-      row.className = 'ccp-friend-row';
       row.dataset.friendId = f.id;
       row.appendChild(createAvatarNode(f, f.displayName || f.username || '友'));
-      const info = document.createElement('div');
-      info.className = 'ccp-friend-info';
-      const name = document.createElement('div');
-      name.className = 'ccp-friend-name';
-      name.textContent = f.remark || f.displayName || f.username || '好友';
-      const sub = document.createElement('div');
-      sub.className = 'ccp-friend-id';
-      sub.textContent = 'ID: ' + (f.appNumberId || f.username || '-');
-      info.append(name, sub);
+      const info = createEl('div', 'ccp-friend-info');
+      info.append(createEl('div', 'ccp-friend-name', f.remark || f.displayName || f.username || '好友'), createEl('div', 'ccp-friend-id', 'ID: ' + (f.appNumberId || f.username || '-')));
       row.appendChild(info);
-      const check = document.createElement('div');
-      check.className = 'ccp-check';
+      const check = createEl('div', 'ccp-check');
       row.appendChild(check);
 
       row.addEventListener('click', () => {
@@ -1651,8 +1563,7 @@ function renderContactCardPicker(keyword){
         check.textContent = '✓';
         state._ccpSelectedFriend = f;
         // Update confirm bar
-        const bar = $("ccpConfirmBar");
-        if (bar) bar.classList.remove('hidden');
+        showEl("ccpConfirmBar");
         if ($("ccpSelectedName")) $("ccpSelectedName").textContent = f.remark || f.displayName || f.username || '好友';
         const avatarWrap = $("ccpSelectedAvatar");
         if (avatarWrap) { avatarWrap.replaceChildren(); avatarWrap.appendChild(createAvatarNode(f, f.displayName || f.username || '友')); }
@@ -2041,7 +1952,7 @@ function buildOrderCardMessage(msg){
   }
 
   appendTradeCardHeader(wrap, order.title || `订单 #${formatOrderId(order.id) || '-'}`, order.summary || '订单通知');
-  const statusCls = 'trade-card-status' + (order.status === 'completed' ? ' done' : order.status === 'accepted' ? ' active' : '');
+  const statusCls = tradeStatusCls(order.status);
   wrap.append(createEl('div', 'trade-card-price', formatMoney(order.total || 0)), createEl('div', statusCls, formatOrderStatusLabel(order.status)));
 
   const openDetail = (e) => {
@@ -2050,12 +1961,9 @@ function buildOrderCardMessage(msg){
   };
   wrap.addEventListener('click', openDetail);
 
-  const actions = document.createElement('div');
-  actions.className = 'trade-card-actions';
-  const detailBtn = document.createElement('button');
+  const actions = createEl('div', 'trade-card-actions');
+  const detailBtn = createEl('button', 'secondary-btn', '查看详情');
   detailBtn.type = 'button';
-  detailBtn.className = 'secondary-btn';
-  detailBtn.textContent = '查看详情';
   detailBtn.addEventListener('click', openDetail);
   actions.appendChild(detailBtn);
 
@@ -2083,10 +1991,7 @@ function buildOrderCardMessage(msg){
 
   // Buyer waiting for seller to accept
   if(isBuyer && order.status === 'pending'){
-    const waitHint = document.createElement('span');
-    waitHint.className = 'trade-card-sub';
-    waitHint.textContent = '等待商家接单';
-    actions.appendChild(waitHint);
+    actions.appendChild(createEl('span', 'trade-card-sub', '等待商家接单'));
   }
 
   // Confirm receipt / mark complete for accepted orders
@@ -2522,12 +2427,9 @@ function buildConversationRow(conv) {
   const isPinned = isConversationPinned(conv);
   const isMuted = isConversationMuted(conv);
   const peerId = conversationPeerId(conv);
-  const btn = document.createElement('button');
+  const cls = 'chat-item' + (isPinned ? ' is-pinned' : '') + (isMuted ? ' is-muted' : '') + (state.activeConversation && state.activeConversation.id === conv.id ? ' is-active' : '');
+  const btn = createEl('button', cls);
   btn.type = 'button';
-  btn.className = 'chat-item';
-  if (isPinned) btn.classList.add('is-pinned');
-  if (isMuted) btn.classList.add('is-muted');
-  if (state.activeConversation && state.activeConversation.id === conv.id) btn.classList.add('is-active');
   btn.dataset.conversationId = conv.id;
   if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => {
     state.tradeAlertReadAt = Date.now();
@@ -2540,8 +2442,7 @@ function buildConversationRow(conv) {
   else if (conv.syntheticType === 'system') btn.addEventListener('click', () => { window.openSecondaryPage('systemMessagesPage', 'home'); });
   else btn.addEventListener('click', () => window.openConversation(conv.id));
 
-  const avatarWrap = document.createElement('div');
-  avatarWrap.className = 'chat-item-avatar';
+  const avatarWrap = createEl('div', 'chat-item-avatar');
   if (conv.syntheticType === 'trade') avatarWrap.textContent = '💱';
   else if (conv.syntheticType === 'system') avatarWrap.textContent = '📢';
   else setAvatarContainer(avatarWrap, {avatarUrl: conv.peerAvatarUrl, displayName: conv.title}, conv.title);
@@ -2555,41 +2456,21 @@ function buildConversationRow(conv) {
   });
   btn.appendChild(avatarWrap);
 
-  const info = document.createElement('div');
-  info.className = 'chat-item-main';
+  const info = createEl('div', 'chat-item-main');
 
-  const titleRow = document.createElement('div');
-  titleRow.className = 'chat-item-title-row';
-  const title = document.createElement('strong');
-  title.className = 'chat-item-title';
-  title.textContent = conv.title || '';
-  const time = document.createElement('span');
-  time.className = 'chat-item-time';
-  time.textContent = formatConversationTime(conv.lastMessageAt);
-  titleRow.append(title, time);
+  const titleRow = createEl('div', 'chat-item-title-row');
+  titleRow.append(createEl('strong', 'chat-item-title', conv.title || ''), createEl('span', 'chat-item-time', formatConversationTime(conv.lastMessageAt)));
 
-  const metaRow = document.createElement('div');
-  metaRow.className = 'chat-item-meta';
-  const preview = document.createElement('div');
-  preview.className = 'preview';
-  preview.textContent = conv.preview || '';
-  metaRow.appendChild(preview);
-  if (isMuted) {
-    const mute = document.createElement('span');
-    mute.className = 'chat-item-status';
-    mute.textContent = '🔕';
-    metaRow.appendChild(mute);
-  }
+  const metaRow = createEl('div', 'chat-item-meta');
+  metaRow.appendChild(createEl('div', 'preview', conv.preview || ''));
+  if (isMuted) metaRow.appendChild(createEl('span', 'chat-item-status', '🔕'));
 
   info.append(titleRow, metaRow);
   btn.appendChild(info);
 
   if (conv.unread) {
-    const unread = document.createElement('span');
+    const unread = createEl('span', isMuted ? 'unread-dot' : 'unread-btn', isMuted ? '' : (conv.unread > 99 ? '99+' : String(conv.unread)));
     unread.dataset.role = 'unread';
-    if (isMuted) unread.className = 'unread-dot';
-    else unread.className = 'unread-btn';
-    unread.textContent = isMuted ? '' : (conv.unread > 99 ? '99+' : String(conv.unread));
     btn.appendChild(unread);
   }
 
@@ -2597,22 +2478,15 @@ function buildConversationRow(conv) {
     return btn;
   }
 
-  const wrap = document.createElement('div');
-  wrap.className = 'chat-swipe-row';
+  const wrap = createEl('div', 'chat-swipe-row');
   wrap.dataset.conversationId = conv.id;
-  const content = document.createElement('div');
-  content.className = 'chat-swipe-content';
+  const content = createEl('div', 'chat-swipe-content');
   content.appendChild(btn);
-  const actionsWrap = document.createElement('div');
-  actionsWrap.className = 'chat-swipe-actions';
-  const pinBtn = document.createElement('button');
+  const actionsWrap = createEl('div', 'chat-swipe-actions');
+  const pinBtn = createEl('button', 'chat-swipe-pin-btn', isPinned ? '取消置顶' : '置顶');
   pinBtn.type = 'button';
-  pinBtn.className = 'chat-swipe-pin-btn';
-  pinBtn.textContent = isPinned ? '取消置顶' : '置顶';
-  const deleteBtn = document.createElement('button');
+  const deleteBtn = createEl('button', 'chat-swipe-delete-btn', '删除');
   deleteBtn.type = 'button';
-  deleteBtn.className = 'chat-swipe-delete-btn';
-  deleteBtn.textContent = '删除';
   actionsWrap.append(pinBtn, deleteBtn);
   wrap.append(content, actionsWrap);
 
@@ -2677,9 +2551,8 @@ function buildFriendGroupSignature(groupName, members) {
   return s;
 }
 function buildFriendRow(item, groupName = '') {
-  const btn = document.createElement('button');
+  const btn = createEl('button', 'chat-item');
   btn.type = 'button';
-  btn.className = 'chat-item';
   btn.dataset.friendId = item.friend.id;
   btn.dataset.friendKey = `${groupName}::${item.friend.id}`;
   btn.addEventListener('click', () => window.openUserProfile(item.friend.id, item.friend.displayName));
@@ -2694,12 +2567,10 @@ function patchFriendRow(row, item, groupName = '') {
 function createFriendGroupSection(groupName, members) {
   const wrap = document.createElement('div');
   wrap.dataset.groupName = groupName;
-  const header = document.createElement('div');
-  header.className = 'qq-group-header';
+  const header = createEl('div', 'qq-group-header');
   header.dataset.role = 'friend-group-header';
   header.addEventListener('click', () => window.toggleQQGroup(header));
-  const content = document.createElement('div');
-  content.className = 'qq-group-content';
+  const content = createEl('div', 'qq-group-content');
   content.dataset.role = 'friend-group-content';
   wrap.appendChild(header);
   wrap.appendChild(content);
@@ -2748,8 +2619,7 @@ function buildMallItemSignature(product) {
     + '|' + (product.location || '') + '|' + (product.distance ?? '');
 }
 function buildMallCard(product) {
-  const card = document.createElement('div');
-  card.className = 'product-card';
+  const card = createEl('div', 'product-card');
   card.dataset.productId = product.id;
   return patchMallCard(card, product);
 }
@@ -2765,43 +2635,20 @@ function patchMallCard(card, product) {
     img.alt = product.title || '商品图';
     replacement.appendChild(img);
   } else {
-    const placeholder = document.createElement('div');
+    const placeholder = createEl('div', '', '无图片');
     placeholder.style.cssText = 'height:140px;display:flex;align-items:center;justify-content:center;background:#f4f4f5;color:#8e8e93;';
-    placeholder.textContent = '无图片';
     replacement.appendChild(placeholder);
   }
-  const info = document.createElement('div');
-  info.className = 'product-info';
-  const title = document.createElement('div');
-  title.className = 'product-title';
-  title.textContent = product.title || '';
-  const price = document.createElement('div');
-  price.className = 'product-price';
-  price.textContent = `¥${product.price}`;
-  const stock = document.createElement('div');
-  stock.className = 'preview';
-  stock.textContent = `库存 ${Math.max(0, Math.floor(Number(product.stock || 0)))}`;
-  const seller = document.createElement('div');
-  seller.className = 'product-seller';
-  seller.appendChild(createAvatarNode({avatarUrl: product.sellerAvatarUrl || product.sellerAvatar, displayName: product.sellerName}, product.sellerName));
-  const sellerName = document.createElement('span');
-  sellerName.textContent = product.sellerName || '';
-  seller.appendChild(sellerName);
-  info.appendChild(title);
-  if (product.desc) {
-    const desc = document.createElement('div');
-    desc.className = 'product-desc';
-    desc.textContent = product.desc;
-    info.appendChild(desc);
-  }
-  info.appendChild(price);
+  const info = createEl('div', 'product-info');
+  info.appendChild(createEl('div', 'product-title', product.title || ''));
+  if (product.desc) info.appendChild(createEl('div', 'product-desc', product.desc));
+  info.appendChild(createEl('div', 'product-price', `¥${product.price}`));
+  const seller = createEl('div', 'product-seller');
+  seller.append(createAvatarNode({avatarUrl: product.sellerAvatarUrl || product.sellerAvatar, displayName: product.sellerName}, product.sellerName), createEl('span', '', product.sellerName || ''));
   info.appendChild(seller);
   if (product.location || product.distance != null) {
-    const loc = document.createElement('div');
-    loc.className = 'product-location';
     const distText = product.distance != null ? (product.distance < 1 ? `${Math.round(product.distance * 1000)}m` : `${product.distance.toFixed(1)}km`) : '';
-    loc.textContent = (product.location || '附近') + (distText ? ` · ${distText}` : '');
-    info.appendChild(loc);
+    info.appendChild(createEl('div', 'product-location', (product.location || '附近') + (distText ? ` · ${distText}` : '')));
   }
   replacement.appendChild(info);
   if (card.parentNode) card.replaceWith(replacement);
@@ -2852,12 +2699,12 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   state.secondaryPage = page; state.secondaryReturn = backTo;
   hideAllViews();
   hideEl("chatSearchBar");
-  if($(page)) $(page).classList.remove('hidden');
+  showEl(page);
   showEl("backBtn");
   hideEl("homeMoreBtn");
   hideEl("chatSettingsBtn");
   hideEl("sidebarToggleBtn");
-  if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+  toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
 
   if (page === 'friendRequestsView') {
     setText("chatTitle", '新的朋友');
@@ -3194,7 +3041,7 @@ window.openGroupSelect = (targetUserId) => {
         list.appendChild(btn);
       });
     }
-    if ($("groupSelectSheet")) $("groupSelectSheet").classList.remove('hidden');
+    showEl("groupSelectSheet");
 };
 
 window.confirmMoveGroup = async (groupName) => {
@@ -3337,7 +3184,7 @@ window.openConversation = async (id, options = {}) => {
   showEl("chatSettingsBtn");
   // show sidebar in chat conversation view
   showEl("sidebarToggleBtn");
-  if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
+  toggleEl("sidebarPanel", "sidebar-tab-hidden", false);
   applySidebarMode();
   applyChatRelationshipState();
   if (!skipFetch) {
@@ -4288,12 +4135,12 @@ function bindProfileEvents() {
           const prev = state.secondaryStack.pop();
           state.secondaryPage = prev.page; state.secondaryReturn = prev.backTo;
           hideAllViews();
-          if($(prev.page)) $(prev.page).classList.remove('hidden');
+          showEl(prev.page);
           showEl("backBtn");
           hideEl("homeMoreBtn");
           hideEl("chatSettingsBtn");
           hideEl("sidebarToggleBtn");
-          if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+          toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
           return;
       }
       if (backTo === 'chat' && state.activeConversation) {
@@ -4304,14 +4151,14 @@ function bindProfileEvents() {
           showEl("chatSettingsBtn");
           // restore sidebar when returning to conversation
           showEl("sidebarToggleBtn");
-          if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
+          toggleEl("sidebarPanel", "sidebar-tab-hidden", false);
           return;
       }
       state.activeConversation = null;
       state.chatListSignature = '';
       state.conversationItemSignatures = {};
       renderConversationListFromState();
-      hideEl("chatView"); hideEl("composerPanel"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); }
+      hideEl("chatView"); hideEl("composerPanel"); hideEl("chatSearchBar");
       showEl("homeTabbar"); hideEl("backBtn"); hideEl("chatSettingsBtn");
       const activeTab = document.querySelector('.tab-item.active');
       if(activeTab) {
@@ -5091,9 +4938,8 @@ function bindChatEvents() {
   function minimizeCall() {
     if (!hasActiveCallSession()) return;
     hideEl("callPanel");
-    const bubble = $("callFloatingBubble");
-    if (bubble) {
-      bubble.classList.remove('hidden');
+    showEl("callFloatingBubble");
+    if ($("callFloatingBubble")) {
       updateFloatingDuration();
       clearInterval(_callFloatingTimer);
       _callFloatingTimer = setInterval(updateFloatingDuration, 1000);
@@ -5258,16 +5104,14 @@ function bindSearchAndEmojiEvents() {
   // ── In-chat message search ──
   on("chatSearchMsgBtn", "click", () => {
     if ($("backBtn")) $("backBtn").click(); // go back from settings page
-    const bar = $("chatSearchBar");
-    if (bar) { bar.classList.remove('hidden'); }
+    showEl("chatSearchBar");
     if ($("chatSearchInput")) { $("chatSearchInput").value = ''; $("chatSearchInput").focus(); }
     if ($("chatSearchCount")) $("chatSearchCount").textContent = '';
     state._chatSearchResults = [];
     state._chatSearchIdx = -1;
   });
   on("chatSearchCloseBtn", "click", () => {
-    const bar = $("chatSearchBar");
-    if (bar) { bar.classList.add('hidden'); }
+    hideEl("chatSearchBar");
     // Remove highlights
     document.querySelectorAll('#chatView .search-highlight').forEach(el => {
       const parent = el.parentNode;
@@ -5380,7 +5224,7 @@ function setMainTab(tab) {
   else if (tab === 'profile') { showEl("profileView"); setText("chatTitle", "我"); updateMyCartBadge(); }
   toggleEl("homeMoreBtn", "hidden", tab !== 'messages');
   // sidebar avatar bar only visible inside chat conversation, hide on all tab views
-  if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+  toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
   hideEl("sidebarToggleBtn");
 }
 
@@ -5577,38 +5421,25 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
       state.friendRequests.forEach((r) => {
         const sender = r.sender || r.fromUser || {};
         const senderName = sender.displayName || sender.username || sender.id || '未知用户';
-        const row = document.createElement('div');
-        row.className = 'chat-item';
+        const row = createEl('div', 'chat-item');
         row.style.cursor = 'pointer';
-        const avatarWrap = document.createElement('div');
-        avatarWrap.className = 'avatar-click-wrap';
+        const avatarWrap = createEl('div', 'avatar-click-wrap');
         setAvatarContainer(avatarWrap, sender, senderName);
         row.appendChild(avatarWrap);
         const info = document.createElement('div');
         info.style.cssText = 'flex:1;min-width:0;text-align:left;';
-        const strong = document.createElement('strong');
-        strong.textContent = senderName;
-        const preview = document.createElement('div');
-        preview.className = 'preview';
-        preview.textContent = r.greeting || '';
-        info.appendChild(strong);
-        info.appendChild(preview);
+        info.append(createEl('strong', '', senderName), createEl('div', 'preview', r.greeting || ''));
         row.appendChild(info);
         row.addEventListener('click', () => { if(sender.id) window.openUserProfile(sender.id, senderName); });
         if (r.status === 'pending') {
           const actions = document.createElement('div');
           actions.style.cssText = 'display:flex; gap:8px; margin-left:auto;';
-          const acceptBtn = document.createElement('button');
-          acceptBtn.className = 'primary-btn';
+          const acceptBtn = createEl('button', 'primary-btn', '同意');
           acceptBtn.style.cssText = 'min-height:36px; padding:0 14px; font-size:13px;';
-          acceptBtn.textContent = '同意';
           acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); window.acceptRequest(r.id); });
-          const rejectBtn = document.createElement('button');
-          rejectBtn.className = 'secondary-btn';
-          rejectBtn.textContent = '拒绝';
+          const rejectBtn = createEl('button', 'secondary-btn', '拒绝');
           rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); window.rejectRequest(r.id); });
-          actions.appendChild(rejectBtn);
-          actions.appendChild(acceptBtn);
+          actions.append(rejectBtn, acceptBtn);
           row.appendChild(actions);
         } else {
           const done = document.createElement('span');

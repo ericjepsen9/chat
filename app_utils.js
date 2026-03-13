@@ -85,6 +85,7 @@ function hideEl(id) { const el = $(id); if (el) el.classList.add('hidden'); }
 function showEl(id) { const el = $(id); if (el) el.classList.remove('hidden'); }
 function toggleEl(id, cls, force) { const el = $(id); if (el) el.classList.toggle(cls, force); }
 function createEl(tag, className, text) { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; }
+function hideOnError(el) { el.onerror = function() { this.style.display = 'none'; }; }
 // Loading overlay for async operations
 function showLoading(msg = '加载中...') {
   let overlay = $('globalLoadingOverlay');
