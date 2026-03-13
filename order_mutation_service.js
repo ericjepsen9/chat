@@ -212,12 +212,11 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   if (order.status === 'completed') return { ok: false, status: 409, error: 'order_already_completed' };
   if (order.status === 'accepted') return { ok: false, status: 409, error: 'price_change_not_allowed_after_accepted' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
+  if (order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'pending_price_request_exists' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
 
   order.total = Math.max(0, Number(body.total ?? 0));
-  order.pendingPrice = null;
-  order.pendingPriceRequestedBy = null;
   order.updatedAt = Date.now();
 
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
@@ -307,7 +306,7 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   if (order.pendingPriceRequestedBy === authUser.id) return { ok: false, status: 409, error: 'cannot_confirm_own_request' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
-  const confirmedTotal = Math.max(0, Number(order.pendingPrice ?? order.total ?? 0));
+  const confirmedTotal = Math.max(0, Number(order.pendingPrice ?? 0));
   order.total = confirmedTotal;
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;

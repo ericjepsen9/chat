@@ -3409,10 +3409,14 @@ function bindAuthEvents() {
   // ---- Auth: terms/privacy viewer ----
   window._authTermsBackTarget = 'authWelcome';
   function authOpenLegal(type) {
-    const termsHtml = $("termsPage")?.querySelector('.legal-content')?.innerHTML || '';
-    const privacyHtml = $("privacyPolicyPage")?.querySelector('.legal-content')?.innerHTML || '';
+    const sourceEl = type === 'terms'
+      ? $("termsPage")?.querySelector('.legal-content')
+      : $("privacyPolicyPage")?.querySelector('.legal-content');
     const content = $("authTermsContent");
-    if (content) content.innerHTML = type === 'terms' ? termsHtml : privacyHtml;
+    if (content) {
+      content.textContent = '';
+      if (sourceEl) { const clone = sourceEl.cloneNode(true); while (clone.firstChild) content.appendChild(clone.firstChild); }
+    }
     // Find which auth step is currently visible to go back to
     const allSteps = document.querySelectorAll('#authScreen .auth-step');
     allSteps.forEach(s => { if (!s.classList.contains('hidden') && s.id !== 'authTermsView') window._authTermsBackTarget = s.id; });
@@ -5571,10 +5575,16 @@ async function fetchMessages(before = 0) {
 }
 
 // WebRTC/calling functions moved to app_calling.js
+let _connectRealtimeInFlight = false;
 async function connectRealtime() {
+  if (_connectRealtimeInFlight) return;
+  _connectRealtimeInFlight = true;
+  try {
   if (state.eventSource) {
     if (state._sseHandlers) { for (const [evt, fn] of state._sseHandlers) state.eventSource.removeEventListener(evt, fn); }
+    state._sseHandlers = [];
     state.eventSource.close();
+    state.eventSource = null;
   }
   let sseToken = '';
   try {
@@ -5796,6 +5806,7 @@ async function connectRealtime() {
     const delay = Math.min(1500 * Math.pow(2, state._sseRetryCount - 1), 30000);
     setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, delay);
   };
+  } finally { _connectRealtimeInFlight = false; }
 }
 
 window.addEventListener('pagehide', () => {
