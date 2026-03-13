@@ -3823,6 +3823,7 @@ window.insertEmoji = (emoji) => { const input = $("messageInput"); if(!input) re
 window.sendMessage = async (payload) => {
   if (!state.activeConversation) return;
   const _now = Date.now();
+  const sentConversationId = state.activeConversation.id;
   const clientMessageId = `c_${_now}_${Math.random().toString(36).slice(2, 8)}`;
   const tempMsg = { id: 'temp_'+_now, senderId: state.currentUser.id, createdAt: _now, clientMessageId, ...payload };
   state.messages.push(tempMsg);
@@ -3832,8 +3833,9 @@ window.sendMessage = async (payload) => {
   syncActiveConversationListMeta();
   renderConversationListFromState();
   try {
-    const res = await api(`/api/conversations/${state.activeConversation.id}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, clientMessageId, ...payload }) });
-    if (res?.message) {
+    const res = await api(`/api/conversations/${sentConversationId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, clientMessageId, ...payload }) });
+    const stillSameConv = state.activeConversation?.id === sentConversationId;
+    if (res?.message && stillSameConv) {
       const result = upsertMessage(res.message);
       if (result.action === 'replace') {
         if (!replaceMessageInView(res.message)) renderMessages();
@@ -3848,12 +3850,14 @@ window.sendMessage = async (payload) => {
     loadConversations();
     loadSystemMessages();
   } catch (err) {
-    state.messages = state.messages.filter(m => m.id !== tempMsg.id);
-    rebuildMessagesById();
-    if (!removeMessageFromView(tempMsg.id)) renderMessages();
-    applyLastOutgoingReadState();
-    syncActiveConversationListMeta();
-    renderConversationListFromState();
+    if (state.activeConversation?.id === sentConversationId) {
+      state.messages = state.messages.filter(m => m.id !== tempMsg.id);
+      rebuildMessagesById();
+      if (!removeMessageFromView(tempMsg.id)) renderMessages();
+      applyLastOutgoingReadState();
+      syncActiveConversationListMeta();
+      renderConversationListFromState();
+    }
     if (err.message && err.message.includes('拒收')) {
       showModal(err.message);
     } else {

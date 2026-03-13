@@ -1062,6 +1062,13 @@ async function gracefulShutdown(signal) {
     process.exit(1);
   }, 10_000);
   hardExitTimer.unref?.();
+  // Close all SSE connections so their heartbeat timers are cleared
+  for (const [userId, conns] of Array.from(sseClientsByUser.entries())) {
+    for (const res of Array.from(conns)) {
+      try { res.end(); } catch (_) {}
+      removeSseClient(userId, res);
+    }
+  }
   try {
     runCleanupAuthState();
     await flushPersistenceNow();
