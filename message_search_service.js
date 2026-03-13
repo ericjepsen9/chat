@@ -7,8 +7,12 @@
  */
 function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }) {
   const maxNeeded = offset + limit;
+  // Cap total scan to prevent unbounded work on large message stores
+  const SCAN_CAP = maxNeeded * 10;
   const results = [];
   const userConvs = index.convByUser.get(authUser.id) || [];
+  let scanned = 0;
+  outer:
   for (let c = 0; c < userConvs.length; c++) {
     const conv = userConvs[c];
     const members = conv.members || [];
@@ -33,6 +37,7 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
           text: msg.text, createdAt: msg.createdAt,
           peerName, peerAvatarUrl, peerId: peerId || '',
         });
+        if (++scanned >= SCAN_CAP) break outer;
       }
     }
   }

@@ -24,11 +24,9 @@ function listConversationMessages({ conv, authUser, searchParams, getVisibleMess
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
   const members = conv.members || [];
   const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
-  return {
-    ok: true,
-    status: 200,
-    payload: { ...result, peerLastReadAt: peerId ? (conv.lastRead?.[peerId] || 0) : 0 },
-  };
+  // Attach peerLastReadAt directly instead of spread-copying result
+  result.peerLastReadAt = peerId ? (conv.lastRead?.[peerId] || 0) : 0;
+  return { ok: true, status: 200, payload: result };
 }
 
 function createConversationMessage({

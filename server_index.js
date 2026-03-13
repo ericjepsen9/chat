@@ -59,7 +59,8 @@ function rebuildMallIndex() {
     for (let p = 0; p < products.length; p++) {
       const product = products[p];
       if (product?.listed === false) continue;
-      // Assign seller fields directly to avoid object spread copy
+      // Skip stock-zero products from mall listing
+      if (Number(product.stock || 0) <= 0) continue;
       product.sellerId = sellerId;
       product.sellerName = sellerName;
       product.sellerAvatarUrl = sellerAvatarUrl;
@@ -79,15 +80,14 @@ function rebuildRequestViewsIndex() {
     for (const req of requests) {
       const fromUser = index.usersById.get(req.userId);
       if (!fromUser) continue;
-      views.push({
-        ...req,
-        sender: {
-          id: fromUser.id,
-          displayName: fromUser.displayName,
-          avatarUrl: fromUser.avatarUrl,
-          username: fromUser.username,
-        },
-      });
+      // Attach sender directly instead of spread-copying the entire request object
+      req.sender = {
+        id: fromUser.id,
+        displayName: fromUser.displayName,
+        avatarUrl: fromUser.avatarUrl,
+        username: fromUser.username,
+      };
+      views.push(req);
     }
     index.requestViewsByTarget.set(targetId, views);
   }
@@ -114,17 +114,16 @@ function rebuildFriendViewsIndex() {
     for (const rel of rels) {
       const u = index.usersById.get(rel.friendId);
       if (!u) continue;
-      views.push({
-        ...rel,
-        friend: {
-          id: u.id,
-          username: u.username,
-          displayName: u.displayName,
-          avatarUrl: u.avatarUrl,
-          appNumberId: u.appNumberId,
-          remark: rel.remark,
-        },
-      });
+      // Attach friend view directly to avoid spread-copying each relation object
+      rel.friend = {
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName,
+        avatarUrl: u.avatarUrl,
+        appNumberId: u.appNumberId,
+        remark: rel.remark,
+      };
+      views.push(rel);
     }
     index.friendViewsByUser.set(userId, views);
   }

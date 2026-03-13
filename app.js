@@ -1024,7 +1024,9 @@ function buyNowAndCheckout(){
 
 function getProfileCartTotal(){
   const cart = getCurrentSellerCart();
-  return cart.reduce((sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0), 0);
+  let sum = 0;
+  for (let i = 0; i < cart.length; i++) sum += (Number(cart[i].unitPrice) || 0) * (Number(cart[i].quantity) || 0);
+  return sum;
 }
 
 function updateProfileCartBar(){
@@ -2280,13 +2282,12 @@ function getConversationClearedAt(conv) {
 }
 function normalizeConversation(conv) {
   if (!conv) return conv;
-  return {
-    ...conv,
-    muted: isConversationMuted(conv),
-    pinned: isConversationPinned(conv),
-    clearedAt: getConversationClearedAt(conv),
-    peerLastReadAt: Number(conv.peerLastReadAt || 0)
-  };
+  // Mutate in-place instead of spread-copying the entire object
+  conv.muted = isConversationMuted(conv);
+  conv.pinned = isConversationPinned(conv);
+  conv.clearedAt = getConversationClearedAt(conv);
+  conv.peerLastReadAt = Number(conv.peerLastReadAt || 0);
+  return conv;
 }
 function buildConversationItemSignature(conv) {
   return (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
@@ -5427,7 +5428,8 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
   try {
     const data = await api(`/api/friends/requests?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.friendRequests = data.requests || [];
-    const pendingCount = state.friendRequests.filter(r => r.status === 'pending').length;
+    let pendingCount = 0;
+    for (let i = 0; i < state.friendRequests.length; i++) { if (state.friendRequests[i].status === 'pending') pendingCount++; }
     if($("friendsTabBadge")) {
       $("friendsTabBadge").classList.toggle("hidden", pendingCount === 0);
       $("friendsTabBadge").textContent = pendingCount > 99 ? '99+' : (pendingCount ? String(pendingCount) : '');
@@ -5662,7 +5664,13 @@ async function connectRealtime() {
       loadConversations();
     }
   } catch (err) { console.warn('[sse] message_recalled handler error', err); } });
-  _on('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
+  let _convUpdateTimer = null;
+  _on('conversation_updated', () => {
+    // Debounce rapid conversation_updated events to avoid hammering the API
+    if (_convUpdateTimer) clearTimeout(_convUpdateTimer);
+    _convUpdateTimer = setTimeout(() => { _convUpdateTimer = null; loadConversations().catch(() => {}); }, 150);
+    scheduleTradeReminderRefresh(180);
+  });
   _on('friends_updated', async () => { await loadFriends(); if (state.activeConversation) applyChatRelationshipState(); });
   _on('friend_request_updated', loadFriendRequests);
   _on('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });

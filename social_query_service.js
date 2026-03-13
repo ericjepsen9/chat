@@ -22,15 +22,15 @@ function listConversations({ authUser, directConvBasesByUser, convById, buildCon
     const pinned = conv.pinnedBy ? conv.pinnedBy.indexOf(uid) !== -1 : false;
     const muted = conv.mutedBy ? conv.mutedBy.indexOf(uid) !== -1 : false;
     const meta = buildConversationMeta(conv, uid);
-    conversations.push({
-      ...base,
-      ...meta,
-      pinned,
-      muted,
-      clearedAt: conv?.clearedAt?.[uid] || 0,
-      peerLastReadAt: peerId ? (conv?.lastRead?.[peerId] || 0) : 0,
-      _sortKey: (meta.lastMessageAt || base.lastMessageAt || base.createdAt || 0),
-    });
+    // Mutate base in-place to avoid two spread copies per conversation
+    base.preview = meta.preview;
+    base.unread = meta.unread;
+    base.pinned = pinned;
+    base.muted = muted;
+    base.clearedAt = conv?.clearedAt?.[uid] || 0;
+    base.peerLastReadAt = peerId ? (conv?.lastRead?.[peerId] || 0) : 0;
+    base._sortKey = (meta.lastMessageAt || base.lastMessageAt || base.createdAt || 0);
+    conversations.push(base);
   }
   conversations.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;

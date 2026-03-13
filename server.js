@@ -447,6 +447,9 @@ function checkFileMagicBytes(buf) {
 
 function fileExtFromType(contentType, originalName = '') {
   const lowered = String(contentType || '').toLowerCase();
+  // Direct O(1) lookup first; fall back to includes() scan for partial matches
+  const direct = FILE_EXT_MAP.get(lowered);
+  if (direct) return direct;
   for (const [mime, ext] of FILE_EXT_MAP) {
     if (lowered.includes(mime)) return ext;
   }
@@ -457,7 +460,8 @@ function fileExtFromType(contentType, originalName = '') {
 function isMessageVisibleToUser(msg, conv, userId) {
   const clearedAt = conv.clearedAt?.[userId] || 0;
   if (msg.createdAt <= clearedAt) return false;
-  return !(msg.deletedBy || []).includes(userId);
+  const deletedBy = msg.deletedBy;
+  return !deletedBy || !deletedBy.length || !deletedBy.includes(userId);
 }
 
 function getVisibleMessagesSlice(conv, userId, before = 0, limit = 30) {
@@ -521,11 +525,14 @@ function issueSession(userId, ttlMs = SESSION_TTL_MS) {
 
 function revokeSessionsForUser(userId) {
   if (!userId) return;
-  for (const [token, session] of sessions.entries()) {
-    if (session?.userId === userId) {
-      sessions.delete(token);
-      csrfTokens.delete(token);
-    }
+  // Collect tokens first to avoid modifying map during iteration
+  const toDelete = [];
+  for (const [token, session] of sessions) {
+    if (session?.userId === userId) toDelete.push(token);
+  }
+  for (let i = 0; i < toDelete.length; i++) {
+    sessions.delete(toDelete[i]);
+    csrfTokens.delete(toDelete[i]);
   }
 }
 
@@ -656,10 +663,14 @@ function touchConversation(conversationId) {
 
 function removeFriendshipPair(a, b) {
   const arr = db.friendships;
-  for (let i = arr.length - 1; i >= 0; i--) {
+  // Single-pass compact: avoid multiple splice calls which shift the entire array each time
+  let write = 0;
+  for (let i = 0; i < arr.length; i++) {
     const f = arr[i];
-    if ((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)) arr.splice(i, 1);
+    if ((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)) continue;
+    arr[write++] = f;
   }
+  arr.length = write;
   rebuildFriendshipIndexes();
 }
 
@@ -840,12 +851,11 @@ const server = http.createServer(async (req, res) => {
         res.end();
         return;
       }
-      fs.readFile(filePath, (err, data) => {
-        if (err) return res.writeHead(404).end();
+      fs.stat(filePath, (err, stat) => {
+        if (err || !stat.isFile()) return res.writeHead(404).end();
         const ext = path.extname(filePath);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        const headers = { 'Content-Type': contentType };
-        // Uploaded files have unique names; cache aggressively
+        const headers = { 'Content-Type': contentType, 'Content-Length': stat.size };
         if (pathname.startsWith('/uploads/')) {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_UPLOADS}, immutable`;
         } else if (ext === '.html') {
@@ -854,7 +864,9 @@ const server = http.createServer(async (req, res) => {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_DEFAULT}`;
         }
         res.writeHead(200, headers);
-        res.end(data);
+        const stream = fs.createReadStream(filePath);
+        stream.on('error', () => { if (!res.writableEnded) res.end(); });
+        stream.pipe(res);
       });
       return;
     }
@@ -910,12 +922,18 @@ setInterval(runCleanupAuthState, 60 * 1000).unref();
 // Message retention cleanup — runs daily, removes messages older than MESSAGE_RETENTION_DAYS
 function cleanupExpiredMessages() {
   const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * MS_PER_DAY;
-  const before = db.messages.length;
-  db.messages = db.messages.filter((m) => m.createdAt > cutoff);
-  if (db.messages.length < before) {
+  const msgs = db.messages;
+  const before = msgs.length;
+  // In-place compact avoids allocating a new array for potentially large message lists
+  let write = 0;
+  for (let i = 0; i < msgs.length; i++) {
+    if (msgs[i].createdAt > cutoff) msgs[write++] = msgs[i];
+  }
+  msgs.length = write;
+  if (write < before) {
     rebuildMessageIndexes();
     schedulePersist('message_retention_cleanup', {});
-    console.log(`[retention] cleaned ${before - db.messages.length} messages older than ${MESSAGE_RETENTION_DAYS} days`);
+    console.log(`[retention] cleaned ${before - write} messages older than ${MESSAGE_RETENTION_DAYS} days`);
   }
 }
 setInterval(cleanupExpiredMessages, CLEANUP_INTERVAL_MS).unref();
