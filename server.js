@@ -42,6 +42,9 @@ const createAuthRoutes = require('./server_routes_auth');
 const createSocialRoutes = require('./server_routes_social');
 const createChatRoutes = require('./server_routes_chat');
 const createOrderRoutes = require('./server_routes_orders');
+const createUserRoutes = require('./server_routes_users');
+const createProductRoutes = require('./server_routes_products');
+const createAdminRoutes = require('./server_routes_admin');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -702,11 +705,17 @@ const routeCtx = {
   listConversationMessages, createConversationMessage,
   deleteConversationMessage, recallConversationMessage, applyConversationAction,
   createDirectConversation,
+  updateUserProfile, buildUserProfileView, buildUserStoreItems,
+  createProduct, deleteProduct, updateProduct, queryMallItems,
+  createBroadcastMessage, buildAdminDashboardData, requireAdmin,
 };
 const handleAuthRoutes = createAuthRoutes(routeCtx);
 const handleSocialRoutes = createSocialRoutes(routeCtx);
 const handleChatRoutes = createChatRoutes(routeCtx);
 const handleOrderRoutes = createOrderRoutes(routeCtx);
+const handleUserRoutes = createUserRoutes(routeCtx);
+const handleProductRoutes = createProductRoutes(routeCtx);
+const handleAdminRoutes = createAdminRoutes(routeCtx);
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -796,231 +805,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (matchRoute(pathname, '/api/users') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const users = [];
-      for (let i = 0; i < db.users.length; i++) {
-        const u = db.users[i];
-        if (u.id !== authUser.id) users.push({ id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, appNumberId: u.appNumberId });
-      }
-      return sendJson(res, 200, { users });
-    }
-
-    if (matchRoute(pathname, '/api/users/update') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateUserProfile({
-        authUser: context.authUser,
-        body: context.body,
-        normalizePhone,
-        findUserByPhone,
-        normalizeUserCustomGroups,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        rebuildRequestViewsIndex,
-        rebuildBlacklistViewsIndex,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastToUser,
-        broadcastAll,
-        sanitizePublicUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/users/change-phone') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const phone = normalizePhone(context.body.phone || '');
-      const code = String(context.body.code || '').trim();
-      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
-      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误' });
-      const verify = consumePhoneCode(phone, code, 'reset');
-      if (!verify.ok) {
-        const statusCode = verify.retryAfterSec ? 429 : 400;
-        return sendJson(res, statusCode, { error: verify.error || '验证码错误或已过期', retryAfterSec: verify.retryAfterSec || 0 });
-      }
-      const existing = findUserByPhone(phone);
-      if (existing && existing.id !== context.authUser.id) return sendJson(res, 409, { error: '该手机号已被注册' });
-      const result = updateUserProfile({
-        authUser: context.authUser,
-        body: { phone },
-        normalizePhone,
-        findUserByPhone,
-        normalizeUserCustomGroups,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        rebuildRequestViewsIndex,
-        rebuildBlacklistViewsIndex,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastToUser,
-        broadcastAll,
-        sanitizePublicUser,
-      });
-      return sendResult(res, result);
-    }
-
-    const profileMatch = pathname.match(/(?:\/api)?\/users\/([^/]+)\/profile$/);
-    if (profileMatch && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const targetId = profileMatch[1];
-      if (targetId !== authUser.id) {
-        const targetUser = index.usersById.get(targetId);
-        if (!targetUser) return sendJson(res, 404, { error: '用户不存在' });
-      }
-      const result = buildUserProfileView({
-        authUser,
-        targetId,
-        usersById: index.usersById,
-        friendshipByPair: index.friendshipByPair,
-      });
-      return sendResult(res, result);
-    }
-
-
-    const storeMatch = pathname.match(/^\/api\/users\/([^/]+)\/store$/);
-    if (storeMatch && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const sellerId = storeMatch[1];
-      const sellerUser = index.usersById.get(sellerId);
-      if (!sellerUser) return sendJson(res, 404, { error: '用户不存在' });
-      const result = buildUserStoreItems({
-        usersById: index.usersById,
-        sellerId,
-      });
-      return sendResult(res, result);
-    }
+    // User profile & store routes
+    if (await handleUserRoutes(pathname, req.method, req, res, searchParams)) return;
 
     // Order routes
     if (await handleOrderRoutes(pathname, req.method, req, res, searchParams)) return;
 
-    if (pathname === '/api/system/messages' && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      return sendJson(res, 200, { items: (db.systemMessages || []).slice(0, 30) });
-    }
+    // Admin & system message routes
+    if (await handleAdminRoutes(pathname, req.method, req, res, searchParams)) return;
 
-    if (pathname === '/api/admin/system/messages' && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      if (!isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
-      const title = String(context.body.title || '').trim().slice(0, 80) || '系统消息';
-      const summary = String(context.body.summary || '').trim().slice(0, 240) || '请查看最新通知';
-      const cover = String(context.body.cover || '').trim().slice(0, 512);
-      const item = { id: uid('sys'), title, summary, cover, createdAt: Date.now(), senderId: context.authUser.id };
-      if (!Array.isArray(db.systemMessages)) db.systemMessages = [];
-      db.systemMessages.unshift(item);
-      if (db.systemMessages.length > 100) db.systemMessages.length = 100;
-      broadcastAll('system_message', { message: item });
-      await schedulePersistCritical('system_message_create', { id: item.id });
-      return sendJson(res, 201, { item });
-    }
-
-    if (pathname === '/api/admin/dashboard' && req.method === 'GET') {
-      const authUser = requireAdmin(req, res, searchParams, sessions, index, sendJson, isAdmin);
-      if (!authUser) return;
-      const data = buildAdminDashboardData(db);
-      return sendJson(res, 200, data);
-    }
-
-    const broadcastMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/broadcast$/);
-    if (broadcastMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = createBroadcastMessage({
-        conversationId: broadcastMatch[1],
-        authUser: context.authUser,
-        body: context.body,
-        index,
-        canAccessConversation,
-        addTradeMessage,
-        touchConversation,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = createProduct({
-        authUser: context.authUser,
-        body: context.body,
-        uid,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastAll,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/products/delete') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = deleteProduct({
-        authUser: context.authUser,
-        productId: context.body.productId,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastAll,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/products/update') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateProduct({
-        authUser: context.authUser,
-        body: context.body,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastAll,
-      });
-      return sendResult(res, result);
-    }
-
-    // ---- Product Presets (categories & specs) ----
-    if (matchRoute(pathname, '/api/product-presets') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      return sendJson(res, 200, {
-        categoryPresets: authUser.categoryPresets || [],
-        specPresets: authUser.specPresets || [],
-      });
-    }
-
-    if (matchRoute(pathname, '/api/product-presets/update') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: [] });
-      if (!context) return;
-      const { categoryPresets, specPresets } = context.body;
-      if (Array.isArray(categoryPresets)) {
-        context.authUser.categoryPresets = categoryPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
-      }
-      if (Array.isArray(specPresets)) {
-        context.authUser.specPresets = specPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
-      }
-      schedulePersist('product_presets_update', { userId: context.authUser.id });
-      return sendJson(res, 200, {
-        categoryPresets: context.authUser.categoryPresets,
-        specPresets: context.authUser.specPresets,
-      });
-    }
-
-    if (matchRoute(pathname, '/api/mall') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const data = queryMallItems({
-        mallItems: index.mallItems,
-        keyword: searchParams.get('q') || '',
-        limit: searchParams.get('limit'),
-        offset: searchParams.get('offset'),
-      });
-      return sendJson(res, 200, data);
-    }
+    // Product, mall & broadcast routes
+    if (await handleProductRoutes(pathname, req.method, req, res, searchParams)) return;
 
     // Friend, group & blacklist routes
     if (await handleSocialRoutes(pathname, req.method, req, res, searchParams)) return;
