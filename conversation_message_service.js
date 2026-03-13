@@ -44,7 +44,7 @@ function createConversationMessage({
   schedulePersist,
   broadcastToConversation,
 }) {
-  if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
+  if (!Array.isArray(conv.members) || !conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
 
   if (!body.type || !ALLOWED_MESSAGE_TYPES.has(body.type)) {
     return { ok: false, status: 400, error: 'invalid_message_type' };
@@ -90,15 +90,17 @@ function createConversationMessage({
     if (found) return { ok: true, status: 200, payload: { message: found, deduplicated: true } };
   }
 
+  const MAX_TEXT_LEN = 5000;
+  const MAX_URL_LEN = 1024;
   const now = Date.now();
   const msg = {
     id: uid('m'),
     conversationId,
     senderId: authUser.id,
     type: body.type,
-    text: body.text,
-    imageUrl: body.imageUrl,
-    audioUrl: body.audioUrl,
+    text: body.text ? String(body.text).slice(0, MAX_TEXT_LEN) : body.text,
+    imageUrl: body.imageUrl ? String(body.imageUrl).slice(0, MAX_URL_LEN) : body.imageUrl,
+    audioUrl: body.audioUrl ? String(body.audioUrl).slice(0, MAX_URL_LEN) : body.audioUrl,
     card: body.card,
     order: body.order,
     broadcast: body.broadcast,

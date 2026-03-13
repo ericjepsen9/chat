@@ -33,8 +33,8 @@ module.exports = function createAdminRoutes(ctx) {
       if (!Array.isArray(db.systemMessages)) db.systemMessages = [];
       db.systemMessages.unshift(item);
       if (db.systemMessages.length > SYSTEM_MSG_LIMITS.STORE_MAX) db.systemMessages.length = SYSTEM_MSG_LIMITS.STORE_MAX;
-      broadcastAll('system_message', { message: item });
       await schedulePersistCritical('system_message_create', { id: item.id });
+      try { broadcastAll('system_message', { message: item }); } catch (e) { console.warn('[admin] broadcast failed:', e?.message || e); }
       return sendJson(res, 201, { item });
     }
 
