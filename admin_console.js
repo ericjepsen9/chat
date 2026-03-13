@@ -1,255 +1,705 @@
+/* admin_console.js — Full CRUD admin management console */
 const $ = (id) => document.getElementById(id);
-const state = { data: null, drafts: [] };
-
-function showAdminMsg(msg) {
-  let overlay = document.getElementById('_adminModal');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = '_adminModal';
-    overlay.innerHTML =
-      '<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);"></div>' +
-      '<div style="position:relative;width:320px;max-width:85vw;background:#fff;border-radius:12px;overflow:hidden;text-align:center;">' +
-        '<div id="_adminModalBody" style="padding:24px 20px 16px;font-size:15px;line-height:1.5;color:#333;white-space:pre-wrap;"></div>' +
-        '<div style="border-top:1px solid #e5e7eb;"><button id="_adminModalOk" style="width:100%;height:44px;border:none;background:transparent;font-size:16px;color:#07c160;font-weight:600;cursor:pointer;">确定</button></div>' +
-      '</div>';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;';
-    document.body.appendChild(overlay);
-  }
-  overlay.style.display = 'flex';
-  document.getElementById('_adminModalBody').textContent = msg;
-  const close = () => { overlay.style.display = 'none'; };
-  document.getElementById('_adminModalOk').onclick = close;
-  overlay.querySelector('div').onclick = (e) => { if (e.target === overlay.firstElementChild) close(); };
-}
-
 const SESSION_KEY = 'chattrade_api_session_user';
+const ADMIN_SESSION_KEY = 'chattrade_admin_session';
 
-function getToken(){
-  try{
-    const sessionRaw = localStorage.getItem(SESSION_KEY);
-    if (sessionRaw) {
-      const parsed = JSON.parse(sessionRaw);
-      if (parsed && parsed.token) return String(parsed.token);
-    }
-    const raw = localStorage.getItem('token') || sessionStorage.getItem('token');
-    return raw || '';
-  }catch(_){ return ''; }
-}
+/* ── Helpers ── */
+function esc(v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function money(v) { return '¥' + (Number(v) || 0).toFixed(2); }
+function fmtDate(ts) { if (!ts) return '-'; const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
+function fmtDateShort(ts) { if (!ts) return '-'; const d = new Date(ts); return String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
-function getCsrfToken(){
-  try{
-    const sessionRaw = localStorage.getItem(SESSION_KEY);
-    if (sessionRaw) {
-      const parsed = JSON.parse(sessionRaw);
-      if (parsed && parsed.csrfToken) return String(parsed.csrfToken);
-    }
+const STATUS_MAP = { pending: ['待处理','badge-yellow'], accepted: ['已接单','badge-blue'], processing: ['处理中','badge-blue'], in_progress: ['进行中','badge-blue'], completed: ['已完成','badge-green'] };
+function statusBadge(s) { const [label, cls] = STATUS_MAP[s] || [s, 'badge-gray']; return `<span class="badge ${cls}">${esc(label)}</span>`; }
+
+/* ── Auth ── */
+function getToken() {
+  try {
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+    if (raw) { const p = JSON.parse(raw); if (p?.token) return p.token; }
+    const main = localStorage.getItem(SESSION_KEY);
+    if (main) { const p = JSON.parse(main); if (p?.token) return p.token; }
     return '';
-  }catch(_){ return ''; }
+  } catch (_) { return ''; }
+}
+function getCsrfToken() {
+  try {
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+    if (raw) { const p = JSON.parse(raw); if (p?.csrfToken) return p.csrfToken; }
+    const main = localStorage.getItem(SESSION_KEY);
+    if (main) { const p = JSON.parse(main); if (p?.csrfToken) return p.csrfToken; }
+    return '';
+  } catch (_) { return ''; }
 }
 
-async function api(path, options = {}){
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...opts.headers };
   const token = getToken();
-  const csrfToken = getCsrfToken();
-  const headers = Object.assign({ 'Content-Type':'application/json' }, options.headers || {});
-  if(token) headers.Authorization = `Bearer ${token}`;
-  if(csrfToken) headers['X-CSRF-Token'] = csrfToken;
-  const res = await fetch(path, Object.assign({}, options, { headers }));
+  const csrf = getCsrfToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (csrf) headers['X-CSRF-Token'] = csrf;
+  const res = await fetch(path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if(!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
-
-function esc(v){
-  return String(v == null ? '' : v)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+/* ── Toast ── */
+let _toastTimer = null;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add('hidden'), 2500);
 }
 
-function money(v){
-  const n = Number(v || 0);
-  return `¥${n.toFixed(2)}`;
+/* ── Modal ── */
+function openModal(title, bodyHtml, footerHtml) {
+  $('modalTitle').textContent = title;
+  $('modalBody').innerHTML = bodyHtml;
+  $('modalFooter').innerHTML = footerHtml || '';
+  $('detailModal').classList.remove('hidden');
+}
+function closeModal() { $('detailModal').classList.add('hidden'); }
+
+/* ── State ── */
+const state = {
+  tab: 'dashboard',
+  users: { items: [], total: 0, offset: 0, q: '', status: '', role: '' },
+  orders: { items: [], total: 0, offset: 0, q: '', status: '' },
+  products: { items: [], total: 0, offset: 0, q: '', listed: '' },
+  convs: { items: [], total: 0, offset: 0, q: '' },
+};
+const PAGE_SIZE = 20;
+
+/* ═══════════════════════════════════════
+   LOGIN
+   ═══════════════════════════════════════ */
+function showLogin() { $('loginScreen').classList.remove('hidden'); $('appShell').classList.add('hidden'); }
+function showApp() { $('loginScreen').classList.add('hidden'); $('appShell').classList.remove('hidden'); }
+
+async function doLogin() {
+  const username = $('loginUser').value.trim();
+  const password = $('loginPass').value;
+  if (!username || !password) { $('loginError').textContent = '请输入账号和密码'; $('loginError').classList.remove('hidden'); return; }
+  $('loginBtn').disabled = true;
+  try {
+    const data = await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+    if (data.token) {
+      localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ token: data.token, csrfToken: data.csrfToken || '', userId: data.userId }));
+      $('loginError').classList.add('hidden');
+      showApp();
+      initApp();
+    }
+  } catch (e) {
+    $('loginError').textContent = e.message === 'forbidden' ? '该账号不是管理员' : (e.message || '登录失败');
+    $('loginError').classList.remove('hidden');
+  } finally { $('loginBtn').disabled = false; }
 }
 
-function setTab(tab){
-  document.querySelectorAll('.admin-nav button').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
-  document.querySelectorAll('.admin-tab').forEach(sec => sec.classList.toggle('active', sec.id === `tab-${tab}`));
-  const map = {
-    overview:['平台概览','桌面版独立管理网页'],
-    orders:['平台订单','查看全平台订单汇总'],
-    users:['用户管理','账号、黑名单与卖家活跃概览'],
-    products:['商品管理','平台商品概览'],
-    broadcasts:['广播中心','平台图文通知与草稿'],
-    risk:['风控与举报','黑名单、异常订单与系统提醒'],
-  };
-  $('adminPageTitle').textContent = map[tab][0];
-  $('adminPageSub').textContent = map[tab][1];
+/* ═══════════════════════════════════════
+   NAVIGATION
+   ═══════════════════════════════════════ */
+const TAB_TITLES = {
+  dashboard: '数据概览', users: '用户管理', orders: '订单管理',
+  products: '商品管理', conversations: '会话消息', broadcast: '广播中心',
+};
+
+function switchTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+  $('pageTitle').textContent = TAB_TITLES[tab] || tab;
+  loadTabData(tab);
 }
 
-function renderOverview(){
-  const stats = state.data?.stats || {};
-  const statsGrid = $('adminStatsGrid');
-  const items = [
-    ['用户总数', stats.users || 0],
-    ['商品总数', stats.products || 0],
-    ['订单总数', stats.orders || 0],
-    ['广播总数', stats.broadcasts || 0],
-    ['黑名单关系', stats.blacklistLinks || 0],
-    ['待完成订单', stats.pendingOrders || 0],
+function loadTabData(tab) {
+  if (tab === 'dashboard') loadDashboard();
+  else if (tab === 'users') loadUsers();
+  else if (tab === 'orders') loadOrders();
+  else if (tab === 'products') loadProducts();
+  else if (tab === 'conversations') loadConversations();
+  else if (tab === 'broadcast') loadBroadcastHistory();
+}
+
+/* ═══════════════════════════════════════
+   DASHBOARD
+   ═══════════════════════════════════════ */
+async function loadDashboard() {
+  try {
+    const data = await api('/api/admin/stats');
+    renderDashboard(data);
+  } catch (e) {
+    if (e.message === 'forbidden' || e.message === 'HTTP 403') { showLogin(); return; }
+    toast('加载失败: ' + e.message);
+  }
+}
+
+function renderDashboard(data) {
+  const o = data.overview || {};
+  const cards = [
+    { label: '用户总数', val: o.totalUsers, sub: `今日新增 ${o.newUsersToday}`, hl: false },
+    { label: '订单总数', val: o.totalOrders, sub: `今日新增 ${o.newOrdersToday}`, hl: false },
+    { label: '累计交易额', val: money(o.totalRevenue), sub: `今日完成 ${o.completedOrdersToday} 笔`, hl: true },
+    { label: '商品总数', val: o.totalProducts, sub: '', hl: false },
+    { label: '消息总数', val: o.totalMessages, sub: '', hl: false },
+    { label: '会话总数', val: o.totalConversations, sub: '', hl: false },
   ];
-  statsGrid.innerHTML = items.map(([label, value]) => `<div class="stat-card"><div class="stat-label">${esc(label)}</div><div class="stat-value">${esc(value)}</div></div>`).join('');
-  const recent = state.data?.recentOrders || [];
-  $('adminRecentOrders').innerHTML = recent.length ? recent.map(o => `
-    <div class="row-card">
-      <div class="row-title">订单 #${esc(String(o.id || '').slice(-6))} · ${money(o.total)}</div>
-      <div class="row-sub">${esc(o.buyerName || '买家')} → ${esc(o.sellerName || '卖家')} · ${esc(o.summary || '')}</div>
-      <div class="row-line"><span class="badge ${o.status === 'completed' ? '' : 'warn'}">${o.status === 'completed' ? '已完成' : '处理中'}</span></div>
-    </div>
-  `).join('') : '<div class="empty">暂无订单</div>';
-  const risks = state.data?.reportList || [];
-  $('adminRiskSummary').innerHTML = risks.length ? risks.map(r => `
-    <div class="row-card">
-      <div class="row-title">${esc(r.title || '提醒')}</div>
-      <div class="row-sub">${esc(r.summary || '')}</div>
-    </div>
-  `).join('') : '<div class="empty">暂无平台提醒</div>';
-}
-
-function table(containerId, columns, rows){
-  const wrap = $(containerId);
-  if(!wrap) return;
-  if(!rows.length){ wrap.innerHTML = '<div class="empty">暂无数据</div>'; return; }
-  const head = `<div class="table-row header">${columns.map(c => `<div>${esc(c)}</div>`).join('')}</div>`;
-  const body = rows.join('');
-  wrap.innerHTML = `<div class="table">${head}${body}</div>`;
-}
-
-function renderOrders(){
-  const rows = (state.data?.recentOrders || []).map(o => `
-    <div class="table-row">
-      <div>订单 #${esc(String(o.id || '').slice(-6))}<br><span class="row-sub">${esc(o.summary || '')}</span></div>
-      <div>${esc(o.buyerName || '-')} → ${esc(o.sellerName || '-')}</div>
-      <div>${money(o.total)}</div>
-      <div><span class="badge ${o.status === 'completed' ? '' : 'warn'}">${o.status === 'completed' ? '已完成' : '处理中'}</span></div>
-    </div>
-  `);
-  table('adminOrdersTable', ['订单', '买卖双方', '金额', '状态'], rows);
-}
-
-function renderUsers(){
-  const rows = (state.data?.userList || []).map(u => `
-    <div class="table-row">
-      <div>${esc(u.displayName || u.username || '-')}</div>
-      <div>商品 ${u.productCount || 0}</div>
-      <div>卖家订单 ${u.sellerOrderCount || 0}</div>
-      <div><span class="badge ${(u.blacklistCount || 0) ? 'warn' : ''}">${(u.blacklistCount || 0) ? `黑名单 ${esc(u.blacklistCount)}` : '正常'}</span></div>
-    </div>
-  `);
-  table('adminUsersTable', ['用户', '商品数', '卖家订单', '风控'], rows);
-}
-
-function renderProducts(){
-  const rows = (state.data?.productList || []).map(p => `
-    <div class="table-row">
-      <div>${esc(p.title || '-')}</div>
-      <div>${esc(p.sellerName || '-')}</div>
-      <div>${money(p.price)}</div>
-      <div><span class="badge">在售</span></div>
-    </div>
-  `);
-  table('adminProductsTable', ['商品', '卖家', '价格', '状态'], rows);
-}
-
-function renderRisk(){
-  const rows = (state.data?.reportList || []).map(r => `
-    <div class="row-card">
-      <div class="row-title">${esc(r.title || '风险提醒')}</div>
-      <div class="row-sub">${esc(r.summary || '')}</div>
-    </div>
-  `);
-  $('adminRiskTable').innerHTML = rows.length ? rows.join('') : '<div class="empty">暂无风控提醒</div>';
-}
-
-function renderDrafts(){
-  const wrap = $('adminBroadcastDrafts');
-  if(!wrap) return;
-  if(!state.drafts.length){ wrap.innerHTML = '<div class="empty">暂无广播草稿</div>'; return; }
-  wrap.innerHTML = state.drafts.map((d, i) => `
-    <div class="row-card">
-      <div class="row-title">${esc(d.title)}</div>
-      <div class="row-sub">${esc(d.summary)}</div>
-      <div class="row-line">
-        <span class="badge">草稿</span>
-        <button data-draft="${i}">载入</button>
-      </div>
+  $('statsRow').innerHTML = cards.map(c => `
+    <div class="stat-card${c.hl ? ' highlight' : ''}">
+      <div class="stat-label">${esc(c.label)}</div>
+      <div class="stat-val">${esc(c.val)}</div>
+      ${c.sub ? `<div class="stat-sub">${esc(c.sub)}</div>` : ''}
     </div>
   `).join('');
-  wrap.querySelectorAll('button[data-draft]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const item = state.drafts[Number(btn.dataset.draft)];
-      if(!item) return;
-      $('broadcastTitle').value = item.title;
-      $('broadcastSummary').value = item.summary;
-      $('broadcastContent').value = item.content;
+
+  // Trend chart
+  const trend = data.trend || [];
+  renderTrendChart(trend);
+
+  // Order pie
+  renderOrderPie(data.orderStatusCounts || {});
+
+  // Load recent orders
+  loadRecentOrders();
+}
+
+function renderTrendChart(trend) {
+  if (!trend.length) { $('trendChart').innerHTML = '<div class="empty">暂无数据</div>'; return; }
+  const maxVal = Math.max(1, ...trend.map(t => Math.max(t.users, t.orders, t.messages)));
+  const barH = 160;
+  let html = '<div style="display:flex;align-items:flex-end;gap:4px;width:100%;height:' + barH + 'px;padding-bottom:20px">';
+  for (const t of trend) {
+    const h1 = Math.max(2, (t.users / maxVal) * (barH - 30));
+    const h2 = Math.max(2, (t.orders / maxVal) * (barH - 30));
+    const h3 = Math.max(2, (t.messages / maxVal) * (barH - 30));
+    html += `<div class="chart-bar-group">
+      <div style="display:flex;gap:2px;align-items:flex-end;width:100%;height:${barH - 30}px">
+        <div class="chart-bar b1" style="height:${h1}px" title="用户 ${t.users}"></div>
+        <div class="chart-bar b2" style="height:${h2}px" title="订单 ${t.orders}"></div>
+        <div class="chart-bar b3" style="height:${h3}px" title="消息 ${t.messages}"></div>
+      </div>
+      <div class="chart-label">${esc(t.date)}</div>
+    </div>`;
+  }
+  html += '</div><div class="chart-legend"><span class="legend-1">用户</span><span class="legend-2">订单</span><span class="legend-3">消息</span></div>';
+  $('trendChart').innerHTML = html;
+}
+
+function renderOrderPie(counts) {
+  const entries = Object.entries(counts);
+  if (!entries.length) { $('orderPie').innerHTML = '<div class="empty">暂无订单</div>'; return; }
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#ef4444'];
+  let gradParts = [], offset = 0;
+  const legendHtml = [];
+  entries.forEach(([status, count], i) => {
+    const pct = (count / total) * 100;
+    const color = colors[i % colors.length];
+    gradParts.push(`${color} ${offset}% ${offset + pct}%`);
+    offset += pct;
+    const [label] = STATUS_MAP[status] || [status];
+    legendHtml.push(`<div class="pie-legend-item"><div class="pie-dot" style="background:${color}"></div>${esc(label)} ${count}</div>`);
+  });
+  $('orderPie').innerHTML = `<div class="pie-wrap">
+    <div class="pie-chart" style="background:conic-gradient(${gradParts.join(',')})"></div>
+    <div class="pie-legend">${legendHtml.join('')}</div>
+  </div>`;
+}
+
+async function loadRecentOrders() {
+  try {
+    const data = await api('/api/admin/orders?limit=10');
+    const items = data.items || [];
+    if (!items.length) { $('recentOrders').innerHTML = '<div class="empty">暂无订单</div>'; return; }
+    $('recentOrders').innerHTML = items.map(o => `
+      <div class="row-card">
+        <div class="row-title">订单 #${esc(String(o.id).slice(-6))} · ${money(o.total)} ${statusBadge(o.status)}</div>
+        <div class="row-sub">${esc(o.buyerName)} → ${esc(o.sellerName)} · ${esc(o.summary)} · ${fmtDate(o.createdAt)}</div>
+      </div>
+    `).join('');
+  } catch (_) {}
+}
+
+/* ═══════════════════════════════════════
+   TABLE HELPERS
+   ═══════════════════════════════════════ */
+function renderTable(containerId, columns, rows) {
+  const el = $(containerId);
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+  const ths = columns.map(c => `<th>${esc(c.label)}</th>`).join('');
+  el.innerHTML = `<table class="data-table"><thead><tr>${ths}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
+function renderPager(pagerId, total, offset, onPage) {
+  const el = $(pagerId);
+  if (!el || total <= PAGE_SIZE) { if (el) el.innerHTML = ''; return; }
+  const pages = Math.ceil(total / PAGE_SIZE);
+  const current = Math.floor(offset / PAGE_SIZE);
+  let html = `<span>共 ${total} 条</span><div class="pager-btns">`;
+  html += `<button ${current === 0 ? 'disabled' : ''} data-p="${current - 1}">上一页</button>`;
+  for (let i = 0; i < pages && i < 10; i++) {
+    html += `<button class="${i === current ? 'active' : ''}" data-p="${i}">${i + 1}</button>`;
+  }
+  html += `<button ${current >= pages - 1 ? 'disabled' : ''} data-p="${current + 1}">下一页</button></div>`;
+  el.innerHTML = html;
+  el.querySelectorAll('button[data-p]').forEach(btn => {
+    btn.addEventListener('click', () => { const p = Number(btn.dataset.p); if (p >= 0 && p < pages) onPage(p * PAGE_SIZE); });
+  });
+}
+
+/* ═══════════════════════════════════════
+   USERS
+   ═══════════════════════════════════════ */
+async function loadUsers() {
+  const s = state.users;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q, status: s.status, role: s.role });
+  try {
+    const data = await api(`/api/admin/users?${params}`);
+    s.items = data.items || []; s.total = data.total || 0;
+    renderUsers();
+  } catch (e) { toast('加载用户失败'); }
+}
+
+function renderUsers() {
+  const s = state.users;
+  const rows = s.items.map(u => `<tr>
+    <td><div class="user-cell">
+      <div class="avatar-sm">${u.avatarUrl ? `<img src="${esc(u.avatarUrl)}">` : esc((u.displayName || u.username || '?')[0])}</div>
+      <div><div class="user-cell-name">${esc(u.displayName || u.username)}</div><div class="user-cell-sub">@${esc(u.username)} · ${esc(u.appNumberId || '')}</div></div>
+    </div></td>
+    <td>${esc(u.phone || '-')}</td>
+    <td><span class="badge ${u.role === 'admin' ? 'badge-blue' : 'badge-gray'}">${u.role === 'admin' ? '管理员' : '用户'}</span></td>
+    <td><span class="badge ${u.status === 'active' ? 'badge-green' : 'badge-red'}">${u.status === 'active' ? '正常' : '已禁用'}</span></td>
+    <td>${fmtDateShort(u.createdAt)}</td>
+    <td class="cell-actions">
+      <button class="btn-action primary" onclick="viewUser('${esc(u.id)}')">详情</button>
+      <button class="btn-action" onclick="editUser('${esc(u.id)}')">编辑</button>
+    </td>
+  </tr>`);
+  renderTable('usersTable', [
+    { label: '用户' }, { label: '手机号' }, { label: '角色' },
+    { label: '状态' }, { label: '注册' }, { label: '操作' },
+  ], rows);
+  renderPager('usersPager', s.total, s.offset, off => { s.offset = off; loadUsers(); });
+}
+
+window.viewUser = async function(userId) {
+  try {
+    const data = await api(`/api/admin/users/${userId}`);
+    const u = data.user;
+    const prods = data.products || [];
+    const os = data.orderStats || {};
+    let body = `<div class="detail-section"><div class="detail-section-title">基本信息</div><div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">用户名</div><div class="detail-value">${esc(u.username)}</div></div>
+      <div class="detail-item"><div class="detail-label">昵称</div><div class="detail-value">${esc(u.displayName)}</div></div>
+      <div class="detail-item"><div class="detail-label">APP号</div><div class="detail-value">${esc(u.appNumberId)}</div></div>
+      <div class="detail-item"><div class="detail-label">手机号</div><div class="detail-value">${esc(u.phone)}</div></div>
+      <div class="detail-item"><div class="detail-label">角色</div><div class="detail-value">${u.role === 'admin' ? '管理员' : '普通用户'}</div></div>
+      <div class="detail-item"><div class="detail-label">状态</div><div class="detail-value">${u.status === 'active' ? '正常' : '已禁用'}</div></div>
+      <div class="detail-item"><div class="detail-label">签名</div><div class="detail-value">${esc(u.signature || '-')}</div></div>
+      <div class="detail-item"><div class="detail-label">注册时间</div><div class="detail-value">${fmtDate(u.createdAt)}</div></div>
+    </div></div>`;
+    body += `<div class="detail-section"><div class="detail-section-title">订单统计</div><div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">买家订单</div><div class="detail-value">${os.asBuyer}</div></div>
+      <div class="detail-item"><div class="detail-label">卖家订单</div><div class="detail-value">${os.asSeller}</div></div>
+      <div class="detail-item"><div class="detail-label">待处理</div><div class="detail-value">${os.pending}</div></div>
+      <div class="detail-item"><div class="detail-label">好友数</div><div class="detail-value">${data.friendCount}</div></div>
+    </div></div>`;
+    if (prods.length) {
+      body += `<div class="detail-section"><div class="detail-section-title">商品列表 (${prods.length})</div>`;
+      for (const p of prods.slice(0, 10)) {
+        body += `<div class="row-card"><div class="row-title">${esc(p.title)} · ${money(p.price)}</div><div class="row-sub">库存 ${p.stock} · ${p.listed ? '上架' : '下架'} · ${esc(p.category || '')}</div></div>`;
+      }
+      if (prods.length > 10) body += `<div class="row-sub">还有 ${prods.length - 10} 件商品...</div>`;
+      body += '</div>';
+    }
+    if (u.blacklist?.length) {
+      body += `<div class="detail-section"><div class="detail-section-title">黑名单 (${u.blacklist.length})</div>`;
+      for (const b of u.blacklist.slice(0, 10)) body += `<div class="row-card"><div class="row-sub">${esc(b.displayName)}</div></div>`;
+      body += '</div>';
+    }
+    openModal('用户详情 - ' + (u.displayName || u.username), body, '');
+  } catch (e) { toast('加载失败: ' + e.message); }
+};
+
+window.editUser = async function(userId) {
+  try {
+    const data = await api(`/api/admin/users/${userId}`);
+    const u = data.user;
+    const body = `
+      <div class="form-group"><label>昵称</label><input id="eu_name" value="${esc(u.displayName || '')}"></div>
+      <div class="form-group"><label>签名</label><input id="eu_sig" value="${esc(u.signature || '')}"></div>
+      <div class="form-group"><label>状态</label><select id="eu_status"><option value="active" ${u.status==='active'?'selected':''}>正常</option><option value="disabled" ${u.status==='disabled'?'selected':''}>禁用</option></select></div>
+      <div class="form-group"><label>角色</label><select id="eu_role"><option value="user" ${u.role!=='admin'?'selected':''}>普通用户</option><option value="admin" ${u.role==='admin'?'selected':''}>管理员</option></select></div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid #e5e7eb">
+      <div class="detail-section-title">重置密码</div>
+      <div class="form-group"><label>新密码（留空则不修改）</label><input id="eu_pw" type="password" placeholder="输入新密码"></div>
+    `;
+    const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" onclick="saveUser('${esc(userId)}')">保存修改</button>`;
+    openModal('编辑用户 - ' + (u.displayName || u.username), body, footer);
+  } catch (e) { toast('加载失败'); }
+};
+
+window.saveUser = async function(userId) {
+  try {
+    const body = {
+      displayName: $('eu_name').value.trim(),
+      signature: $('eu_sig').value.trim(),
+      status: $('eu_status').value,
+      role: $('eu_role').value,
+    };
+    await api(`/api/admin/users/${userId}/update`, { method: 'POST', body: JSON.stringify(body) });
+    const pw = $('eu_pw').value.trim();
+    if (pw) await api(`/api/admin/users/${userId}/reset-password`, { method: 'POST', body: JSON.stringify({ password: pw }) });
+    closeModal();
+    toast('用户已更新');
+    loadUsers();
+  } catch (e) { toast('保存失败: ' + e.message); }
+};
+
+/* ═══════════════════════════════════════
+   ORDERS
+   ═══════════════════════════════════════ */
+async function loadOrders() {
+  const s = state.orders;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q, status: s.status });
+  try {
+    const data = await api(`/api/admin/orders?${params}`);
+    s.items = data.items || []; s.total = data.total || 0;
+    renderOrdersTable();
+  } catch (e) { toast('加载订单失败'); }
+}
+
+function renderOrdersTable() {
+  const s = state.orders;
+  const rows = s.items.map(o => `<tr>
+    <td><span style="font-weight:700">#${esc(String(o.id).slice(-6))}</span><br><span class="user-cell-sub">${fmtDate(o.createdAt)}</span></td>
+    <td>${esc(o.buyerName)}</td>
+    <td>${esc(o.sellerName)}</td>
+    <td style="font-weight:700">${money(o.total)}</td>
+    <td>${statusBadge(o.status)}</td>
+    <td><span class="user-cell-sub">${esc(o.summary)}</span></td>
+    <td class="cell-actions">
+      <button class="btn-action primary" onclick="viewOrder('${esc(o.id)}')">详情</button>
+      <button class="btn-action" onclick="changeOrderStatus('${esc(o.id)}','${esc(o.status)}')">改状态</button>
+    </td>
+  </tr>`);
+  renderTable('ordersTable', [
+    { label: '订单' }, { label: '买家' }, { label: '卖家' },
+    { label: '金额' }, { label: '状态' }, { label: '摘要' }, { label: '操作' },
+  ], rows);
+  renderPager('ordersPager', s.total, s.offset, off => { s.offset = off; loadOrders(); });
+}
+
+window.viewOrder = async function(orderId) {
+  try {
+    const data = await api(`/api/admin/orders/${orderId}`);
+    const o = data.order;
+    let body = `<div class="detail-section"><div class="detail-grid">
+      <div class="detail-item"><div class="detail-label">订单号</div><div class="detail-value">${esc(o.id)}</div></div>
+      <div class="detail-item"><div class="detail-label">状态</div><div class="detail-value">${statusBadge(o.status)}</div></div>
+      <div class="detail-item"><div class="detail-label">买家</div><div class="detail-value">${esc(o.buyerName)}</div></div>
+      <div class="detail-item"><div class="detail-label">卖家</div><div class="detail-value">${esc(o.sellerName)}</div></div>
+      <div class="detail-item"><div class="detail-label">总金额</div><div class="detail-value" style="font-size:18px;color:#7c3aed">${money(o.total)}</div></div>
+      <div class="detail-item"><div class="detail-label">备注</div><div class="detail-value">${esc(o.remark || '-')}</div></div>
+      <div class="detail-item"><div class="detail-label">创建时间</div><div class="detail-value">${fmtDate(o.createdAt)}</div></div>
+      <div class="detail-item"><div class="detail-label">更新时间</div><div class="detail-value">${fmtDate(o.updatedAt)}</div></div>
+    </div></div>`;
+    if (o.items?.length) {
+      body += '<div class="detail-section"><div class="detail-section-title">商品明细</div>';
+      for (const item of o.items) {
+        body += `<div class="row-card"><div class="row-title">${esc(item.title)} (${esc(item.spec)})</div><div class="row-sub">单价 ${money(item.price)} × ${item.quantity} = ${money(item.price * item.quantity)}</div></div>`;
+      }
+      body += '</div>';
+    }
+    openModal('订单详情', body, '');
+  } catch (e) { toast('加载失败'); }
+};
+
+window.changeOrderStatus = function(orderId, current) {
+  const statuses = ['pending', 'accepted', 'processing', 'in_progress', 'completed'];
+  const opts = statuses.map(s => `<option value="${s}" ${s===current?'selected':''}>${(STATUS_MAP[s]||[s])[0]}</option>`).join('');
+  const body = `<div class="form-group"><label>当前状态: ${statusBadge(current)}</label></div><div class="form-group"><label>修改为</label><select id="cos_status">${opts}</select></div>`;
+  const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" onclick="doChangeOrderStatus('${esc(orderId)}')">确认修改</button>`;
+  openModal('修改订单状态', body, footer);
+};
+
+window.doChangeOrderStatus = async function(orderId) {
+  try {
+    await api(`/api/admin/orders/${orderId}/status`, { method: 'POST', body: JSON.stringify({ status: $('cos_status').value }) });
+    closeModal(); toast('订单状态已更新'); loadOrders();
+  } catch (e) { toast('操作失败: ' + e.message); }
+};
+
+/* ═══════════════════════════════════════
+   PRODUCTS
+   ═══════════════════════════════════════ */
+async function loadProducts() {
+  const s = state.products;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q, listed: s.listed });
+  try {
+    const data = await api(`/api/admin/products?${params}`);
+    s.items = data.items || []; s.total = data.total || 0;
+    renderProductsTable();
+  } catch (e) { toast('加载商品失败'); }
+}
+
+function renderProductsTable() {
+  const s = state.products;
+  const rows = s.items.map(p => `<tr>
+    <td><div class="user-cell">
+      ${p.image ? `<div class="avatar-sm"><img src="${esc(p.image)}"></div>` : ''}
+      <div><div class="user-cell-name">${esc(p.title)}</div><div class="user-cell-sub">${esc(p.category || '-')}</div></div>
+    </div></td>
+    <td>${esc(p.sellerName)}</td>
+    <td style="font-weight:700">${money(p.price)}</td>
+    <td>${p.stock}</td>
+    <td><span class="badge ${p.listed ? 'badge-green' : 'badge-gray'}">${p.listed ? '上架' : '下架'}</span></td>
+    <td class="cell-actions">
+      <button class="btn-action" onclick="editProduct('${esc(p.id)}','${esc(p.title)}','${esc(p.price)}',${p.stock},${p.listed})">编辑</button>
+      <button class="btn-action danger" onclick="delProduct('${esc(p.id)}','${esc(p.title)}')">删除</button>
+    </td>
+  </tr>`);
+  renderTable('productsTable', [
+    { label: '商品' }, { label: '卖家' }, { label: '价格' },
+    { label: '库存' }, { label: '状态' }, { label: '操作' },
+  ], rows);
+  renderPager('productsPager', s.total, s.offset, off => { s.offset = off; loadProducts(); });
+}
+
+window.editProduct = function(id, title, price, stock, listed) {
+  const body = `
+    <div class="form-group"><label>标题</label><input id="ep_title" value="${esc(title)}"></div>
+    <div class="form-group"><label>价格</label><input id="ep_price" value="${esc(price)}"></div>
+    <div class="form-group"><label>库存</label><input id="ep_stock" type="number" value="${stock}"></div>
+    <div class="form-group"><label>状态</label><select id="ep_listed"><option value="true" ${listed?'selected':''}>上架</option><option value="false" ${!listed?'selected':''}>下架</option></select></div>
+  `;
+  const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" onclick="doEditProduct('${esc(id)}')">保存</button>`;
+  openModal('编辑商品', body, footer);
+};
+
+window.doEditProduct = async function(id) {
+  try {
+    await api(`/api/admin/products/${id}/update`, {
+      method: 'POST',
+      body: JSON.stringify({ title: $('ep_title').value, price: $('ep_price').value, stock: Number($('ep_stock').value), listed: $('ep_listed').value === 'true' }),
+    });
+    closeModal(); toast('商品已更新'); loadProducts();
+  } catch (e) { toast('保存失败: ' + e.message); }
+};
+
+window.delProduct = function(id, title) {
+  const body = `<p>确定要删除商品「${esc(title)}」吗？此操作不可恢复。</p>`;
+  const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" style="background:#dc2626" onclick="doDelProduct('${esc(id)}')">确认删除</button>`;
+  openModal('删除商品', body, footer);
+};
+
+window.doDelProduct = async function(id) {
+  try {
+    await api(`/api/admin/products/${id}/delete`, { method: 'POST', body: '{}' });
+    closeModal(); toast('商品已删除'); loadProducts();
+  } catch (e) { toast('删除失败: ' + e.message); }
+};
+
+/* ═══════════════════════════════════════
+   CONVERSATIONS
+   ═══════════════════════════════════════ */
+async function loadConversations() {
+  const s = state.convs;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q });
+  try {
+    const data = await api(`/api/admin/conversations?${params}`);
+    s.items = data.items || []; s.total = data.total || 0;
+    renderConvsTable();
+  } catch (e) { toast('加载会话失败'); }
+}
+
+function renderConvsTable() {
+  const s = state.convs;
+  const rows = s.items.map(c => {
+    const names = (c.members || []).map(m => esc(m.displayName)).join(' ↔ ');
+    return `<tr>
+      <td><span class="user-cell-name">${names}</span></td>
+      <td><span class="badge badge-gray">${esc(c.type)}</span></td>
+      <td>${c.messageCount}</td>
+      <td>${fmtDate(c.lastMessageAt)}</td>
+      <td><button class="btn-action primary" onclick="viewConvMessages('${esc(c.id)}')">查看消息</button></td>
+    </tr>`;
+  });
+  renderTable('convsTable', [
+    { label: '会话成员' }, { label: '类型' }, { label: '消息数' },
+    { label: '最后活跃' }, { label: '操作' },
+  ], rows);
+  renderPager('convsPager', s.total, s.offset, off => { s.offset = off; loadConversations(); });
+}
+
+window.viewConvMessages = async function(convId) {
+  try {
+    const data = await api(`/api/admin/conversations/${convId}/messages?limit=50`);
+    const msgs = data.items || [];
+    if (!msgs.length) { openModal('会话消息', '<div class="empty">暂无消息</div>', ''); return; }
+    let body = '';
+    for (const m of msgs) {
+      const typeLabel = m.type === 'text' ? '' : ` [${esc(m.type)}]`;
+      body += `<div class="row-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div class="row-title">${esc(m.senderName)}${typeLabel} <span class="user-cell-sub">${fmtDate(m.createdAt)}</span></div>
+          <div class="row-sub" style="word-break:break-all">${esc(m.text || m.imageUrl || m.audioUrl || '[非文本]')}</div>
+        </div>
+        <button class="btn-action danger" onclick="adminDeleteMsg('${esc(m.id)}','${esc(convId)}')">删除</button>
+      </div>`;
+    }
+    if (data.total > 50) body += `<div class="row-sub" style="text-align:center;padding:8px">还有 ${data.total - 50} 条消息...</div>`;
+    openModal(`会话消息 (${data.total})`, body, '');
+  } catch (e) { toast('加载失败'); }
+};
+
+window.adminDeleteMsg = async function(msgId, convId) {
+  if (!confirm('确定要删除此消息吗？')) return;
+  try {
+    await api(`/api/admin/messages/${msgId}/delete`, { method: 'POST', body: '{}' });
+    toast('消息已删除');
+    viewConvMessages(convId);
+  } catch (e) { toast('删除失败: ' + e.message); }
+};
+
+/* ═══════════════════════════════════════
+   BROADCAST
+   ═══════════════════════════════════════ */
+async function loadBroadcastHistory() {
+  try {
+    const data = await api('/api/system/messages');
+    const items = data.items || [];
+    if (!items.length) { $('broadcastHistory').innerHTML = '<div class="empty">暂无广播</div>'; return; }
+    $('broadcastHistory').innerHTML = items.map(m => `
+      <div class="row-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div class="row-title">${esc(m.title)}</div>
+          <div class="row-sub">${esc(m.summary)} · ${fmtDate(m.createdAt)}</div>
+        </div>
+        <button class="btn-action danger" onclick="delBroadcast('${esc(m.id)}')">删除</button>
+      </div>
+    `).join('');
+  } catch (_) {}
+}
+
+window.delBroadcast = async function(id) {
+  if (!confirm('确定要删除此广播消息吗？')) return;
+  try {
+    await api(`/api/admin/system/messages/${id}/delete`, { method: 'POST', body: '{}' });
+    toast('广播已删除');
+    loadBroadcastHistory();
+  } catch (e) { toast('删除失败: ' + e.message); }
+};
+
+async function publishBroadcast() {
+  const title = $('bcTitle').value.trim();
+  const summary = $('bcSummary').value.trim();
+  const cover = $('bcCover').value.trim();
+  if (!title && !summary) { toast('请输入标题或摘要'); return; }
+  try {
+    await api('/api/admin/system/messages', { method: 'POST', body: JSON.stringify({ title: title || '系统消息', summary: summary || '请查看最新通知', cover }) });
+    toast('广播已发布');
+    $('bcTitle').value = ''; $('bcSummary').value = ''; $('bcCover').value = '';
+    loadBroadcastHistory();
+  } catch (e) { toast('发布失败: ' + e.message); }
+}
+
+/* ═══════════════════════════════════════
+   SEARCH DEBOUNCE
+   ═══════════════════════════════════════ */
+function debounce(fn, ms) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+
+function bindSearch(inputId, stateKey, loader) {
+  const el = $(inputId);
+  if (!el) return;
+  el.addEventListener('input', debounce(() => {
+    state[stateKey].q = el.value.trim();
+    state[stateKey].offset = 0;
+    loader();
+  }, 350));
+}
+
+function bindFilter(selectId, stateKey, filterKey, loader) {
+  const el = $(selectId);
+  if (!el) return;
+  el.addEventListener('change', () => {
+    state[stateKey][filterKey] = el.value;
+    state[stateKey].offset = 0;
+    loader();
+  });
+}
+
+/* ═══════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════ */
+function initApp() {
+  $('adminInfo').textContent = '管理员已登录';
+
+  // Tab navigation
+  document.querySelectorAll('.nav-item').forEach(n => {
+    n.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchTab(n.dataset.tab);
+      // Close mobile sidebar
+      $('sidebar').classList.remove('open');
     });
   });
+
+  // Menu toggle (mobile)
+  $('menuToggle').addEventListener('click', () => $('sidebar').classList.toggle('open'));
+
+  // Search & filters
+  bindSearch('userSearch', 'users', loadUsers);
+  bindFilter('userStatusFilter', 'users', 'status', loadUsers);
+  bindFilter('userRoleFilter', 'users', 'role', loadUsers);
+  bindSearch('orderSearch', 'orders', loadOrders);
+  bindFilter('orderStatusFilter', 'orders', 'status', loadOrders);
+  bindSearch('productSearch', 'products', loadProducts);
+  bindFilter('productListedFilter', 'products', 'listed', loadProducts);
+  bindSearch('convSearch', 'convs', loadConversations);
+
+  // Refresh
+  $('refreshBtn').addEventListener('click', () => loadTabData(state.tab));
+
+  // Broadcast
+  $('bcPublishBtn').addEventListener('click', publishBroadcast);
+
+  // Logout
+  $('logoutBtn').addEventListener('click', () => {
+    localStorage.removeItem(ADMIN_SESSION_KEY);
+    showLogin();
+  });
+
+  // Modal close
+  $('modalCloseBtn').addEventListener('click', closeModal);
+  $('detailModal').addEventListener('click', (e) => { if (e.target === $('detailModal')) closeModal(); });
+
+  // Load initial data
+  switchTab('dashboard');
 }
 
-async function loadDashboard(){
+/* ═══════════════════════════════════════
+   BOOT
+   ═══════════════════════════════════════ */
+(async function boot() {
+  // Login form
+  $('loginBtn').addEventListener('click', doLogin);
+  $('loginPass').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  $('loginUser').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginPass').focus(); });
+
+  // Check existing session
   const token = getToken();
-  if(!token){
-    showAdminMsg('未检测到登录态，请先在用户端登录，再打开后台页。');
-    return;
+  if (token) {
+    try {
+      await api('/api/admin/stats');
+      showApp();
+      initApp();
+      return;
+    } catch (_) {}
   }
-  try{
-    state.data = await api('/api/admin/dashboard');
-  }catch(err){
-    showAdminMsg(err.message || '后台数据加载失败');
-    state.data = { stats:{}, recentOrders:[], userList:[], productList:[], reportList:[] };
-  }
-  renderOverview();
-  renderOrders();
-  renderUsers();
-  renderProducts();
-  renderRisk();
-}
-
-function bind(){
-  document.querySelectorAll('.admin-nav button').forEach(btn => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
-  $('adminRefreshBtn').addEventListener('click', loadDashboard);
-  $('adminLogoutBtn').addEventListener('click', () => {
-    localStorage.removeItem('token');
-    sessionStorage.removeItem('token');
-    localStorage.removeItem(SESSION_KEY);
-    showAdminMsg('已清除本地登录态');
-  });
-  $('adminSaveBroadcastDraftBtn').addEventListener('click', () => {
-    const draft = {
-      title: $('broadcastTitle').value.trim() || '图文通知',
-      summary: $('broadcastSummary').value.trim() || '广播摘要',
-      content: $('broadcastContent').value.trim(),
-    };
-    state.drafts.unshift(draft);
-    renderDrafts();
-    showAdminMsg('草稿已保存');
-  });
-  $('adminSendBroadcastBtn').addEventListener('click', async () => {
-    const title = $('broadcastTitle').value.trim() || '系统消息';
-    const summary = $('broadcastSummary').value.trim() || $('broadcastContent').value.trim() || '请查看最新通知';
-    try{
-      await api('/api/admin/system/messages', { method:'POST', body: JSON.stringify({ title, summary, cover: '' }) });
-      showAdminMsg('系统消息已发布');
-      await loadDashboard();
-    }catch(err){
-      showAdminMsg(err.message || '发布失败');
-    }
-  });
-}
-
-bind();
-loadDashboard();
-renderDrafts();
-setTab('overview');
+  showLogin();
+})();
