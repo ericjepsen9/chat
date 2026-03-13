@@ -51,12 +51,17 @@ const on = (id, ev, fn) => {
 };
 
 async function api(p, o={}) {
-    const session = readSession();
-    const headers = { ...(o.headers || {}) };
+    const headers = o.headers ? { ...o.headers } : {};
     if (!(o.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-    const token = state.sessionToken || session.token;
+    // Use in-memory tokens first; only read localStorage as fallback
+    let token = state.sessionToken;
+    let csrf = state.csrfToken;
+    if (!token) {
+      const session = readSession();
+      token = session.token;
+      csrf = csrf || session.csrfToken;
+    }
     if (token) headers.Authorization = `Bearer ${token}`;
-    const csrf = state.csrfToken || session.csrfToken;
     if (csrf && o.method && o.method !== 'GET') headers['X-CSRF-Token'] = csrf;
     let r;
     try {
@@ -79,6 +84,13 @@ async function api(p, o={}) {
 }
 function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
+// Safe DOM setters — avoid repeated null-check + property-set patterns
+function setText(id, val) { const el = $(id); if (el) el.textContent = val; }
+function hideEl(id) { const el = $(id); if (el) el.classList.add('hidden'); }
+function showEl(id) { const el = $(id); if (el) el.classList.remove('hidden'); }
+function toggleEl(id, cls, force) { const el = $(id); if (el) el.classList.toggle(cls, force); }
+function createEl(tag, className, text) { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; }
+function hideOnError(el) { el.onerror = function() { this.style.display = 'none'; }; }
 // Loading overlay for async operations
 function showLoading(msg = '加载中...') {
   let overlay = $('globalLoadingOverlay');
@@ -118,7 +130,7 @@ function withButtonLock(btn, asyncFn, loadingText) {
   const origText = btn.textContent;
   btn.disabled = true;
   if (loadingText) btn.textContent = loadingText;
-  Promise.resolve(asyncFn()).catch((e) => { showToast(e?.message || '操作失败'); }).finally(() => {
+  Promise.resolve(asyncFn()).catch((e) => { showModal(e?.message || '操作失败'); }).finally(() => {
     btn.disabled = false;
     if (loadingText) btn.textContent = origText;
   });
@@ -282,6 +294,15 @@ function appendActionButton(container, label, handler) {
   container.appendChild(btn);
   return btn;
 }
+// Create a button that stops event propagation on click
+function createStopBtn(className, text, handler) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = className;
+  btn.textContent = text;
+  btn.addEventListener('click', (e) => { e.stopPropagation(); handler(e, btn); });
+  return btn;
+}
 function renderAvatarHtml(userObj, fallbackName) {
   if (!userObj) return `<div class="avatar">${firstChar(fallbackName)}</div>`;
   const safeAvatar = normalizeMediaUrl(userObj.avatarUrl);
@@ -395,4 +416,89 @@ function formatConversationTime(timestamp) {
   if (diffDays < 7) return _WEEKDAYS[d.getDay()];
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Signature memoization: returns true if sig changed, false if same (skip render)
+// Use Map with bounded size to prevent unbounded memory growth
+const _sigCache = new Map();
+const _SIG_CACHE_MAX = 500;
+function sigChanged(key, newSig) {
+  if (_sigCache.get(key) === newSig) return false;
+  _sigCache.set(key, newSig);
+  // Prune oldest entries when cache exceeds limit
+  if (_sigCache.size > _SIG_CACHE_MAX) {
+    const it = _sigCache.keys();
+    for (let i = _sigCache.size - _SIG_CACHE_MAX; i > 0; i--) _sigCache.delete(it.next().value);
+  }
+  return true;
+}
+
+// Build a profile-order-card element with title and subtitle
+function buildProfileCard(titleText, subText, tagName) {
+  const card = document.createElement(tagName || 'div');
+  card.className = 'profile-order-card';
+  if (tagName === 'button') card.type = 'button';
+  const title = document.createElement('div');
+  title.className = 'profile-order-title';
+  title.textContent = titleText;
+  const sub = document.createElement('div');
+  sub.className = 'profile-order-sub';
+  sub.textContent = subText;
+  card.append(title, sub);
+  return card;
+}
+
+// Create a flex info column with a bold name, and append it + avatar to a container
+function appendUserInfo(container, avatarObj, displayText) {
+  container.appendChild(createAvatarNode(avatarObj, displayText));
+  const info = document.createElement('div');
+  info.style.cssText = 'flex:1;min-width:0;text-align:left;';
+  const strong = document.createElement('strong');
+  strong.textContent = displayText;
+  info.appendChild(strong);
+  container.appendChild(info);
+  return info;
+}
+
+// Render an empty-state placeholder inside a container
+function showEmptyState(container, message, className) {
+  const empty = document.createElement('div');
+  empty.className = className || 'empty-state';
+  empty.textContent = message;
+  container.replaceChildren(empty);
+}
+
+// Reconcile a list of items into a container using signature-based diffing.
+// Returns the new signatures map { key -> sig }.
+// opts: { selector, keyFn(item), sigFn(item), buildFn(item), patchFn(existingNode, item), sigStore }
+function reconcileList(container, items, opts) {
+  const existingNodes = new Map(Array.from(container.querySelectorAll(opts.selector)).map(n => [n.dataset[opts.dataKey], n]));
+  const nextSigs = {};
+  const orderedNodes = [];
+  items.forEach(item => {
+    const key = opts.keyFn(item);
+    const sig = opts.sigFn(item);
+    nextSigs[key] = sig;
+    const existing = existingNodes.get(key);
+    let node = existing;
+    if (!existing) node = opts.buildFn(item);
+    else if (opts.sigStore[key] !== sig) node = opts.patchFn(existing, item);
+    orderedNodes.push(node);
+    existingNodes.delete(key);
+  });
+  const needsOrderUpdate = orderedNodes.length !== container.childElementCount || orderedNodes.some((n, i) => container.children[i] !== n);
+  if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
+  else existingNodes.forEach(n => n.remove());
+  return nextSigs;
+}
+
+function singleFlight(fn) {
+  let inflight = null;
+  return function (...args) {
+    if (inflight) return inflight;
+    inflight = fn.apply(this, args);
+    const cleanup = () => { inflight = null; };
+    inflight.then(cleanup, cleanup);
+    return inflight;
+  };
 }

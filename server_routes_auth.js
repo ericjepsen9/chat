@@ -16,9 +16,18 @@ module.exports = function createAuthRoutes(ctx) {
     schedulePersistCritical, broadcastAll,
   } = ctx;
 
+  function validatePasswordLength(password) {
+    if (!password || password.length < 8) return '新密码至少8位';
+    if (password.length > 128) return '密码长度不能超过128位';
+    return null;
+  }
+
   return async function handleAuthRoutes(pathname, method, req, res, searchParams) {
 
-    if (matchRoute(pathname, '/api/login') && method === 'POST') {
+    // All auth routes are POST-only
+    if (method !== 'POST') return false;
+
+    if (matchRoute(pathname, '/api/login')) {
       const body = await parseBody(req);
       const username = String(body.username || body.phone || '').trim();
       const loginPhone = normalizePhone(body.phone || username);
@@ -43,12 +52,13 @@ module.exports = function createAuthRoutes(ctx) {
         user.password = await hashPasswordAsync(body.password);
         await schedulePersistCritical('migrate_password', { userId: user.id });
       }
+      revokeSessionsForUser(user.id);
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
-    if (matchRoute(pathname, '/api/auth/send-code') && method === 'POST') {
+    if (matchRoute(pathname, '/api/auth/send-code')) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const scene = String(body.scene || 'login');
@@ -69,7 +79,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true, expiresInSec: issueResult.expiresInSec });
     }
 
-    if (matchRoute(pathname, '/api/login/phone-code') && method === 'POST') {
+    if (matchRoute(pathname, '/api/login/phone-code')) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
@@ -112,12 +122,13 @@ module.exports = function createAuthRoutes(ctx) {
         await schedulePersistCritical('register', { userId: user.id });
         broadcastAll('users_updated', { userId: user.id });
       }
+      revokeSessionsForUser(user.id);
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
-    if (matchRoute(pathname, '/api/password/forgot') && method === 'POST') {
+    if (matchRoute(pathname, '/api/password/forgot')) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
@@ -128,8 +139,8 @@ module.exports = function createAuthRoutes(ctx) {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
       }
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
-      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
-      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
+      const pwErr1 = validatePasswordLength(nextPassword);
+      if (pwErr1) return sendJson(res, 400, { error: pwErr1 });
       if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
@@ -149,7 +160,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true });
     }
 
-    if (matchRoute(pathname, '/api/password/change') && method === 'POST') {
+    if (matchRoute(pathname, '/api/password/change')) {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
       const body = await parseBody(req);
@@ -163,8 +174,8 @@ module.exports = function createAuthRoutes(ctx) {
       if (String(body.oldPassword || '') === nextPassword) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
-      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
-      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
+      const pwErr2 = validatePasswordLength(nextPassword);
+      if (pwErr2) return sendJson(res, 400, { error: pwErr2 });
       authUser.password = await hashPasswordAsync(nextPassword);
       revokeSessionsForUser(authUser.id);
       const token = issueSession(authUser.id);
@@ -173,27 +184,29 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true, token, csrfToken });
     }
 
-    if (matchRoute(pathname, '/api/logout') && method === 'POST') {
+    if (matchRoute(pathname, '/api/logout')) {
       const authUser = getAuthedUser(req, res);
       if (!authUser) return true;
-      const token = parseAuthToken(req, searchParams);
+      const token = parseAuthToken(req);
       if (token) { sessions.delete(token); csrfTokens.delete(token); }
       return sendJson(res, 200, { ok: true });
     }
 
-    if (matchRoute(pathname, '/api/register') && method === 'POST') {
+    if (matchRoute(pathname, '/api/register')) {
       const body = await parseBody(req);
       if (!body.displayName || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
       const displayName = String(body.displayName).trim();
       if (!displayName) return sendJson(res, 400, { error: '昵称不能为空' });
-      if (String(body.password || '').length < 8) {
-        return sendJson(res, 400, { error: '密码至少8位' });
-      }
+      const regPwErr = validatePasswordLength(body.password);
+      if (regPwErr) return sendJson(res, 400, { error: regPwErr });
       const phone = normalizePhone(body.phone || '');
       if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
       const username = phone;
       const regCode = String(body.code || '').trim();
       if (!regCode) return sendJson(res, 400, { error: '请输入验证码' });
+      // Check for duplicate user BEFORE consuming the phone code to avoid wasting the code on a doomed registration
+      if (ctx.index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
+      if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const codeResult = consumePhoneCode(phone, regCode, 'register');
       if (!codeResult.ok) {
         const fallbackResult = consumePhoneCode(phone, regCode, 'login');
@@ -201,10 +214,8 @@ module.exports = function createAuthRoutes(ctx) {
           return sendJson(res, 400, { error: fallbackResult.error || '验证码错误或已过期' });
         }
       }
-      if (ctx.index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      if (String(body.password || '').length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
       const hashedPassword = await hashPasswordAsync(body.password);
+      // Re-check after async hash to guard against race condition
       if (ctx.index.usersByName.has(username) || findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const user = {
         id: uid('u'),

@@ -71,7 +71,16 @@ function shouldPresentIncomingUI(payload) {
   state.rtc.incomingShownKey = key;
   return true;
 }
-async function enqueueSignal(conversationId, payload) { await api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) }).catch(() => {}); }
+async function enqueueSignal(conversationId, payload) {
+  try {
+    await api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) });
+  } catch (err) {
+    console.warn('[call] signal delivery failed:', err?.message || err);
+    if (state.rtc.phase && state.rtc.phase !== 'idle') {
+      showToast('通话信号发送失败，通话可能中断');
+    }
+  }
+}
 
 function resolveCallPeerMeta(peerId, fallbackName = '') {
   let name = fallbackName || peerId || '';

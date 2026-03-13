@@ -1,6 +1,4 @@
-function normalizeText(value, maxLen) {
-  return String(value || '').trim().slice(0, maxLen);
-}
+const { normalizeText } = require('./order_utils');
 
 function normalizeCoverUrl(value) {
   const url = String(value || '').trim().slice(0, 512);

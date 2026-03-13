@@ -1,4 +1,4 @@
-module.exports = function createIndexManager({ db, index, normalizeUserRole, normalizePhone }) {
+module.exports = function createIndexManager({ db, index, normalizeUserRole, normalizePhone, generateUniqueAppNumberId }) {
 function addToMapArray(map, key, value) {
   if (!map.has(key)) map.set(key, []);
   map.get(key).push(value);
@@ -7,6 +7,16 @@ function addToMapArray(map, key, value) {
 const DEFAULT_GROUP = '我的好友';
 const MAX_GROUPS = 20;
 const MAX_GROUP_NAME_LEN = 20;
+const MAX_PAYMENT_CODE_LEN = 512;
+
+function normalizePaymentCodes(codes) {
+  if (!codes || typeof codes !== 'object') return { wechat: '', alipay: '', cloudpay: '' };
+  return {
+    wechat: String(codes.wechat || '').slice(0, MAX_PAYMENT_CODE_LEN),
+    alipay: String(codes.alipay || '').slice(0, MAX_PAYMENT_CODE_LEN),
+    cloudpay: String(codes.cloudpay || '').slice(0, MAX_PAYMENT_CODE_LEN),
+  };
+}
 
 function normalizeUserCustomGroups(groups) {
   const ordered = [];
@@ -49,7 +59,8 @@ function rebuildMallIndex() {
     for (let p = 0; p < products.length; p++) {
       const product = products[p];
       if (product?.listed === false) continue;
-      // Assign seller fields directly to avoid object spread copy
+      // Skip stock-zero products from mall listing
+      if (Number(product.stock || 0) <= 0) continue;
       product.sellerId = sellerId;
       product.sellerName = sellerName;
       product.sellerAvatarUrl = sellerAvatarUrl;
@@ -69,15 +80,14 @@ function rebuildRequestViewsIndex() {
     for (const req of requests) {
       const fromUser = index.usersById.get(req.userId);
       if (!fromUser) continue;
-      views.push({
-        ...req,
-        sender: {
-          id: fromUser.id,
-          displayName: fromUser.displayName,
-          avatarUrl: fromUser.avatarUrl,
-          username: fromUser.username,
-        },
-      });
+      // Attach sender directly instead of spread-copying the entire request object
+      req.sender = {
+        id: fromUser.id,
+        displayName: fromUser.displayName,
+        avatarUrl: fromUser.avatarUrl,
+        username: fromUser.username,
+      };
+      views.push(req);
     }
     index.requestViewsByTarget.set(targetId, views);
   }
@@ -104,17 +114,16 @@ function rebuildFriendViewsIndex() {
     for (const rel of rels) {
       const u = index.usersById.get(rel.friendId);
       if (!u) continue;
-      views.push({
-        ...rel,
-        friend: {
-          id: u.id,
-          username: u.username,
-          displayName: u.displayName,
-          avatarUrl: u.avatarUrl,
-          appNumberId: u.appNumberId,
-          remark: rel.remark,
-        },
-      });
+      // Attach friend view directly to avoid spread-copying each relation object
+      rel.friend = {
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName,
+        avatarUrl: u.avatarUrl,
+        appNumberId: u.appNumberId,
+        remark: rel.remark,
+      };
+      views.push(rel);
     }
     index.friendViewsByUser.set(userId, views);
   }
@@ -150,7 +159,9 @@ function rebuildIndexes() {
   index.usersByAppNumber.clear();
   index.convById.clear();
   index.convByUser.clear();
+  index.directConvByPair.clear();
   index.messagesByConv.clear();
+  index.messagesById.clear();
   index.friendshipsByUser.clear();
   index.friendshipByPair.clear();
   index.friendViewsByUser.clear();
@@ -164,19 +175,15 @@ function rebuildIndexes() {
   for (const user of db.users) {
     if (!Array.isArray(user.blacklist)) user.blacklist = [];
     if (!Array.isArray(user.products)) user.products = [];
-    user.products = user.products.map((p) => {
+    for (let pi = 0; pi < user.products.length; pi++) {
+      const p = user.products[pi];
       const next = p && typeof p === 'object' ? p : {};
+      if (next !== p) user.products[pi] = next;
       const rawStock = Number(next.stock);
       next.stock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 99;
       next.listed = next.listed !== false;
-      return next;
-    });
-    if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
-    user.paymentCodes = {
-      wechat: String(user.paymentCodes.wechat || '').slice(0, 512),
-      alipay: String(user.paymentCodes.alipay || '').slice(0, 512),
-      cloudpay: String(user.paymentCodes.cloudpay || '').slice(0, 512),
-    };
+    }
+    user.paymentCodes = normalizePaymentCodes(user.paymentCodes);
     user.role = normalizeUserRole(user);
     if (!user.status) user.status = 'active';
     user.customGroups = normalizeUserCustomGroups(user.customGroups);
@@ -191,13 +198,11 @@ function rebuildIndexes() {
         if (cats && p.category) { const parts = p.category.split(/[\/,、]/); for (let j = 0; j < parts.length; j++) { const c = parts[j].trim(); if (c) cats.add(c); } }
         if (specs && Array.isArray(p.specs)) { for (let j = 0; j < p.specs.length; j++) { if (p.specs[j]) specs.add(p.specs[j]); } }
       }
-      if (cats) user.categoryPresets = [...cats];
-      if (specs) user.specPresets = [...specs];
+      if (cats) user.categoryPresets = [...cats].slice(0, 50);
+      if (specs) user.specPresets = [...specs].slice(0, 50);
     }
     if (!user.appNumberId) {
-      let appNum;
-      do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber.has(appNum));
-      user.appNumberId = appNum;
+      user.appNumberId = generateUniqueAppNumberId();
     }
     index.usersById.set(user.id, user);
     index.usersByName.set(user.username, user);
@@ -223,6 +228,8 @@ function rebuildIndexes() {
     index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
   }
+  index.ordersByBuyer.clear();
+  index.ordersBySeller.clear();
   for (const order of db.orders || []) {
     if (!Array.isArray(order.items)) order.items = [];
     if (!order.status) order.status = 'accepted';
@@ -231,6 +238,8 @@ function rebuildIndexes() {
     if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
     if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
     index.ordersById.set(order.id, order);
+    if (order.buyerId) addToMapArray(index.ordersByBuyer, order.buyerId, order);
+    if (order.sellerId) addToMapArray(index.ordersBySeller, order.sellerId, order);
   }
 
   for (const rel of db.friendships) {
@@ -255,7 +264,7 @@ function indexNewUser(user) {
   if (!user.status) user.status = 'active';
   if (!Array.isArray(user.blacklist)) user.blacklist = [];
   if (!Array.isArray(user.products)) user.products = [];
-  if (!user.paymentCodes || typeof user.paymentCodes !== 'object') user.paymentCodes = { wechat: '', alipay: '', cloudpay: '' };
+  user.paymentCodes = normalizePaymentCodes(user.paymentCodes);
   user.customGroups = normalizeUserCustomGroups(user.customGroups);
   user.phone = normalizePhone(user.phone || '');
   if (!Array.isArray(user.categoryPresets)) user.categoryPresets = [];
@@ -323,6 +332,22 @@ function rebuildMessageIndexes() {
   }
 }
 
+// Trim per-conversation message arrays that exceed the cap, removing oldest entries from indexes
+const MAX_MESSAGES_PER_CONV = 2000;
+function trimMessageIndexes() {
+  for (const [convId, msgs] of index.messagesByConv.entries()) {
+    if (msgs.length <= MAX_MESSAGES_PER_CONV) continue;
+    const overflow = msgs.length - MAX_MESSAGES_PER_CONV;
+    const removed = msgs.splice(0, overflow);
+    for (const msg of removed) {
+      index.messagesById.delete(msg.id);
+      if (msg.clientMessageId && msg.senderId) {
+        index.messageByClientKey.delete(`${convId}:${msg.senderId}:${msg.clientMessageId}`);
+      }
+    }
+  }
+}
+
   return {
     addToMapArray, DEFAULT_GROUP, MAX_GROUPS, MAX_GROUP_NAME_LEN,
     normalizeUserCustomGroups, normalizeSingleGroupName,
@@ -331,6 +356,6 @@ function rebuildMessageIndexes() {
     rebuildIndexes, indexNewUser, indexNewConversation,
     rebuildFriendshipIndexes, rebuildFriendRequestMaps,
     rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
-    rebuildMessageIndexes,
+    rebuildMessageIndexes, trimMessageIndexes,
   };
 };

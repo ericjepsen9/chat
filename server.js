@@ -42,6 +42,10 @@ const createAuthRoutes = require('./server_routes_auth');
 const createSocialRoutes = require('./server_routes_social');
 const createChatRoutes = require('./server_routes_chat');
 const createOrderRoutes = require('./server_routes_orders');
+const createUserRoutes = require('./server_routes_users');
+const createProductRoutes = require('./server_routes_products');
+const createAdminRoutes = require('./server_routes_admin');
+const createAdminExtRoutes = require('./server_routes_admin_ext');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -77,6 +81,14 @@ const MESSAGE_RETENTION_DAYS = parseInt(process.env.MESSAGE_RETENTION_DAYS || '9
 const BODY_LIMIT = 2 * 1024 * 1024;
 const UPLOAD_LIMIT = 8 * 1024 * 1024;
 const UPLOAD_ROOT = path.join(ROOT, 'uploads');
+const SSE_HEARTBEAT_MS = 15 * 1000;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
+const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
+const CACHE_MAX_AGE_DEFAULT = 300;       // 5 minutes
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = MS_PER_DAY;
+const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
 const serverStartedAt = Date.now();
 
 function generateUniqueAppNumberId() {
@@ -151,7 +163,15 @@ function loadDb() {
     ensureWalFile();
     return db;
   }
-  const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  let loaded;
+  try {
+    loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  } catch (e) {
+    console.error(`[STARTUP] Failed to parse ${DB_FILE}, backing up and starting fresh:`, e.message);
+    const backupPath = `${DB_FILE}.corrupt.${Date.now()}`;
+    try { fs.renameSync(DB_FILE, backupPath); } catch (_) {}
+    return defaultDb();
+  }
   return { users: [], friendships: [], friendRequests: [], conversations: [], messages: [], orders: [], systemMessages: [], ...loaded };
 }
 
@@ -177,6 +197,8 @@ const index = {
   requestViewsByTarget: new Map(),
   blacklistViewsByUser: new Map(),
   messageByClientKey: new Map(),
+  ordersByBuyer: new Map(),
+  ordersBySeller: new Map(),
   mallItems: [],
 };
 
@@ -189,8 +211,8 @@ const {
   rebuildIndexes, indexNewUser, indexNewConversation,
   rebuildFriendshipIndexes, rebuildFriendRequestMaps,
   rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
-  rebuildMessageIndexes,
-} = createIndexManager({ db, index, normalizeUserRole, normalizePhone });
+  rebuildMessageIndexes, trimMessageIndexes,
+} = createIndexManager({ db, index, normalizeUserRole, normalizePhone, generateUniqueAppNumberId });
 
 
 rebuildIndexes();
@@ -201,18 +223,22 @@ const sseHeartbeatByRes = new WeakMap();
 const MAX_SSE_PER_USER = 8;
 function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
-  const conns = sseClientsByUser.get(userId);
+  let conns = sseClientsByUser.get(userId);
   if (conns.size >= MAX_SSE_PER_USER) {
-    for (const old of conns) {
-      try { old.end(); } catch (_) {}
-      removeSseClient(userId, old);
-      if (conns.size < MAX_SSE_PER_USER) break;
+    const snapshot = Array.from(conns);
+    for (let i = 0; i < snapshot.length; i++) {
+      try { snapshot[i].end(); } catch (_) {}
+      removeSseClient(userId, snapshot[i]);
+      if ((sseClientsByUser.get(userId)?.size || 0) < MAX_SSE_PER_USER) break;
     }
   }
+  // Re-fetch or create: removeSseClient may have deleted the Map entry
+  if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
+  conns = sseClientsByUser.get(userId);
   conns.add(res);
   const timer = setInterval(() => {
     try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
-  }, 15000);
+  }, SSE_HEARTBEAT_MS);
   sseHeartbeatByRes.set(res, timer);
 }
 function removeSseClient(userId, res) {
@@ -241,11 +267,15 @@ function broadcastToUser(userId, event, payload, _prebuilt) {
   }
   // Pre-serialize once for multiple clients
   const chunk = _prebuilt || `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-  // Snapshot to array to allow safe removal during iteration
-  const snapshot = Array.from(clients);
-  for (let i = 0; i < snapshot.length; i++) {
-    if (!sendSseRaw(snapshot[i], chunk)) removeSseClient(userId, snapshot[i]);
+  // Collect dead connections during iteration, clean up after to avoid modifying Set mid-loop
+  let dead = null;
+  for (const res of clients) {
+    if (!sendSseRaw(res, chunk)) {
+      if (!dead) dead = [];
+      dead.push(res);
+    }
   }
+  if (dead) for (let i = 0; i < dead.length; i++) removeSseClient(userId, dead[i]);
 }
 /**
  * Push fallback: when user has no active SSE connection, send via EMAS push.
@@ -288,6 +318,7 @@ function broadcastAll(event, payload) {
 }
 
 function sendJson(res, status, payload) {
+  if (res.headersSent || res.writableEnded) return;
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
 }
@@ -297,13 +328,16 @@ function sendResult(res, result) {
   return sendJson(res, result.status, result.payload);
 }
 
-function parseBody(req) {
+function collectBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
     req.on('data', (chunk) => {
+      if (settled) return;
       size += chunk.length;
-      if (size > BODY_LIMIT) {
+      if (size > limit) {
+        settled = true;
         const err = new Error('payload_too_large');
         err.statusCode = 413;
         reject(err);
@@ -313,39 +347,40 @@ function parseBody(req) {
       chunks.push(chunk);
     });
     req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8');
-      if (!raw) return resolve({});
-      try {
-        resolve(JSON.parse(raw));
-      } catch (_) {
-        const err = new Error('invalid_json');
-        err.statusCode = 400;
-        reject(err);
-      }
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
     });
-    req.on('error', reject);
+    req.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      reject(e);
+    });
+    req.on('close', () => {
+      if (settled) return;
+      settled = true;
+      const err = new Error('client_closed');
+      err.statusCode = 499;
+      reject(err);
+    });
   });
 }
 
+async function parseBody(req) {
+  const buf = await collectBody(req, BODY_LIMIT);
+  if (!buf.length) return {};
+  const raw = buf.toString('utf8');
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const err = new Error('invalid_json');
+    err.statusCode = 400;
+    throw err;
+  }
+}
 
 function parseRawBody(req, limit = UPLOAD_LIMIT) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on('data', (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        const err = new Error('payload_too_large');
-        err.statusCode = 413;
-        reject(err);
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
+  return collectBody(req, limit);
 }
 
 function ensureUploadRoot() {
@@ -357,8 +392,39 @@ function safeUploadFileName(name) {
   return base.slice(0, 80) || 'file.bin';
 }
 
+function checkFileMagicBytes(buf) {
+  if (buf.length < 4) return false;
+  // JPEG: FF D8 FF
+  if (buf[0]===0xFF && buf[1]===0xD8 && buf[2]===0xFF) return true;
+  // PNG: 89 50 4E 47
+  if (buf[0]===0x89 && buf[1]===0x50 && buf[2]===0x4E && buf[3]===0x47) return true;
+  // GIF: 47 49 46 38
+  if (buf[0]===0x47 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x38) return true;
+  // WebP: 52 49 46 46 ... 57 45 42 50
+  if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true;
+  // BMP: 42 4D
+  if (buf[0]===0x42 && buf[1]===0x4D) return true;
+  // OGG audio: 4F 67 67 53
+  if (buf[0]===0x4F && buf[1]===0x67 && buf[2]===0x67 && buf[3]===0x53) return true;
+  // MP3: FF FB / FF F3 / FF F2 / ID3
+  if (buf[0]===0xFF && (buf[1]===0xFB || buf[1]===0xF3 || buf[1]===0xF2)) return true;
+  if (buf[0]===0x49 && buf[1]===0x44 && buf[2]===0x33) return true;
+  // WAV: 52 49 46 46 ... 57 41 56 45
+  if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x41 && buf[10]===0x56 && buf[11]===0x45) return true;
+  // AAC: FF F1 / FF F9
+  if (buf[0]===0xFF && (buf[1]===0xF1 || buf[1]===0xF9)) return true;
+  // M4A/MP4: ftyp at offset 4
+  if (buf.length >= 8 && buf[4]===0x66 && buf[5]===0x74 && buf[6]===0x79 && buf[7]===0x70) return true;
+  // WebM (EBML header): 1A 45 DF A3
+  if (buf[0]===0x1A && buf[1]===0x45 && buf[2]===0xDF && buf[3]===0xA3) return true;
+  return false;
+}
+
 function fileExtFromType(contentType, originalName = '') {
   const lowered = String(contentType || '').toLowerCase();
+  // Direct O(1) lookup first; fall back to includes() scan for partial matches
+  const direct = FILE_EXT_MAP.get(lowered);
+  if (direct) return direct;
   for (const [mime, ext] of FILE_EXT_MAP) {
     if (lowered.includes(mime)) return ext;
   }
@@ -369,7 +435,8 @@ function fileExtFromType(contentType, originalName = '') {
 function isMessageVisibleToUser(msg, conv, userId) {
   const clearedAt = conv.clearedAt?.[userId] || 0;
   if (msg.createdAt <= clearedAt) return false;
-  return !(msg.deletedBy || []).includes(userId);
+  const deletedBy = msg.deletedBy;
+  return !deletedBy || !deletedBy.length || !deletedBy.includes(userId);
 }
 
 function getVisibleMessagesSlice(conv, userId, before = 0, limit = 30) {
@@ -425,7 +492,7 @@ function matchRoute(route, target) {
   return false;
 }
 
-function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
+function issueSession(userId, ttlMs = SESSION_TTL_MS) {
   const token = crypto.randomBytes(24).toString('hex');
   sessions.set(token, { userId, createdAt: Date.now(), expiresAt: Date.now() + ttlMs });
   return token;
@@ -433,15 +500,18 @@ function issueSession(userId, ttlMs = 7 * 24 * 60 * 60 * 1000) {
 
 function revokeSessionsForUser(userId) {
   if (!userId) return;
-  for (const [token, session] of sessions.entries()) {
-    if (session?.userId === userId) {
-      sessions.delete(token);
-      csrfTokens.delete(token);
-    }
+  // Collect tokens first to avoid modifying map during iteration
+  const toDelete = [];
+  for (const [token, session] of sessions) {
+    if (session?.userId === userId) toDelete.push(token);
+  }
+  for (let i = 0; i < toDelete.length; i++) {
+    sessions.delete(toDelete[i]);
+    csrfTokens.delete(toDelete[i]);
   }
 }
 
-function issueSseSessionToken(userId, ttlMs = 10 * 60 * 1000) {
+function issueSseSessionToken(userId, ttlMs = SSE_TOKEN_TTL_MS) {
   const token = crypto.randomBytes(24).toString('hex');
   sseSessionTokens.set(token, { userId, expiresAt: Date.now() + ttlMs });
   return token;
@@ -474,7 +544,7 @@ function ensureActingUser(body, authUser, ...candidateKeys) {
       err.statusCode = 403;
       throw err;
     }
-    if (key) body[key] = authUser.id;
+    body[key] = authUser.id;
   }
 }
 
@@ -568,10 +638,14 @@ function touchConversation(conversationId) {
 
 function removeFriendshipPair(a, b) {
   const arr = db.friendships;
-  for (let i = arr.length - 1; i >= 0; i--) {
+  // Single-pass compact: avoid multiple splice calls which shift the entire array each time
+  let write = 0;
+  for (let i = 0; i < arr.length; i++) {
     const f = arr[i];
-    if ((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)) arr.splice(i, 1);
+    if ((f.userId === a && f.friendId === b) || (f.userId === b && f.friendId === a)) continue;
+    arr[write++] = f;
   }
+  arr.length = write;
   rebuildFriendshipIndexes();
 }
 
@@ -606,7 +680,7 @@ const routeCtx = {
   getClientIp, getLoginAttemptState, recordLoginAttempt,
   getPhoneCodeIpAttemptState, recordPhoneCodeIpAttempt,
   phoneCodeIpCooldownStore, PHONE_CODE_IP_COOLDOWN_MS,
-  generateUniqueAppNumberId, indexNewUser,
+  generateUniqueAppNumberId, indexNewUser, indexNewConversation,
   schedulePersist, schedulePersistCritical, appendWal,
   broadcastToUser, broadcastToConversation, broadcastAll,
   areFriends, getDirectConversation, getOrCreateDirectConversation,
@@ -627,13 +701,22 @@ const routeCtx = {
   listConversationMessages, createConversationMessage,
   deleteConversationMessage, recallConversationMessage, applyConversationAction,
   createDirectConversation,
+  updateUserProfile, buildUserProfileView, buildUserStoreItems,
+  createProduct, deleteProduct, updateProduct, queryMallItems,
+  createBroadcastMessage, buildAdminDashboardData, requireAdmin,
+  sseClientsByUser,
 };
 const handleAuthRoutes = createAuthRoutes(routeCtx);
 const handleSocialRoutes = createSocialRoutes(routeCtx);
 const handleChatRoutes = createChatRoutes(routeCtx);
 const handleOrderRoutes = createOrderRoutes(routeCtx);
+const handleUserRoutes = createUserRoutes(routeCtx);
+const handleProductRoutes = createProductRoutes(routeCtx);
+const handleAdminRoutes = createAdminRoutes(routeCtx);
+const handleAdminExtRoutes = createAdminExtRoutes(routeCtx);
 
 const server = http.createServer(async (req, res) => {
+  try {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   const { pathname, searchParams } = requestUrl;
   const origin = req.headers.origin || '';
@@ -656,8 +739,6 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, { error: 'csrf_token_invalid' });
     }
   }
-
-  try {
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
       runCleanupAuthState();
       return sendJson(res, 200, {
@@ -682,35 +763,7 @@ const server = http.createServer(async (req, res) => {
       }
       const raw = await parseRawBody(req, UPLOAD_LIMIT);
       if (!raw.length) return sendJson(res, 400, { error: 'empty_upload' });
-      // Validate file magic bytes
-      const magicValid = (function checkMagic(buf) {
-        if (buf.length < 4) return false;
-        // JPEG: FF D8 FF
-        if (buf[0]===0xFF && buf[1]===0xD8 && buf[2]===0xFF) return true;
-        // PNG: 89 50 4E 47
-        if (buf[0]===0x89 && buf[1]===0x50 && buf[2]===0x4E && buf[3]===0x47) return true;
-        // GIF: 47 49 46 38
-        if (buf[0]===0x47 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x38) return true;
-        // WebP: 52 49 46 46 ... 57 45 42 50
-        if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true;
-        // BMP: 42 4D
-        if (buf[0]===0x42 && buf[1]===0x4D) return true;
-        // OGG audio: 4F 67 67 53
-        if (buf[0]===0x4F && buf[1]===0x67 && buf[2]===0x67 && buf[3]===0x53) return true;
-        // MP3: FF FB / FF F3 / FF F2 / ID3
-        if (buf[0]===0xFF && (buf[1]===0xFB || buf[1]===0xF3 || buf[1]===0xF2)) return true;
-        if (buf[0]===0x49 && buf[1]===0x44 && buf[2]===0x33) return true;
-        // WAV: 52 49 46 46 ... 57 41 56 45
-        if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x41 && buf[10]===0x56 && buf[11]===0x45) return true;
-        // AAC: FF F1 / FF F9
-        if (buf[0]===0xFF && (buf[1]===0xF1 || buf[1]===0xF9)) return true;
-        // M4A/MP4: ftyp at offset 4
-        if (buf.length >= 8 && buf[4]===0x66 && buf[5]===0x74 && buf[6]===0x79 && buf[7]===0x70) return true;
-        // WebM (EBML header): 1A 45 DF A3
-        if (buf[0]===0x1A && buf[1]===0x45 && buf[2]===0xDF && buf[3]===0xA3) return true;
-        return false;
-      })(raw);
-      if (!magicValid) return sendJson(res, 400, { error: 'file_type_mismatch' });
+      if (!checkFileMagicBytes(raw)) return sendJson(res, 400, { error: 'file_type_mismatch' });
       ensureUploadRoot();
       const originalName = safeUploadFileName(req.headers['x-file-name'] || 'upload.bin');
       const ext = fileExtFromType(contentType, originalName);
@@ -725,7 +778,7 @@ const server = http.createServer(async (req, res) => {
       const authUser = getAuthedUser(req, res);
       if (!authUser) return;
       const sseToken = issueSseSessionToken(authUser.id);
-      return sendJson(res, 200, { sseToken, expiresInMs: 10 * 60 * 1000 });
+      return sendJson(res, 200, { sseToken, expiresInMs: SSE_TOKEN_TTL_MS });
     }
 
     if (matchRoute(pathname, '/api/events') && req.method === 'GET') {
@@ -743,234 +796,25 @@ const server = http.createServer(async (req, res) => {
       res.write(':ping\n\n');
       sendSse(res, 'ready', {});
       addSseClient(authUser.id, res);
-      req.on('close', () => removeSseClient(authUser.id, res));
-      res.on('close', () => removeSseClient(authUser.id, res));
+      let cleaned = false;
+      const cleanup = () => { if (cleaned) return; cleaned = true; removeSseClient(authUser.id, res); };
+      req.on('close', cleanup);
+      res.on('close', cleanup);
       return;
     }
 
-    if (matchRoute(pathname, '/api/users') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const users = db.users
-        .filter((u) => u.id !== authUser.id)
-        .map((u) => ({ id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, appNumberId: u.appNumberId }));
-      return sendJson(res, 200, { users });
-    }
-
-    if (matchRoute(pathname, '/api/users/update') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateUserProfile({
-        authUser: context.authUser,
-        body: context.body,
-        normalizePhone,
-        findUserByPhone,
-        normalizeUserCustomGroups,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        rebuildRequestViewsIndex,
-        rebuildBlacklistViewsIndex,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastToUser,
-        broadcastAll,
-        sanitizePublicUser,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/users/change-phone') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const phone = normalizePhone(context.body.phone || '');
-      const code = String(context.body.code || '').trim();
-      if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
-      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误' });
-      const verify = consumePhoneCode(phone, code, 'reset');
-      if (!verify.ok) {
-        const statusCode = verify.retryAfterSec ? 429 : 400;
-        return sendJson(res, statusCode, { error: verify.error || '验证码错误或已过期', retryAfterSec: verify.retryAfterSec || 0 });
-      }
-      const existing = findUserByPhone(phone);
-      if (existing && existing.id !== context.authUser.id) return sendJson(res, 409, { error: '该手机号已被注册' });
-      const result = updateUserProfile({
-        authUser: context.authUser,
-        body: { phone },
-        normalizePhone,
-        findUserByPhone,
-        normalizeUserCustomGroups,
-        rebuildFriendViewsIndex,
-        rebuildConversationBaseIndex,
-        rebuildRequestViewsIndex,
-        rebuildBlacklistViewsIndex,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastToUser,
-        broadcastAll,
-        sanitizePublicUser,
-      });
-      return sendResult(res, result);
-    }
-
-    const profileMatch = pathname.match(/(?:\/api)?\/users\/([^/]+)\/profile$/);
-    if (profileMatch && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const targetId = profileMatch[1];
-      if (targetId !== authUser.id) {
-        const targetUser = index.usersById.get(targetId);
-        if (!targetUser) return sendJson(res, 404, { error: '用户不存在' });
-      }
-      const result = buildUserProfileView({
-        authUser,
-        targetId,
-        usersById: index.usersById,
-        friendshipByPair: index.friendshipByPair,
-      });
-      return sendResult(res, result);
-    }
-
-
-    const storeMatch = pathname.match(/^\/api\/users\/([^/]+)\/store$/);
-    if (storeMatch && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const sellerId = storeMatch[1];
-      const sellerUser = index.usersById.get(sellerId);
-      if (!sellerUser) return sendJson(res, 404, { error: '用户不存在' });
-      const result = buildUserStoreItems({
-        usersById: index.usersById,
-        sellerId,
-      });
-      return sendResult(res, result);
-    }
+    // User profile & store routes
+    if (await handleUserRoutes(pathname, req.method, req, res, searchParams)) return;
 
     // Order routes
     if (await handleOrderRoutes(pathname, req.method, req, res, searchParams)) return;
 
-    if (pathname === '/api/system/messages' && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      return sendJson(res, 200, { items: (db.systemMessages || []).slice(0, 30) });
-    }
+    // Admin & system message routes
+    if (await handleAdminRoutes(pathname, req.method, req, res, searchParams)) return;
+    if (await handleAdminExtRoutes(pathname, req.method, req, res, searchParams)) return;
 
-    if (pathname === '/api/admin/system/messages' && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      if (!isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
-      const title = String(context.body.title || '').trim().slice(0, 80) || '系统消息';
-      const summary = String(context.body.summary || '').trim().slice(0, 240) || '请查看最新通知';
-      const cover = String(context.body.cover || '').trim().slice(0, 512);
-      const item = { id: uid('sys'), title, summary, cover, createdAt: Date.now(), senderId: context.authUser.id };
-      if (!Array.isArray(db.systemMessages)) db.systemMessages = [];
-      db.systemMessages.unshift(item);
-      if (db.systemMessages.length > 100) db.systemMessages.length = 100;
-      broadcastAll('system_message', { message: item });
-      await schedulePersistCritical('system_message_create', { id: item.id });
-      return sendJson(res, 201, { item });
-    }
-
-    if (pathname === '/api/admin/dashboard' && req.method === 'GET') {
-      const authUser = requireAdmin(req, res, searchParams, sessions, index, sendJson, isAdmin);
-      if (!authUser) return;
-      const data = buildAdminDashboardData(db);
-      return sendJson(res, 200, data);
-    }
-
-    const broadcastMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/broadcast$/);
-    if (broadcastMatch && req.method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return;
-      const result = createBroadcastMessage({
-        conversationId: broadcastMatch[1],
-        authUser: context.authUser,
-        body: context.body,
-        index,
-        canAccessConversation,
-        addTradeMessage,
-        touchConversation,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/products') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = createProduct({
-        authUser: context.authUser,
-        body: context.body,
-        uid,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastAll,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/products/delete') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = deleteProduct({
-        authUser: context.authUser,
-        productId: context.body.productId,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastAll,
-      });
-      return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/products/update') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return;
-      const result = updateProduct({
-        authUser: context.authUser,
-        body: context.body,
-        rebuildMallIndex,
-        schedulePersist,
-        broadcastAll,
-      });
-      return sendResult(res, result);
-    }
-
-    // ---- Product Presets (categories & specs) ----
-    if (matchRoute(pathname, '/api/product-presets') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      return sendJson(res, 200, {
-        categoryPresets: authUser.categoryPresets || [],
-        specPresets: authUser.specPresets || [],
-      });
-    }
-
-    if (matchRoute(pathname, '/api/product-presets/update') && req.method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: [] });
-      if (!context) return;
-      const { categoryPresets, specPresets } = context.body;
-      if (Array.isArray(categoryPresets)) {
-        context.authUser.categoryPresets = categoryPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
-      }
-      if (Array.isArray(specPresets)) {
-        context.authUser.specPresets = specPresets.map(s => String(s || '').trim()).filter(Boolean).slice(0, 50);
-      }
-      schedulePersist('product_presets_update', { userId: context.authUser.id });
-      return sendJson(res, 200, {
-        categoryPresets: context.authUser.categoryPresets,
-        specPresets: context.authUser.specPresets,
-      });
-    }
-
-    if (matchRoute(pathname, '/api/mall') && req.method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return;
-      const data = queryMallItems({
-        mallItems: index.mallItems,
-        keyword: searchParams.get('q') || '',
-        limit: searchParams.get('limit'),
-        offset: searchParams.get('offset'),
-      });
-      return sendJson(res, 200, data);
-    }
+    // Product, mall & broadcast routes
+    if (await handleProductRoutes(pathname, req.method, req, res, searchParams)) return;
 
     // Friend, group & blacklist routes
     if (await handleSocialRoutes(pathname, req.method, req, res, searchParams)) return;
@@ -985,18 +829,42 @@ const server = http.createServer(async (req, res) => {
         res.end();
         return;
       }
-      fs.readFile(filePath, (err, data) => {
-        if (err) return res.writeHead(404).end();
+      fs.stat(filePath, (err, stat) => {
+        if (err || !stat.isFile()) return res.writeHead(404).end();
         const ext = path.extname(filePath);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': contentType });
-        res.end(data);
+        const headers = { 'Content-Type': contentType, 'Content-Length': stat.size };
+        // ETag based on mtime + size for conditional requests
+        const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
+        headers['ETag'] = etag;
+        if (pathname.startsWith('/uploads/')) {
+          headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_UPLOADS}, immutable`;
+        } else if (ext === '.html') {
+          headers['Cache-Control'] = 'no-cache';
+        } else {
+          headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_DEFAULT}`;
+        }
+        // Conditional request: return 304 if ETag matches
+        const ifNoneMatch = req.headers['if-none-match'];
+        if (ifNoneMatch && ifNoneMatch === etag) {
+          res.writeHead(304, { 'ETag': etag });
+          res.end();
+          return;
+        }
+        res.writeHead(200, headers);
+        const stream = fs.createReadStream(filePath);
+        stream.on('error', () => { if (!res.writableEnded) res.end(); });
+        stream.pipe(res);
       });
       return;
     }
 
     return sendJson(res, 404, { error: 'not_found' });
   } catch (error) {
+    if (res.headersSent) {
+      try { if (!res.writableEnded) res.end(); } catch (_) {}
+      return;
+    }
     const status = error.statusCode || 500;
     const message = status >= 500 ? 'server_error' : (error.message || 'request_error');
     return sendJson(res, status, { error: message });
@@ -1013,6 +881,13 @@ async function gracefulShutdown(signal) {
     process.exit(1);
   }, 10_000);
   hardExitTimer.unref?.();
+  // Close all SSE connections so their heartbeat timers are cleared
+  for (const [userId, conns] of Array.from(sseClientsByUser.entries())) {
+    for (const res of Array.from(conns)) {
+      try { res.end(); } catch (_) {}
+      removeSseClient(userId, res);
+    }
+  }
   try {
     runCleanupAuthState();
     await flushPersistenceNow();
@@ -1034,17 +909,26 @@ setInterval(runCleanupAuthState, 60 * 1000).unref();
 
 // Message retention cleanup — runs daily, removes messages older than MESSAGE_RETENTION_DAYS
 function cleanupExpiredMessages() {
-  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-  const before = db.messages.length;
-  db.messages = db.messages.filter((m) => m.createdAt > cutoff);
-  if (db.messages.length < before) {
+  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * MS_PER_DAY;
+  const msgs = db.messages;
+  const before = msgs.length;
+  // In-place compact avoids allocating a new array for potentially large message lists
+  let write = 0;
+  for (let i = 0; i < msgs.length; i++) {
+    if (msgs[i].createdAt > cutoff) msgs[write++] = msgs[i];
+  }
+  msgs.length = write;
+  if (write < before) {
     rebuildMessageIndexes();
     schedulePersist('message_retention_cleanup', {});
-    console.log(`[retention] cleaned ${before - db.messages.length} messages older than ${MESSAGE_RETENTION_DAYS} days`);
+    console.log(`[retention] cleaned ${before - write} messages older than ${MESSAGE_RETENTION_DAYS} days`);
   }
 }
-setInterval(cleanupExpiredMessages, 24 * 60 * 60 * 1000).unref();
-setTimeout(cleanupExpiredMessages, 30 * 1000); // run once shortly after startup
+setInterval(cleanupExpiredMessages, CLEANUP_INTERVAL_MS).unref();
+setTimeout(cleanupExpiredMessages, CLEANUP_STARTUP_DELAY_MS); // run once shortly after startup
+
+// Periodically trim per-conversation message indexes to cap memory usage
+setInterval(trimMessageIndexes, 10 * 60 * 1000).unref();
 
 process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });

@@ -1,14 +1,31 @@
 // Session, API, UI utilities moved to app_utils.js
 
+// ---- Constants: delays, limits, and reusable values ----
+const DELAYS = { TYPING_TIMEOUT: 3000, ANIMATION: 1500, SCAN_DETECT: 350, SCAN_INIT: 400, RESEND_COUNTDOWN: 60, INCOMING_CALL_TIMEOUT: 30000, MESSAGE_RECALL_WINDOW: 120000, TIME_SEPARATOR_GAP: 180000, PERMISSION_WAIT: 1500 };
+const LIMITS = { STORE_PREVIEW: 6, SWIPE_ACTION_WIDTH: 156, DRAG_THRESHOLD: 48 };
+function disableTextSelection() { document.body.style.userSelect = 'none'; document.body.style.webkitUserSelect = 'none'; }
+function enableTextSelection() { document.body.style.userSelect = ''; document.body.style.webkitUserSelect = ''; }
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', COMPLETED: 'completed', PROCESSING: 'processing', IN_PROGRESS: 'in_progress' };
+const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
+const DEFAULT_GROUP = '我的好友';
+
+// Safe render wrapper — prevents a single render error from crashing the entire page
+function safeRender(fn) {
+  return function (...args) {
+    try { return fn.apply(this, args); } catch (e) { console.error('[Render error in ' + fn.name + ']', e); }
+  };
+}
+
 const state = {
-  currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], messagesById: new Map(),
-  friends: [], friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
+  currentUser: null, sessionToken: null, conversations: [], conversationsById: new Map(), activeConversation: null, messages: [], messagesById: new Map(),
+  friends: [], friendsById: new Map(), friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
   profileStoreItems: [], profileCartBySeller: {}, selectedProfileProduct: null, selectedProfileSpec: '', profileOrders: [], currentCartSellerId: '',
   profileStoreExpanded: false, profileStoreCategoryFilter: '',
   systemMessages: [],
   adminDashboard: null,
   paymentCodeDraft: { wechat:'', alipay:'', cloudpay:'' },
-  buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
+  buyerOrders: [], sellerOrders: [], ordersById: new Map(), sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {},
@@ -18,24 +35,39 @@ const state = {
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 const CATEGORY_SPLIT_RE = /[\/,、]/;
+const formatOrderId = (id) => String(id || '').slice(-6);
+const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
+const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'processing' || s === 'in_progress') ? ' s-active' : ' s-pending'); };
+const tradeStatusCls = (st) => 'trade-card-status' + (st === 'completed' ? ' done' : st === 'accepted' ? ' active' : '');
 
-const isFriendUser = (userId) => !!(userId && (state.friendsById ? state.friendsById.has(userId) : (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId)));
+const isFriendUser = (userId) => !!(userId && state.friendsById.has(userId));
+
+function findFriendEntry(userId) {
+  return state.friendsById.get(userId);
+}
 
 function getPendingFriendRequest(userId) {
   return state.friendRequests.find(r => r.status === 'pending' && (r.sender?.id === userId || r.fromUser?.id === userId));
 }
 
+let _profileActionEls = null;
+function _getProfileActionEls() {
+  if (!_profileActionEls) _profileActionEls = {
+    addBtn: $("profileAddFriendBtn"), hint: $("profileStrangerHint"),
+    remarkBtn: $("profileActionRemarkBtn"), moveBtn: $("profileActionMoveGroupBtn"),
+    sendBtn: $("profileSendMessageBtn"), primaryActs: $("profilePrimaryActions"),
+    reqActs: $("profileFriendRequestActions"),
+    acceptBtn: $("profileAcceptRequestBtn"), rejectBtn: $("profileRejectRequestBtn")
+  };
+  return _profileActionEls;
+}
 function updateProfileDetailActions(){
   const p = state.currentProfileUser;
   if(!p) return;
   const isFriend = !!p.isFriend || isFriendUser(p.id);
   const isSelf = p.id === state.currentUser?.id;
   const pendingReq = !isFriend && !isSelf ? getPendingFriendRequest(p.id) : null;
-  const addBtn = $("profileAddFriendBtn"), hint = $("profileStrangerHint"),
-    remarkBtn = $("profileActionRemarkBtn"), moveBtn = $("profileActionMoveGroupBtn"),
-    sendBtn = $("profileSendMessageBtn"), primaryActs = $("profilePrimaryActions"),
-    reqActs = $("profileFriendRequestActions"),
-    acceptBtn = $("profileAcceptRequestBtn"), rejectBtn = $("profileRejectRequestBtn");
+  const { addBtn, hint, remarkBtn, moveBtn, sendBtn, primaryActs, reqActs, acceptBtn, rejectBtn } = _getProfileActionEls();
   if(addBtn) addBtn.classList.toggle("hidden", isFriend || !!pendingReq);
   if(hint) hint.classList.toggle("hidden", isFriend || isSelf);
   if(remarkBtn) remarkBtn.style.display = isFriend ? '' : 'none';
@@ -65,7 +97,10 @@ function getCurrentSellerCart(sellerId = ''){
   return state.profileCartBySeller[id];
 }
 
+let _cachedCartSummary = null;
+function invalidateCartSummary() { _cachedCartSummary = null; }
 function getCartSummary() {
+  if (_cachedCartSummary) return _cachedCartSummary;
   let count = 0, total = 0;
   for (const arr of Object.values(state.profileCartBySeller || {})) {
     if (!Array.isArray(arr)) continue;
@@ -75,19 +110,27 @@ function getCartSummary() {
       total += (Number(item.unitPrice) || 0) * qty;
     }
   }
-  return { count, total };
+  _cachedCartSummary = { count, total };
+  return _cachedCartSummary;
 }
 function getGroupedCartTotal(){ return getCartSummary().total; }
 function getGroupedCartCount(){ return getCartSummary().count; }
 const CART_STORAGE_KEY = 'chattrade_cart';
+let _cartSaveTimer = null;
 function saveCartToStorage() {
-  try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.profileCartBySeller || {})); } catch(_) {}
+  invalidateCartSummary();
+  if (_cartSaveTimer) return;
+  _cartSaveTimer = setTimeout(() => {
+    _cartSaveTimer = null;
+    try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.profileCartBySeller || {})); } catch(_) {}
+  }, 100);
 }
 function loadCartFromStorage() {
   try {
     const raw = localStorage.getItem(CART_STORAGE_KEY);
     if (raw) state.profileCartBySeller = JSON.parse(raw) || {};
   } catch(_) { state.profileCartBySeller = {}; }
+  invalidateCartSummary();
 }
 
 // formatMoney, parseMoney moved to app_utils.js
@@ -101,47 +144,39 @@ function getSecondaryBackTarget(defaultTarget = 'home'){
 
 function rebuildOrdersById() {
   const map = new Map();
-  for (const o of (state.buyerOrders || [])) map.set(o.id, o);
-  for (const o of (state.sellerOrders || [])) if (!map.has(o.id)) map.set(o.id, o);
+  const sellerNames = new Map();
+  for (const o of (state.buyerOrders || [])) { map.set(o.id, o); if (o.sellerId && o.sellerName) sellerNames.set(o.sellerId, o.sellerName); }
+  for (const o of (state.sellerOrders || [])) { if (!map.has(o.id)) map.set(o.id, o); if (o.sellerId && o.sellerName && !sellerNames.has(o.sellerId)) sellerNames.set(o.sellerId, o.sellerName); }
   state.ordersById = map;
+  state.sellerNameCache = sellerNames;
 }
-let _loadBuyerOrdersPromise = null;
-async function loadBuyerOrders(){
+const loadBuyerOrders = singleFlight(async function _loadBuyerOrdersImpl(){
   if(!state.currentUser) return;
-  if (_loadBuyerOrdersPromise) return _loadBuyerOrdersPromise;
-  _loadBuyerOrdersPromise = _loadBuyerOrdersImpl();
-  try { return await _loadBuyerOrdersPromise; } finally { _loadBuyerOrdersPromise = null; }
-}
-async function _loadBuyerOrdersImpl(){
   try{
     const data = await api('/api/orders');
     state.buyerOrders = data.orders || [];
-  }catch(_){
+  }catch(e){
+    console.warn('[loadBuyerOrders]', e);
     state.buyerOrders = [];
   }
   rebuildOrdersById();
   renderBuyerOrdersManage();
   scheduleRenderConversationList();
-}
+});
 
-let _loadSellerOrdersPromise = null;
-async function loadSellerOrders(){
+const loadSellerOrders = singleFlight(async function _loadSellerOrdersImpl(){
   if(!state.currentUser) return;
-  if (_loadSellerOrdersPromise) return _loadSellerOrdersPromise;
-  _loadSellerOrdersPromise = _loadSellerOrdersImpl();
-  try { return await _loadSellerOrdersPromise; } finally { _loadSellerOrdersPromise = null; }
-}
-async function _loadSellerOrdersImpl(){
   try{
     const data = await api(`/api/orders?sellerId=${encodeURIComponent(state.currentUser.id)}`);
     state.sellerOrders = data.orders || [];
-  }catch(_){
+  }catch(e){
+    console.warn('[loadSellerOrders]', e);
     state.sellerOrders = [];
   }
   rebuildOrdersById();
   renderSellerOrdersManage();
   scheduleRenderConversationList();
-}
+});
 
 // Unified order data refresh — call after ANY order state change
 async function refreshAllOrderData() {
@@ -188,41 +223,43 @@ async function syncProductViewsIfVisible(){
   if (tasks.length) await Promise.all(tasks);
 }
 
-let _loadSellerProductsPromise = null;
-async function loadSellerProductsManage(){
+const loadSellerProductsManage = singleFlight(async function _loadSellerProductsImpl(){
   if(!state.currentUser?.id) return;
-  if (_loadSellerProductsPromise) return _loadSellerProductsPromise;
-  _loadSellerProductsPromise = _loadSellerProductsImpl();
-  try { return await _loadSellerProductsPromise; } finally { _loadSellerProductsPromise = null; }
-}
-async function _loadSellerProductsImpl(){
   try {
     const data = await api(`/api/users/${state.currentUser.id}/store`);
     state.sellerProducts = Array.isArray(data.items) ? data.items : [];
     state.currentUser.products = [...state.sellerProducts];
     writeSession(state.currentUser);
-  } catch (_) {
+  } catch (e) {
+    console.warn('[loadSellerProductsManage]', e);
     syncSellerProducts();
   }
   // Load category presets for filter
   try {
     const presets = await api('/api/product-presets');
     state._sellerCategoryPresets = presets.categoryPresets || [];
-  } catch (_) {}
+  } catch (e) { console.warn('[loadProductPresets]', e); }
   populateSellerCategoryFilter();
   renderSellerProductsManage();
+});
+
+
+// Cache item summary text per order to avoid re-building on every filter call
+function getOrderItemSummary(order) {
+  if (order._itemSummary !== undefined) return order._itemSummary;
+  order._itemSummary = (order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ');
+  return order._itemSummary;
 }
 
-
 function orderMatchesFilters(order, role = 'buyer'){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const keyword = String(state[`${prefix}OrderSearch`] || '').trim().toLowerCase();
   const fromVal = state[`${prefix}OrderFrom`] || '';
   const toVal = state[`${prefix}OrderTo`] || '';
   const createdAt = Number(order?.createdAt || 0);
   if (keyword) {
     const counterpartyName = role === 'buyer' ? (order?.sellerName || '') : (order?.buyerName || '');
-    const hay = `#${String(order?.id || '').slice(-6)} ${(order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ')} ${counterpartyName}`.toLowerCase();
+    const hay = `#${formatOrderId(order?.id)} ${getOrderItemSummary(order)} ${counterpartyName}`.toLowerCase();
     if (!hay.includes(keyword)) return false;
   }
   if (fromVal) {
@@ -231,13 +268,13 @@ function orderMatchesFilters(order, role = 'buyer'){
   }
   if (toVal) {
     const toTs = Date.parse(toVal);
-    if (Number.isFinite(toTs) && createdAt > toTs + 86400000) return false;
+    if (Number.isFinite(toTs) && createdAt >= toTs + 86400000) return false;
   }
   return true;
 }
 
 function syncOrderFilterInputs(role = 'buyer'){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const searchEl = $(`${prefix}OrdersSearchInput`);
   const fromEl = $(`${prefix}OrdersFromInput`);
   const toEl = $(`${prefix}OrdersToInput`);
@@ -249,7 +286,7 @@ function syncOrderFilterInputs(role = 'buyer'){
 }
 
 function updateOrderPresetUI(role = 'buyer'){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const root = $(`${prefix}OrdersRangePresets`);
   if (!root) return;
   const fromVal = state[`${prefix}OrderFrom`] || '';
@@ -261,7 +298,7 @@ function updateOrderPresetUI(role = 'buyer'){
     const days = Number(btn.dataset.range || 0);
     let active = false;
     if (Number.isFinite(fromTs) && Number.isFinite(toTs) && days > 0) {
-      const start = now - (days * 24 * 60 * 60 * 1000);
+      const start = now - (days * MS_PER_DAY);
       active = Math.abs(fromTs - start) < 2 * 60 * 1000 && Math.abs(toTs - now) < 2 * 60 * 1000;
     }
     btn.classList.toggle('active', active);
@@ -269,9 +306,9 @@ function updateOrderPresetUI(role = 'buyer'){
 }
 
 function applyOrderQuickRange(role = 'buyer', days = 0){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const now = new Date();
-  const from = new Date(now.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - Math.max(1, days) * MS_PER_DAY);
   const fmt = (d) => {
     const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 16);
@@ -295,9 +332,7 @@ async function deleteOrderRecord(orderId){
   }
 }
 
-function orderStatusText(status){
-  return formatOrderStatusLabel(status);
-}
+// orderStatusText removed — use formatOrderStatusLabel directly
 
 // ---- Shared order action helpers (eliminates duplication across 4 contexts) ----
 async function doUpdateOrderPrice(orderId, rawPrice) {
@@ -318,156 +353,87 @@ async function doCompleteOrder(orderId) {
 }
 
 function buildOrderCard(order, role){
-  const card = document.createElement('button');
+  const card = createEl('button', 'profile-order-card');
   card.type = 'button';
-  card.className = 'profile-order-card';
+  card.dataset.orderId = order.id;
+  card.dataset.orderRole = role;
 
-  const header = document.createElement('div');
-  header.className = 'order-card-header';
-  const idSpan = document.createElement('span');
-  idSpan.className = 'order-card-id';
-  idSpan.textContent = `#${String(order.id || '').slice(-6)}`;
-  const statusSpan = document.createElement('span');
-  const st = String(order.status || '').toLowerCase();
-  statusSpan.className = 'order-card-status' + (st === 'completed' ? ' s-done' : (st === 'accepted' || st === 'processing' || st === 'in_progress') ? ' s-active' : ' s-pending');
-  statusSpan.textContent = orderStatusText(order.status);
-  header.append(idSpan, statusSpan);
+  const statusCls = orderStatusCls('order-card-status', order.status);
+  const header = createEl('div', 'order-card-header');
+  header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id)}`), createEl('span', statusCls, formatOrderStatusLabel(order.status)));
 
-  const body = document.createElement('div');
-  body.className = 'order-card-body';
-  const itemsText = document.createElement('div');
-  itemsText.className = 'order-card-items';
-  itemsText.textContent = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容';
-  body.appendChild(itemsText);
+  const body = createEl('div', 'order-card-body');
+  body.appendChild(createEl('div', 'order-card-items', (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容'));
 
-  const footer = document.createElement('div');
-  footer.className = 'order-card-footer';
-  const price = document.createElement('span');
-  price.className = 'order-card-price';
-  price.textContent = formatMoney(order.total);
-  const time = document.createElement('span');
-  time.className = 'order-card-time';
-  time.textContent = order.createdAt ? formatTime(order.createdAt) : '';
-  footer.append(price, time);
+  const footer = createEl('div', 'order-card-footer');
+  footer.append(createEl('span', 'order-card-price', formatMoney(order.total)), createEl('span', 'order-card-time', order.createdAt ? formatTime(order.createdAt) : ''));
 
   card.append(header, body, footer);
 
-  const actions = document.createElement('div');
-  actions.className = 'order-card-actions';
+  const actions = createEl('div', 'order-card-actions');
   if(role === 'seller' && order.status === 'pending'){
-    const editPriceBtn = document.createElement('button');
-    editPriceBtn.type = 'button';
-    editPriceBtn.className = 'secondary-btn';
-    editPriceBtn.textContent = '修改价格';
-    editPriceBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    const editPriceBtn = createStopBtn('secondary-btn', '修改价格', (e, btn) => {
       if(!order.id) return;
-      showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
-        editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
-        try{
-          await doUpdateOrderPrice(order.id, raw);
-          renderSellerOrdersManage();
-        }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
+      showPrompt('请输入新的总价', String(order.total || ''), (raw) => {
+        withButtonLock(btn, async () => { await doUpdateOrderPrice(order.id, raw); renderSellerOrdersManage(); }, '修改中...');
       });
     });
     actions.appendChild(editPriceBtn);
-    const acceptBtn = document.createElement('button');
-    acceptBtn.type = 'button';
-    acceptBtn.className = 'primary-btn';
-    acceptBtn.textContent = '接单';
-    acceptBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if(!order.id || acceptBtn.disabled) return;
-      acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
-      try{
-        await doAcceptOrder(order.id);
-        renderSellerOrdersManage();
-      }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
+    const acceptBtn = createStopBtn('primary-btn', '接单', (e, btn) => {
+      if(!order.id) return;
+      withButtonLock(btn, async () => { await doAcceptOrder(order.id); renderSellerOrdersManage(); }, '接单中...');
     });
     actions.appendChild(acceptBtn);
   }
   if(order.status === 'accepted'){
-    const completeBtn = document.createElement('button');
-    completeBtn.type = 'button';
-    completeBtn.className = 'primary-btn';
-    completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成';
-    completeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if(completeBtn.disabled) return;
+    const completeLabel = role === 'buyer' ? '确认收货' : '标记已完成';
+    const completeBtn = createStopBtn('primary-btn', completeLabel, (e, btn) => {
       const msg = role === 'buyer' ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？';
-      showConfirm(msg, async () => {
-        completeBtn.disabled = true; completeBtn.textContent = '处理中...';
-        try{
-          await doCompleteOrder(order.id);
-          if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage();
-        }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成'; }
+      showConfirm(msg, () => {
+        withButtonLock(btn, async () => { await doCompleteOrder(order.id); if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage(); }, '处理中...');
       });
     });
     actions.appendChild(completeBtn);
   }
   if(order.status === 'completed'){
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'order-card-del-btn';
-    delBtn.textContent = '删除';
-    delBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if(delBtn.disabled) return;
-      showConfirm('确认删除该订单？', async () => {
-        delBtn.disabled = true; delBtn.textContent = '删除中...';
-        try { await deleteOrderRecord(order.id); } finally { delBtn.disabled = false; delBtn.textContent = '删除'; }
+    const delBtn = createStopBtn('order-card-del-btn', '删除', (e, btn) => {
+      showConfirm('确认删除该订单？', () => {
+        withButtonLock(btn, () => deleteOrderRecord(order.id), '删除中...');
       });
     });
     actions.appendChild(delBtn);
   }
   if(actions.childElementCount) card.appendChild(actions);
-
-  card.addEventListener('click', () => openOrderDetail(order, role));
+  // Card-level click handled via delegation on order list container
   return card;
 }
 
-let _buyerOrdersSig = '';
-function renderBuyerOrdersManage(){
-  const list = $("buyerOrdersManageList");
+function bindOrderListDelegation(list) {
+  if (list.dataset.orderClickBound === '1') return;
+  list.dataset.orderClickBound = '1';
+  list.addEventListener('click', (e) => {
+    if (e.target.closest('.order-card-actions')) return;
+    const card = e.target.closest('.profile-order-card[data-order-id]');
+    if (!card) return;
+    const order = state.ordersById?.get(card.dataset.orderId);
+    if (order) openOrderDetail(order, card.dataset.orderRole || 'buyer');
+  });
+}
+function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
+  const list = $(listId);
   if(!list) return;
-  syncOrderFilterInputs('buyer');
-  const rows = (state.buyerOrders || []).filter((o) => orderMatchesFilters(o, 'buyer'));
-  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.buyerOrderSearch + '|' + state.buyerOrderFrom + '|' + state.buyerOrderTo;
-  if (sig === _buyerOrdersSig) return;
-  _buyerOrdersSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '🧾 暂无购买订单';
-    list.replaceChildren(empty);
-    return;
-  }
+  bindOrderListDelegation(list);
+  syncOrderFilterInputs(role);
+  const rows = (state[ordersKey] || []).filter((o) => orderMatchesFilters(o, role));
+  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
+  if (!sigChanged(ordersKey, sig)) return;
+  if(!rows.length){ showEmptyState(list, emptyMsg, 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
-  rows.forEach(order => frag.appendChild(buildOrderCard(order, 'buyer')));
+  rows.forEach(order => frag.appendChild(buildOrderCard(order, role)));
   list.replaceChildren(frag);
 }
-
-
-let _sellerOrdersSig = '';
-function renderSellerOrdersManage(){
-  const list = $("sellerOrdersList");
-  if(!list) return;
-  syncOrderFilterInputs('seller');
-  const rows = (state.sellerOrders || []).filter((o) => orderMatchesFilters(o, 'seller'));
-  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.sellerOrderSearch + '|' + state.sellerOrderFrom + '|' + state.sellerOrderTo;
-  if (sig === _sellerOrdersSig) return;
-  _sellerOrdersSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '📋 暂无卖家订单';
-    list.replaceChildren(empty);
-    return;
-  }
-  const frag = document.createDocumentFragment();
-  rows.forEach(order => frag.appendChild(buildOrderCard(order, 'seller')));
-  list.replaceChildren(frag);
-}
+const renderBuyerOrdersManage = safeRender(function renderBuyerOrdersManage() { renderOrdersManage('buyer', 'buyerOrdersManageList', 'buyerOrders', '🧾 暂无购买订单'); });
+const renderSellerOrdersManage = safeRender(function renderSellerOrdersManage() { renderOrdersManage('seller', 'sellerOrdersList', 'sellerOrders', '📋 暂无卖家订单'); });
 
 
 function updateSellerProductsFilterUI(){
@@ -491,13 +457,16 @@ function populateSellerCategoryFilter(){
   // Also merge from presets if loaded
   (state._sellerCategoryPresets || []).forEach(c => cats.add(c));
   const prev = sel.value;
-  sel.innerHTML = '<option value="">全部分类</option>';
+  const defaultOpt = createEl('option', '', '全部分类');
+  defaultOpt.value = '';
+  const frag = document.createDocumentFragment();
+  frag.appendChild(defaultOpt);
   [...cats].sort().forEach(cat => {
-    const opt = document.createElement('option');
+    const opt = createEl('option', '', cat);
     opt.value = cat;
-    opt.textContent = cat;
-    sel.appendChild(opt);
+    frag.appendChild(opt);
   });
+  sel.replaceChildren(frag);
   sel.value = prev || '';
 }
 
@@ -533,99 +502,61 @@ function getFilteredSellerProducts(){
   return visible;
 }
 
-let _sellerProductsSig = '';
-function renderSellerProductsManage(){
+const renderSellerProductsManage = safeRender(function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
+  if (list.dataset.spClickBound !== '1') {
+    list.dataset.spClickBound = '1';
+    list.addEventListener('click', (e) => {
+      if (e.target.closest('.sp-card-actions')) return;
+      const card = e.target.closest('.sp-card[data-product-id]');
+      if (!card) return;
+      const item = (state.sellerProducts || []).find(p => String(p.id) === card.dataset.productId);
+      if (item) openProductDetail(item, true);
+    });
+  }
   populateSellerCategoryFilter();
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
   const sig = products.map(p => p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||'')).join(';') + '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
-  if (sig === _sellerProductsSig) return;
-  _sellerProductsSig = sig;
-  if(!products.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布');
-    list.replaceChildren(empty);
-    return;
-  }
+  if (!sigChanged('sellerProducts', sig)) return;
+  if(!products.length){ showEmptyState(list, '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布'), 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   products.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'sp-card';
-    card.addEventListener('click', () => openProductDetail(item, true));
+    const card = createEl('div', 'sp-card');
+    card.dataset.productId = String(item.id || '');
+    // Card click handled via delegation on sellerProductsList
 
     const imgUrl = normalizeMediaUrl(item.image || item.imageUrl) || '';
     if (imgUrl) {
-      const img = document.createElement('img');
-      img.className = 'sp-card-img';
+      const img = createEl('img', 'sp-card-img');
       img.src = imgUrl;
       img.alt = item.title || '商品';
-      img.onerror = function() { this.style.display = 'none'; };
+      hideOnError(img);
       card.appendChild(img);
     }
 
-    const body = document.createElement('div');
-    body.className = 'sp-card-body';
+    const body = createEl('div', 'sp-card-body');
 
-    const topRow = document.createElement('div');
-    topRow.className = 'sp-card-top';
-    const title = document.createElement('div');
-    title.className = 'sp-card-title';
-    title.textContent = item.title || '未命名商品';
-    topRow.appendChild(title);
+    const topRow = createEl('div', 'sp-card-top');
+    topRow.appendChild(createEl('div', 'sp-card-title', item.title || '未命名商品'));
     body.appendChild(topRow);
 
-    const desc = document.createElement('div');
-    desc.className = 'sp-card-desc';
-    desc.textContent = item.desc || '可在商品详情页继续编辑文案与规格';
-    body.appendChild(desc);
+    body.appendChild(createEl('div', 'sp-card-desc', item.desc || '可在商品详情页继续编辑文案与规格'));
 
-    const meta = document.createElement('div');
-    meta.className = 'sp-card-meta';
-    const price = document.createElement('span');
-    price.className = 'sp-card-price';
-    price.textContent = formatMoney(item.price);
+    const meta = createEl('div', 'sp-card-meta');
     const stockNum = Math.max(0, Math.floor(Number(item.stock || 0)));
-    const stockSpan = document.createElement('span');
-    stockSpan.className = 'sp-card-stock' + (stockNum === 0 ? ' low' : '');
-    stockSpan.textContent = `库存 ${stockNum}`;
-    meta.append(price, stockSpan);
+    meta.append(createEl('span', 'sp-card-price', formatMoney(item.price)), createEl('span', 'sp-card-stock' + (stockNum === 0 ? ' low' : ''), `库存 ${stockNum}`));
     body.appendChild(meta);
 
-    const actions = document.createElement('div');
-    actions.className = 'sp-card-actions';
+    const actions = createEl('div', 'sp-card-actions');
 
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'sp-action-btn';
-    editBtn.textContent = '编辑';
-    editBtn.addEventListener('click', (e) => { e.stopPropagation(); openPublishProductPage('sellerProductsPage', item); });
-
-    const stockBtn = document.createElement('button');
-    stockBtn.type = 'button';
-    stockBtn.className = 'sp-action-btn';
-    stockBtn.textContent = '改库存';
-    stockBtn.addEventListener('click', (e) => { e.stopPropagation(); window.updateSellerProductStock(item.id, item.stock || 0); });
-
-    const listedBtn = document.createElement('button');
-    listedBtn.type = 'button';
-    listedBtn.className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
-    listedBtn.textContent = item.listed === false ? '上架' : '下架';
-    listedBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (listedBtn.disabled) return;
-      listedBtn.disabled = true;
-      await window.toggleSellerProductListed(item.id, item.listed === false);
-      listedBtn.disabled = false;
+    const editBtn = createStopBtn('sp-action-btn', '编辑', () => openPublishProductPage('sellerProductsPage', item));
+    const stockBtn = createStopBtn('sp-action-btn', '改库存', () => window.updateSellerProductStock(item.id, item.stock || 0));
+    const listedBtn = createStopBtn('sp-action-btn' + (item.listed === false ? ' accent' : ''), item.listed === false ? '上架' : '下架', (e, btn) => {
+      withButtonLock(btn, () => window.toggleSellerProductListed(item.id, item.listed === false));
     });
-
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'sp-action-btn danger';
-    delBtn.textContent = '删除';
-    delBtn.addEventListener('click', (e) => { e.stopPropagation(); window.deleteMyProduct(item.id); });
+    const delBtn = createStopBtn('sp-action-btn danger', '删除', () => window.deleteMyProduct(item.id));
 
     actions.append(editBtn, stockBtn, listedBtn, delBtn);
     body.appendChild(actions);
@@ -633,38 +564,33 @@ function renderSellerProductsManage(){
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
-}
+});
 
 
 function openProductDetail(item, fromSeller = false){
   if(!item) return;
   state.selectedProductDetail = { ...item, fromSeller: !!fromSeller };
   const _pdImg = $("productDetailImage");
-  if(_pdImg) { _pdImg.style.display = ''; _pdImg.onerror = function() { this.style.display = 'none'; }; _pdImg.src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
-  if($("productDetailTitle")) $("productDetailTitle").textContent = item.title || '商品';
-  if($("productDetailDesc")) $("productDetailDesc").textContent = item.desc || '商品详情页为图片、文字、价格与规格';
-  if($("productDetailPrice")) $("productDetailPrice").textContent = formatMoney(item.price);
+  if(_pdImg) { _pdImg.style.display = ''; hideOnError(_pdImg); _pdImg.src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
+  setText("productDetailTitle", item.title || '商品');
+  setText("productDetailDesc", item.desc || '商品详情页为图片、文字、价格与规格');
+  setText("productDetailPrice", formatMoney(item.price));
   const stock = Math.max(0, Math.floor(Number(item.stock || 0)));
-  if($("productDetailStock")) $("productDetailStock").textContent = `库存 ${stock}`;
+  setText("productDetailStock", `库存 ${stock}`);
   const specsEl = $("productDetailSpecs");
   if(specsEl){
     const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
     const frag = document.createDocumentFragment();
-    specs.forEach(spec => {
-      const chip = document.createElement('span');
-      chip.className = 'spec-option-chip';
-      chip.textContent = spec;
-      frag.appendChild(chip);
-    });
+    specs.forEach(spec => frag.appendChild(createEl('span', 'spec-option-chip', spec)));
     specsEl.replaceChildren(frag);
   }
   const isOwnProduct = !fromSeller && item.sellerId && item.sellerId === state.currentUser?.id;
-  if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
-  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
-  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
-  if($("productDetailChatBtn")) $("productDetailChatBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
+  toggleEl("productDetailOpenSellerBtn", 'hidden', !fromSeller);
+  toggleEl("productDetailBuyNowBtn", 'hidden', fromSeller || isOwnProduct);
+  toggleEl("productDetailAddCartBtn", 'hidden', fromSeller || isOwnProduct);
+  toggleEl("productDetailChatBtn", 'hidden', fromSeller || isOwnProduct);
   // Show seller management buttons on detail page
-  if($("productDetailSellerActions")) $("productDetailSellerActions").classList.toggle('hidden', !fromSeller);
+  toggleEl("productDetailSellerActions", 'hidden', !fromSeller);
   if(fromSeller && $("productDetailListedBtn")) {
     $("productDetailListedBtn").textContent = item.listed === false ? '上架' : '下架';
     $("productDetailListedBtn").className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
@@ -680,92 +606,101 @@ function openOrderDetail(order, role = 'buyer'){
   window.openSecondaryPage('orderDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
-let _orderDetailSig = '';
 function renderOrderDetailPage(){
   const box = $("orderDetailCard");
   if(!box) return;
   const order = state.selectedOrderDetail;
   const role = state.selectedOrderRole || 'buyer';
   const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.updatedAt||0)+'|'+role) : '';
-  if (sig === _orderDetailSig) return;
-  _orderDetailSig = sig;
+  if (!sigChanged('orderDetail', sig)) return;
   if(!order){
     box.textContent = '暂无订单详情';
     return;
   }
-  if($("orderDetailStatus")) $("orderDetailStatus").textContent = orderStatusText(order.status);
+  setText("orderDetailStatus", formatOrderStatusLabel(order.status));
   box.replaceChildren();
 
+  // Helper: build an od-row with label/value
+  const odRow = (label, value, valueCls = 'od-value') => {
+    const row = createEl('div', 'od-row');
+    row.append(createEl('span', 'od-label', label), createEl('span', valueCls, value));
+    return row;
+  };
+
   // Order number & time
-  const headerDiv = document.createElement('div');
-  headerDiv.className = 'od-section';
-  headerDiv.innerHTML = `<div class="od-row"><span class="od-label">订单编号</span><span class="od-value">${escapeHTML(String(order.id || '-'))}</span></div>`
-    + `<div class="od-row"><span class="od-label">下单时间</span><span class="od-value">${order.createdAt ? formatTime(order.createdAt) : '-'}</span></div>`
-    + `<div class="od-row"><span class="od-label">订单状态</span><span class="od-value od-status-${order.status === 'completed' ? 'done' : 'active'}">${escapeHTML(orderStatusText(order.status))}</span></div>`;
+  const headerDiv = createEl('div', 'od-section');
+  headerDiv.append(
+    odRow('订单编号', String(order.id || '-')),
+    odRow('下单时间', order.createdAt ? formatTime(order.createdAt) : '-'),
+    odRow('订单状态', formatOrderStatusLabel(order.status), `od-value od-status-${order.status === ORDER_STATUS.COMPLETED ? 'done' : 'active'}`)
+  );
   box.appendChild(headerDiv);
 
   // Counterparty info
   const counterLabel = role === 'buyer' ? '卖家' : '买家';
   const counterId = role === 'buyer' ? order.sellerId : order.buyerId;
   const counterName = role === 'buyer' ? (order.sellerName || '') : (order.buyerName || '');
-  const partyDiv = document.createElement('div');
-  partyDiv.className = 'od-section';
-  partyDiv.innerHTML = `<div class="od-row"><span class="od-label">${escapeHTML(counterLabel)}</span><span class="od-value od-link" id="odCounterpartyLink">${escapeHTML(counterName || counterId || '-')}</span></div>`;
-  box.appendChild(partyDiv);
-  const counterLink = box.querySelector('#odCounterpartyLink');
-  if(counterLink && counterId) {
-    counterLink.style.cursor = 'pointer';
-    counterLink.style.color = 'var(--brand, #07c160)';
-    counterLink.addEventListener('click', () => window.openUserProfile(counterId, counterName));
+  const partyDiv = createEl('div', 'od-section');
+  const counterValueEl = createEl('span', 'od-value od-link', counterName || counterId || '-');
+  if (counterId) {
+    counterValueEl.classList.add('od-clickable');
+    counterValueEl.addEventListener('click', () => window.openUserProfile(counterId, counterName));
   }
+  const partyRow = createEl('div', 'od-row');
+  partyRow.append(createEl('span', 'od-label', counterLabel), counterValueEl);
+  partyDiv.appendChild(partyRow);
+  box.appendChild(partyDiv);
 
   // Item list
-  const itemsDiv = document.createElement('div');
-  itemsDiv.className = 'od-section';
-  const itemsTitle = document.createElement('div');
-  itemsTitle.className = 'od-section-title';
-  itemsTitle.textContent = '商品清单';
-  itemsDiv.appendChild(itemsTitle);
+  const itemsDiv = createEl('div', 'od-section');
+  itemsDiv.appendChild(createEl('div', 'od-section-title', '商品清单'));
   (order.items || []).forEach(item => {
-    const row = document.createElement('div');
-    row.className = 'od-item-row';
+    const row = createEl('div', 'od-item-row');
     const imgUrl = normalizeMediaUrl(item.imageUrl || item.image || '');
-    row.innerHTML = (imgUrl ? `<img class="od-item-img" src="${escapeHTML(imgUrl)}" alt="" />` : '')
-      + `<div class="od-item-info"><div class="od-item-name">${escapeHTML(item.title || '商品')}</div>`
-      + `<div class="od-item-spec">${escapeHTML(item.spec || '默认规格')} x${item.quantity || 1}</div></div>`
-      + `<div class="od-item-price">${escapeHTML(formatMoney((item.price || 0) * (item.quantity || 1)))}</div>`;
+    if (imgUrl) {
+      const img = createEl('img', 'od-item-img');
+      img.src = imgUrl;
+      img.alt = '';
+      row.appendChild(img);
+    }
+    const info = createEl('div', 'od-item-info');
+    info.append(
+      createEl('div', 'od-item-name', item.title || '商品'),
+      createEl('div', 'od-item-spec', `${item.spec || '默认规格'} x${item.quantity || 1}`)
+    );
+    row.append(info, createEl('div', 'od-item-price', formatMoney((item.price || 0) * (item.quantity || 1))));
     itemsDiv.appendChild(row);
   });
   box.appendChild(itemsDiv);
 
   // Total
-  const totalDiv = document.createElement('div');
-  totalDiv.className = 'od-section od-total-section';
-  let totalHtml = `<div class="od-row"><span class="od-label">合计</span><span class="od-value od-total">${escapeHTML(formatMoney(order.total))}</span></div>`;
+  const totalDiv = createEl('div', 'od-section od-total-section');
+  totalDiv.appendChild(odRow('合计', formatMoney(order.total), 'od-value od-total'));
   if(order.pendingPrice != null && order.pendingPriceRequestedBy){
-    totalHtml += `<div class="od-row"><span class="od-label">改价申请中</span><span class="od-value" style="color:#ff9500;">${escapeHTML(formatMoney(order.pendingPrice))}</span></div>`;
+    const pendingVal = createEl('span', 'od-value od-pending-price', formatMoney(order.pendingPrice));
+    const pendingRow = createEl('div', 'od-row');
+    pendingRow.append(createEl('span', 'od-label', '改价申请中'), pendingVal);
+    totalDiv.appendChild(pendingRow);
   }
   if(order.priceAdjustmentLocked){
-    totalHtml += `<div class="od-row"><span class="od-label" style="color:#999;">价格已锁定</span></div>`;
+    totalDiv.appendChild(createEl('div', 'od-row')).appendChild(createEl('span', 'od-label od-muted', '价格已锁定'));
   }
-  totalDiv.innerHTML = totalHtml;
   box.appendChild(totalDiv);
 
   // Remark
   if(order.remark){
-    const remarkDiv = document.createElement('div');
-    remarkDiv.className = 'od-section';
-    remarkDiv.innerHTML = `<div class="od-row"><span class="od-label">备注</span><span class="od-value">${escapeHTML(order.remark)}</span></div>`;
+    const remarkDiv = createEl('div', 'od-section');
+    remarkDiv.appendChild(odRow('备注', order.remark));
     box.appendChild(remarkDiv);
   }
 
   // Action buttons visibility
   const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
-  if($("orderDetailAcceptBtn")) $("orderDetailAcceptBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
-  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
-  if($("orderDetailPriceRequestBtn")) $("orderDetailPriceRequestBtn").classList.toggle('hidden', true);
-  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', order.status !== 'accepted');
-  if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
+  toggleEl("orderDetailAcceptBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
+  toggleEl("orderDetailEditPriceBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
+  toggleEl("orderDetailPriceRequestBtn", 'hidden', true);
+  toggleEl("orderDetailCompleteBtn", 'hidden', order.status !== 'accepted');
+  toggleEl("orderDetailChatBtn", 'hidden', !counterId);
 }
 
 function updateSelectedOrderPrice(){
@@ -793,32 +728,18 @@ async function completeSelectedOrder(){
   });
 }
 
-let _broadcastDraftsSig = '';
 function renderBroadcastDrafts(){
   const list = $("broadcastDraftList");
   if(!list) return;
   const sig = state.broadcastDrafts.map(d => (d.id||'')+'|'+(d.title||'')).join(';');
-  if (sig === _broadcastDraftsSig) return;
-  _broadcastDraftsSig = sig;
+  if (!sigChanged('broadcastDrafts', sig)) return;
   if(!state.broadcastDrafts.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无广播草稿';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无广播草稿');
     return;
   }
   const frag = document.createDocumentFragment();
   state.broadcastDrafts.forEach((item) => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = item.title || '未命名广播';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = item.summary || '-';
-    card.append(title, sub);
+    const card = buildProfileCard(item.title || '未命名广播', item.summary || '-', 'button');
     card.addEventListener('click', () => {
       state.selectedBroadcastDraft = item;
       openBroadcastDetail(item.title, item.summary);
@@ -842,14 +763,8 @@ function saveBroadcastDraft(){
   window.openSecondaryPage('broadcastManagePage', state.secondaryReturn || 'profile');
 }
 
-let _loadProfileStorePromise = null;
-async function loadProfileStore(userId){
+const loadProfileStore = singleFlight(async function _loadProfileStoreImpl(userId){
   if(!userId || !state.currentUser) return;
-  if (_loadProfileStorePromise) return _loadProfileStorePromise;
-  _loadProfileStorePromise = _loadProfileStoreImpl(userId);
-  try { return await _loadProfileStorePromise; } finally { _loadProfileStorePromise = null; }
-}
-async function _loadProfileStoreImpl(userId){
   state.profileStoreExpanded = false;
   state.profileStoreCategoryFilter = '';
   try{
@@ -860,11 +775,13 @@ async function _loadProfileStoreImpl(userId){
   }
   renderProfileStore();
   await loadProfileOrders();
-}
+});
 
 
-function openProductDetailPage(item){
-  openProductDetail(item, false);
+function sumCartTotals(items) {
+  let count = 0, total = 0;
+  for (let i = 0; i < items.length; i++) { const q = Number(items[i].quantity)||0; count += q; total += (Number(items[i].unitPrice)||0)*q; }
+  return { count, total };
 }
 
 function getProfileStoreItemCartQuantity(item){
@@ -896,8 +813,12 @@ function adjustProfileStoreItemQuantity(item, delta){
       showToast('库存不足');
       return;
     }
+    if (inCartQty >= 9999) {
+      showToast('单品数量已达上限');
+      return;
+    }
     if(found){
-      found.quantity = (Number(found.quantity) || 0) + 1;
+      found.quantity = Math.min(9999, (Number(found.quantity) || 0) + 1);
     }else{
       cart.push({
         key,
@@ -922,15 +843,13 @@ function adjustProfileStoreItemQuantity(item, delta){
   renderProfileStore();
 }
 
-let _profileStoreSig = '';
-function renderProfileStore(){
+const renderProfileStore = safeRender(function renderProfileStore(){
   const list = $("profileStoreList");
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
   const sig = (state.profileStoreItems||[]).map(i => i.id+'|'+(i.listed?'1':'0')+'|'+i.stock+'|'+(i.createdAt||0)).join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
-  if (sig === _profileStoreSig) return;
-  _profileStoreSig = sig;
+  if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Pre-parse categories once for reuse in tabs + filtering
   const parsedCats = new Map();
@@ -944,18 +863,23 @@ function renderProfileStore(){
     for (const arr of parsedCats.values()) arr.forEach(c => cats.add(c));
     catTabsEl.replaceChildren();
     if (cats.size > 0) {
-      const allTab = document.createElement('button');
+      if (!catTabsEl.dataset.delegated) {
+        catTabsEl.dataset.delegated = '1';
+        catTabsEl.addEventListener('click', (e) => {
+          const tab = e.target.closest('.profile-store-cat-tab');
+          if (!tab) return;
+          state.profileStoreCategoryFilter = tab.dataset.cat || '';
+          renderProfileStore();
+        });
+      }
+      const allTab = createEl('button', 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : ''), '全部');
       allTab.type = 'button';
-      allTab.className = 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : '');
-      allTab.textContent = '全部';
-      allTab.addEventListener('click', () => { state.profileStoreCategoryFilter = ''; renderProfileStore(); });
+      allTab.dataset.cat = '';
       catTabsEl.appendChild(allTab);
       cats.forEach(cat => {
-        const tab = document.createElement('button');
+        const tab = createEl('button', 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : ''), cat);
         tab.type = 'button';
-        tab.className = 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : '');
-        tab.textContent = cat;
-        tab.addEventListener('click', () => { state.profileStoreCategoryFilter = cat; renderProfileStore(); });
+        tab.dataset.cat = cat;
         catTabsEl.appendChild(tab);
       });
     }
@@ -966,10 +890,7 @@ function renderProfileStore(){
     : sortedItems;
   if(title) title.textContent = `在售商品 ${allItems.length}`;
   if(!allItems.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无在售商品';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无在售商品');
     if(moreBtn) moreBtn.classList.add('hidden');
     updateProfileCartBar();
     return;
@@ -984,66 +905,64 @@ function renderProfileStore(){
       moreBtn.classList.add('hidden');
     }
   }
+  // Build product lookup for delegated click handlers
+  const _storeItemsById = new Map();
+  for (const p of items) if (p.id) _storeItemsById.set(String(p.id), p);
+  if (list.dataset.storeClickBound !== '1') {
+    list.dataset.storeClickBound = '1';
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('.profile-store-item[data-product-id]');
+      if (!card) return;
+      const item = (state._storeItemsById || _storeItemsById)?.get(card.dataset.productId);
+      if (!item) return;
+      // Check if a stepper/spec button was clicked (these stop propagation, but just in case)
+      if (e.target.closest('.profile-qty-stepper') || e.target.closest('.secondary-btn')) return;
+      openProductDetail(item, false);
+    });
+  }
+  state._storeItemsById = _storeItemsById;
   const frag = document.createDocumentFragment();
   items.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'profile-store-item';
-    card.addEventListener('click', () => openProductDetail(item, false));
+    const card = createEl('div', 'profile-store-item');
+    card.dataset.productId = String(item.id || '');
+    // Card click handled via delegation on profileStoreList
 
-    const img = document.createElement('img');
+    const img = createEl('img', '');
     img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
     img.alt = item.title || '商品';
 
-    const info = document.createElement('div');
-    info.className = 'profile-store-info';
-    const title = document.createElement('div');
-    title.className = 'profile-store-title';
-    title.textContent = item.title || '未命名商品';
-    const desc = document.createElement('div');
-    desc.className = 'profile-store-desc';
+    const info = createEl('div', 'profile-store-info');
     const categoryText = item.category ? `【${item.category}】` : '';
-    desc.textContent = `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`;
-    const price = document.createElement('div');
-    price.className = 'profile-store-price';
-    price.textContent = formatMoney(item.price);
-    const stock = document.createElement('div');
-    stock.className = 'profile-store-desc';
-    stock.textContent = `库存：${getItemAvailableStock(item)}`;
-    info.append(title, desc, price, stock);
+    info.append(
+      createEl('div', 'profile-store-title', item.title || '未命名商品'),
+      createEl('div', 'profile-store-desc', `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`),
+      createEl('div', 'profile-store-price', formatMoney(item.price)),
+      createEl('div', 'profile-store-desc', `库存：${getItemAvailableStock(item)}`)
+    );
 
-    const side = document.createElement('div');
-    side.className = 'profile-store-side';
+    const side = createEl('div', 'profile-store-side');
     const hasMultiSpecs = Array.isArray(item.specs) && item.specs.length > 1;
     const qty = getProfileStoreItemCartQuantity(item);
     if(hasMultiSpecs){
-      const btn = document.createElement('button');
+      const btn = createEl('button', 'secondary-btn', qty > 0 ? `选规格 (${qty})` : '选规格');
       btn.type = 'button';
-      btn.className = 'secondary-btn';
-      btn.textContent = qty > 0 ? `选规格 (${qty})` : '选规格';
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         openProductSpecSheet(item);
       });
       side.appendChild(btn);
     }else{
-      const stepper = document.createElement('div');
-      stepper.className = 'profile-qty-stepper';
-      const minus = document.createElement('button');
+      const stepper = createEl('div', 'profile-qty-stepper');
+      const minus = createEl('button', 'qty-btn', '−');
       minus.type = 'button';
-      minus.className = 'qty-btn';
-      minus.textContent = '−';
       minus.disabled = qty <= 0;
       minus.addEventListener('click', (e) => {
         e.stopPropagation();
         adjustProfileStoreItemQuantity(item, -1);
       });
-      const qtyText = document.createElement('span');
-      qtyText.className = 'qty-num';
-      qtyText.textContent = String(qty);
-      const plus = document.createElement('button');
+      const qtyText = createEl('span', 'qty-num', String(qty));
+      const plus = createEl('button', 'qty-btn primary', '+');
       plus.type = 'button';
-      plus.className = 'qty-btn primary';
-      plus.textContent = '+';
       plus.addEventListener('click', (e) => {
         e.stopPropagation();
         adjustProfileStoreItemQuantity(item, 1);
@@ -1057,7 +976,7 @@ function renderProfileStore(){
   });
   list.replaceChildren(frag);
   updateProfileCartBar();
-}
+});
 
 function openProductSpecSheet(item, mode = 'cart'){
   if(!item) return;
@@ -1067,17 +986,15 @@ function openProductSpecSheet(item, mode = 'cart'){
   const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
   state.selectedProfileSpec = specs[0];
   if($("specSheetImage")) $("specSheetImage").src = normalizeMediaUrl(item.image || item.imageUrl) || '';
-  if($("specSheetTitle")) $("specSheetTitle").textContent = item.title || '商品';
-  if($("specSheetDesc")) $("specSheetDesc").textContent = item.desc || '商品详情页包含图片、文字与价格';
-  if($("specSheetPrice")) $("specSheetPrice").textContent = formatMoney(item.price);
+  setText("specSheetTitle", item.title || '商品');
+  setText("specSheetDesc", item.desc || '商品详情页包含图片、文字与价格');
+  setText("specSheetPrice", formatMoney(item.price));
   const list = $("specOptionsList");
   if(list){
     const frag = document.createDocumentFragment();
     specs.forEach(spec => {
-      const chip = document.createElement('button');
+      const chip = createEl('button', 'spec-option-chip' + (spec === state.selectedProfileSpec ? ' active' : ''), spec);
       chip.type = 'button';
-      chip.className = 'spec-option-chip' + (spec === state.selectedProfileSpec ? ' active' : '');
-      chip.textContent = spec;
       chip.addEventListener('click', () => {
         state.selectedProfileSpec = spec;
         list.querySelectorAll('.spec-option-chip').forEach(el => el.classList.toggle('active', el.textContent === spec));
@@ -1087,16 +1004,16 @@ function openProductSpecSheet(item, mode = 'cart'){
     list.replaceChildren(frag);
   }
   // Reset quantity UI
-  if($("specSheetQtyNum")) $("specSheetQtyNum").textContent = '1';
+  setText("specSheetQtyNum", '1');
   if($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = true;
   // Toggle cart vs buy-now buttons
-  if($("confirmAddToCartBtn")) $("confirmAddToCartBtn").classList.toggle('hidden', mode === 'buyNow');
-  if($("confirmBuyNowBtn")) $("confirmBuyNowBtn").classList.toggle('hidden', mode !== 'buyNow');
-  $("productSpecSheet")?.classList.remove('hidden');
+  toggleEl("confirmAddToCartBtn", 'hidden', mode === 'buyNow');
+  toggleEl("confirmBuyNowBtn", 'hidden', mode !== 'buyNow');
+  showEl("productSpecSheet");
 }
 
 function closeProductSpecSheet(){
-  $("productSpecSheet")?.classList.add('hidden');
+  hideEl("productSpecSheet");
 }
 
 function addSelectedProductToCart(){
@@ -1168,7 +1085,9 @@ function buyNowAndCheckout(){
 
 function getProfileCartTotal(){
   const cart = getCurrentSellerCart();
-  return cart.reduce((sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0), 0);
+  let sum = 0;
+  for (let i = 0; i < cart.length; i++) sum += (Number(cart[i].unitPrice) || 0) * (Number(cart[i].quantity) || 0);
+  return sum;
 }
 
 function updateProfileCartBar(){
@@ -1177,8 +1096,7 @@ function updateProfileCartBar(){
   const countEl = $("profileCartCount");
   const totalEl = $("profileCartTotal");
   const currentCart = getCurrentSellerCart();
-  let count = 0, cartTotal = 0;
-  for (let i = 0; i < currentCart.length; i++) { const q = Number(currentCart[i].quantity)||0; count += q; cartTotal += (Number(currentCart[i].unitPrice)||0)*q; }
+  const { count, total: cartTotal } = sumCartTotals(currentCart);
   if(countEl) countEl.textContent = `${count} 件商品`;
   if(totalEl) totalEl.textContent = formatMoney(cartTotal);
   if(bar) bar.classList.toggle('hidden', count <= 0);
@@ -1202,67 +1120,49 @@ function renderProfileCartPage(){
   const sellerInfo = $("profileCartSellerInfo");
   if(sellerInfo){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    let _sName = '';
-    if (!profile && state.ordersById) { for (const o of state.ordersById.values()) { if (o.sellerId === sellerId && o.sellerName) { _sName = o.sellerName; break; } } }
+    const _sName = (!profile && state.sellerNameCache) ? (state.sellerNameCache.get(sellerId) || '') : '';
     const sellerName = profile?.displayName || profile?.nickname || _sName || `商家 ${sellerId.slice(-6)}`;
     sellerInfo.textContent = sellerName;
     sellerInfo.classList.toggle('hidden', !sellerId);
   }
 
   if(!currentCart.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '购物车为空';
-    list.replaceChildren(empty);
-    if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = '0 件商品';
-    if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(0);
+    showEmptyState(list, '购物车为空');
+    setText("profileCartSummaryText", '0 件商品');
+    setText("profileCartPageTotal", formatMoney(0));
     return;
   }
 
   const updateTotals = () => {
     const count = currentCart.reduce((s, i) => s + (Number(i.quantity)||0), 0);
-    if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = `${count} 件商品`;
-    if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(getProfileCartTotal());
+    setText("profileCartSummaryText", `${count} 件商品`);
+    setText("profileCartPageTotal", formatMoney(getProfileCartTotal()));
   };
 
   const frag = document.createDocumentFragment();
   currentCart.forEach((item) => {
-    const card = document.createElement('div');
-    card.className = 'order-cart-item checkout-item';
+    const card = createEl('div', 'order-cart-item checkout-item');
 
     // Product image + info row
-    const row = document.createElement('div');
-    row.className = 'checkout-item-row';
+    const row = createEl('div', 'checkout-item-row');
     const imgUrl = normalizeMediaUrl(item.image || '');
     if(imgUrl){
-      const img = document.createElement('img');
-      img.className = 'checkout-item-img';
+      const img = createEl('img', 'checkout-item-img');
       img.src = imgUrl;
       img.alt = item.title || '';
       row.appendChild(img);
     }
-    const info = document.createElement('div');
-    info.className = 'checkout-item-info';
-    const title = document.createElement('div');
-    title.className = 'order-cart-title';
-    title.textContent = item.title || '商品';
-    const spec = document.createElement('div');
-    spec.className = 'order-cart-sub';
-    spec.textContent = item.spec || '默认规格';
-    info.append(title, spec);
+    const info = createEl('div', 'checkout-item-info');
+    info.append(createEl('div', 'order-cart-title', item.title || '商品'), createEl('div', 'order-cart-sub', item.spec || '默认规格'));
     row.appendChild(info);
     card.appendChild(row);
 
     // Price + quantity + remove row
-    const line = document.createElement('div');
-    line.className = 'checkout-item-bottom';
-    const priceWrap = document.createElement('div');
-    priceWrap.className = 'checkout-price-wrap';
-    const priceLabel = document.createElement('span');
-    priceLabel.className = 'checkout-price checkout-price-editable';
-    priceLabel.textContent = formatMoney(Number(item.unitPrice || 0));
+    const line = createEl('div', 'checkout-item-bottom');
+    const priceWrap = createEl('div', 'checkout-price-wrap');
+    const priceLabel = createEl('span', 'checkout-price checkout-price-editable', formatMoney(Number(item.unitPrice || 0)));
     priceLabel.title = '点击修改价格';
-    priceLabel.addEventListener('click', () => {
+    const editPrice = () => {
       showPrompt('请输入新的单价', String(item.unitPrice || 0), (raw) => {
         const newPrice = Math.max(0, Number(String(raw).replace(/[^\d.]/g, '')) || 0);
         item.unitPrice = newPrice;
@@ -1270,36 +1170,20 @@ function renderProfileCartPage(){
         updateTotals();
         saveCartToStorage();
       });
-    });
-    const priceEditBtn = document.createElement('button');
+    };
+    priceLabel.addEventListener('click', editPrice);
+    const priceEditBtn = createEl('button', 'checkout-price-edit-btn', '改价');
     priceEditBtn.type = 'button';
-    priceEditBtn.className = 'checkout-price-edit-btn';
-    priceEditBtn.textContent = '改价';
-    priceEditBtn.addEventListener('click', () => {
-      showPrompt('请输入新的单价', String(item.unitPrice || 0), (raw) => {
-        const newPrice = Math.max(0, Number(String(raw).replace(/[^\d.]/g, '')) || 0);
-        item.unitPrice = newPrice;
-        priceLabel.textContent = formatMoney(newPrice);
-        updateTotals();
-        saveCartToStorage();
-      });
-    });
+    priceEditBtn.addEventListener('click', editPrice);
     priceWrap.append(priceLabel, priceEditBtn);
 
     // Quantity controls
-    const qtyWrap = document.createElement('div');
-    qtyWrap.className = 'checkout-qty-wrap';
-    const minusBtn = document.createElement('button');
+    const qtyWrap = createEl('div', 'checkout-qty-wrap');
+    const minusBtn = createEl('button', 'checkout-qty-btn', '\u2212');
     minusBtn.type = 'button';
-    minusBtn.className = 'checkout-qty-btn';
-    minusBtn.textContent = '\u2212';
-    const qtySpan = document.createElement('span');
-    qtySpan.className = 'checkout-qty-val';
-    qtySpan.textContent = String(item.quantity || 1);
-    const plusBtn = document.createElement('button');
+    const qtySpan = createEl('span', 'checkout-qty-val', String(item.quantity || 1));
+    const plusBtn = createEl('button', 'checkout-qty-btn', '+');
     plusBtn.type = 'button';
-    plusBtn.className = 'checkout-qty-btn';
-    plusBtn.textContent = '+';
 
     minusBtn.addEventListener('click', () => {
       const q = Math.max(0, (Number(item.quantity)||1) - 1);
@@ -1323,10 +1207,8 @@ function renderProfileCartPage(){
     });
     qtyWrap.append(minusBtn, qtySpan, plusBtn);
 
-    const removeBtn = document.createElement('button');
+    const removeBtn = createEl('button', 'checkout-remove-btn', '删除');
     removeBtn.type = 'button';
-    removeBtn.className = 'checkout-remove-btn';
-    removeBtn.textContent = '删除';
     removeBtn.addEventListener('click', () => {
       const i = currentCart.indexOf(item);
       if(i >= 0) currentCart.splice(i, 1);
@@ -1343,52 +1225,34 @@ function renderProfileCartPage(){
 }
 
 
-let _cartHubSig = '';
 function renderCartHubPage(){
   const list = $("cartHubList");
   if(!list) return;
   const groups = Object.entries(state.profileCartBySeller || {}).filter(([,arr]) => Array.isArray(arr) && arr.length);
   const sig = groups.map(([sid, arr]) => sid + ':' + arr.map(i => i.productId + ',' + (i.quantity||0)).join('|')).join(';');
-  if (sig === _cartHubSig) return;
-  _cartHubSig = sig;
+  if (!sigChanged('cartHub', sig)) return;
   if(!groups.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无待结算商品';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无待结算商品');
     return;
   }
-  // Build sellerName cache from orders for O(1) lookup
-  const _sellerNameCache = new Map();
-  for (const o of (state.sellerOrders || [])) if (o.sellerId && o.sellerName) _sellerNameCache.set(o.sellerId, o.sellerName);
-  for (const o of (state.buyerOrders || [])) if (o.sellerId && o.sellerName && !_sellerNameCache.has(o.sellerId)) _sellerNameCache.set(o.sellerId, o.sellerName);
   const frag = document.createDocumentFragment();
   groups.forEach(([sellerId, arr]) => {
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    const knownSeller = _sellerNameCache.get(sellerId);
+    const knownSeller = state.sellerNameCache?.get(sellerId) || '';
     const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
-    let count = 0, total = 0;
-    for (let i = 0; i < arr.length; i++) { const q = Number(arr[i].quantity)||0; count += q; total += (Number(arr[i].unitPrice)||0)*q; }
-    const card = document.createElement('div');
-    card.className = 'cart-hub-card';
-    const head = document.createElement('div');
-    head.className = 'cart-hub-title';
-    head.textContent = title;
-    const sub = document.createElement('div');
-    sub.className = 'cart-hub-sub';
-    sub.textContent = `${count} 件商品 · ${formatMoney(total)}`;
-    const line = document.createElement('div');
-    line.className = 'cart-hub-line';
-    const goBtn = document.createElement('button');
+    const { count, total } = sumCartTotals(arr);
+    const card = createEl('div', 'cart-hub-card');
+    const head = createEl('div', 'cart-hub-title', title);
+    const sub = createEl('div', 'cart-hub-sub', `${count} 件商品 · ${formatMoney(total)}`);
+    const line = createEl('div', 'cart-hub-line');
+    const goBtn = createEl('button', 'primary-btn', '去结算');
     goBtn.type = 'button';
-    goBtn.className = 'primary-btn';
-    goBtn.textContent = '去结算';
     goBtn.addEventListener('click', () => {
       state.currentCartSellerId = sellerId;
       renderProfileCartPage();
       window.openSecondaryPage('profileCartPage', 'cartHubPage');
     });
-    line.appendChild(document.createElement('span'));
+    line.appendChild(createEl('span', ''));
     line.appendChild(goBtn);
     card.append(head, sub, line);
     frag.appendChild(card);
@@ -1434,15 +1298,9 @@ async function submitProfileOrder(){
   }
 }
 
-let _loadProfileOrdersPromise = null;
-async function loadProfileOrders(){
+const loadProfileOrders = singleFlight(async function _loadProfileOrdersImpl(){
   const profileUserId = state.currentProfileUser?.id;
   if(!profileUserId || !state.currentUser) return;
-  if (_loadProfileOrdersPromise) return _loadProfileOrdersPromise;
-  _loadProfileOrdersPromise = _loadProfileOrdersImpl(profileUserId);
-  try { return await _loadProfileOrdersPromise; } finally { _loadProfileOrdersPromise = null; }
-}
-async function _loadProfileOrdersImpl(profileUserId){
   try{
     const data = await api(`/api/orders?sellerId=${profileUserId}`);
     state.profileOrders = data.orders || [];
@@ -1450,7 +1308,7 @@ async function _loadProfileOrdersImpl(profileUserId){
     state.profileOrders = [];
   }
   renderProfileOrders();
-}
+});
 
 
 
@@ -1471,14 +1329,12 @@ async function loadAdminDashboard(){
   renderAdminReports();
 }
 
-let _adminCenterSig = '';
 function renderAdminCenter(){
   const grid = $("adminDashboardGrid");
   if(!grid) return;
   const stats = state.adminDashboard?.stats || {};
   const sig = (stats.users||0)+','+(stats.products||0)+','+(stats.orders||0)+','+(stats.broadcasts||0)+','+(stats.blacklistLinks||0)+','+(stats.pendingOrders||0);
-  if (sig === _adminCenterSig) return;
-  _adminCenterSig = sig;
+  if (!sigChanged('adminCenter', sig)) return;
   const items = [
     ['用户总数', stats.users || 0],
     ['商品总数', stats.products || 0],
@@ -1489,269 +1345,136 @@ function renderAdminCenter(){
   ];
   const frag = document.createDocumentFragment();
   items.forEach(([label, value]) => {
-    const card = document.createElement('div');
-    card.className = 'admin-stat-card';
-    const l = document.createElement('div');
-    l.className = 'admin-stat-label';
-    l.textContent = label;
-    const v = document.createElement('div');
-    v.className = 'admin-stat-value';
-    v.textContent = String(value);
-    card.append(l, v);
+    const card = createEl('div', 'admin-stat-card');
+    card.append(createEl('div', 'admin-stat-label', label), createEl('div', 'admin-stat-value', String(value)));
     frag.appendChild(card);
   });
   grid.replaceChildren(frag);
 }
 
-let _adminOrdersSig = '';
-function renderAdminOrders(){
-  const list = $("adminOrdersList");
+function renderAdminList(listId, sigKey, dataKey, sigFn, emptyMsg, buildCardFn) {
+  const list = $(listId);
   if(!list) return;
-  const rows = state.adminDashboard?.recentOrders || [];
-  const sig = rows.map(o => o.id+'|'+o.status).join(';');
-  if (sig === _adminOrdersSig) return;
-  _adminOrdersSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无平台订单';
-    list.replaceChildren(empty);
-    return;
-  }
+  const rows = state.adminDashboard?.[dataKey] || [];
+  const sig = rows.map(sigFn).join(';');
+  if (!sigChanged(sigKey, sig)) return;
+  if(!rows.length){ showEmptyState(list, emptyMsg); return; }
   const frag = document.createDocumentFragment();
-  rows.forEach((order) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = `订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total || 0)}`;
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`;
-    const line = document.createElement('div');
-    line.className = 'admin-list-line';
-    const tag = document.createElement('span');
-    tag.className = 'admin-tag' + (order.status === 'completed' ? '' : ' warn');
-    tag.textContent = order.status === 'completed' ? '已完成' : '处理中';
-    line.appendChild(tag);
-    card.append(title, sub, line);
-    frag.appendChild(card);
-  });
+  rows.forEach(item => frag.appendChild(buildCardFn(item)));
   list.replaceChildren(frag);
 }
 
-let _adminUsersSig = '';
-function renderAdminUsers(){
-  const list = $("adminUsersList");
-  if(!list) return;
-  const rows = state.adminDashboard?.userList || [];
-  const sig = rows.map(u => u.id+'|'+(u.productCount||0)+'|'+(u.blacklistCount||0)).join(';');
-  if (sig === _adminUsersSig) return;
-  _adminUsersSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无用户数据';
-    list.replaceChildren(empty);
-    return;
-  }
-  const frag = document.createDocumentFragment();
-  rows.forEach((user) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = user.displayName || user.username || '用户';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = `商品 ${user.productCount || 0} · 卖家订单 ${user.sellerOrderCount || 0}`;
-    const line = document.createElement('div');
-    line.className = 'admin-list-line';
-    const tag = document.createElement('span');
-    tag.className = 'admin-tag' + ((user.blacklistCount || 0) ? ' warn' : '');
-    tag.textContent = (user.blacklistCount || 0) ? `黑名单 ${user.blacklistCount}` : '正常';
-    line.appendChild(tag);
-    card.append(title, sub, line);
-    frag.appendChild(card);
+function addAdminTag(card, text, warn) {
+  const line = createEl('div', 'admin-list-line');
+  line.appendChild(createEl('span', 'admin-tag' + (warn ? ' warn' : ''), text));
+  card.appendChild(line);
+  return card;
+}
+
+function renderAdminOrders() {
+  renderAdminList('adminOrdersList', 'adminOrders', 'recentOrders', o => o.id+'|'+o.status, '暂无平台订单', (order) => {
+    const card = buildProfileCard(`订单 #${formatOrderId(order.id)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
+    return addAdminTag(card, order.status === 'completed' ? '已完成' : '处理中', order.status !== 'completed');
   });
-  list.replaceChildren(frag);
 }
-
-let _adminProductsSig = '';
-function renderAdminProducts(){
-  const list = $("adminProductsList");
-  if(!list) return;
-  const rows = state.adminDashboard?.productList || [];
-  const sig = rows.map(p => p.id+'|'+p.price).join(';');
-  if (sig === _adminProductsSig) return;
-  _adminProductsSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无商品数据';
-    list.replaceChildren(empty);
-    return;
-  }
-  const frag = document.createDocumentFragment();
-  rows.forEach((item) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = item.title || '商品';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = `${item.sellerName || '卖家'} · ${formatMoney(item.price || 0)}`;
-    card.append(title, sub);
-    frag.appendChild(card);
+function renderAdminUsers() {
+  renderAdminList('adminUsersList', 'adminUsers', 'userList', u => u.id+'|'+(u.productCount||0)+'|'+(u.blacklistCount||0), '暂无用户数据', (user) => {
+    const card = buildProfileCard(user.displayName || user.username || '用户', `商品 ${user.productCount || 0} · 卖家订单 ${user.sellerOrderCount || 0}`);
+    return addAdminTag(card, (user.blacklistCount || 0) ? `黑名单 ${user.blacklistCount}` : '正常', !!(user.blacklistCount || 0));
   });
-  list.replaceChildren(frag);
 }
-
-let _adminReportsSig = '';
-function renderAdminReports(){
-  const list = $("adminReportsList");
-  if(!list) return;
-  const rows = state.adminDashboard?.reportList || [];
-  const sig = rows.map(r => r.title).join(';');
-  if (sig === _adminReportsSig) return;
-  _adminReportsSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无举报与风控提醒';
-    list.replaceChildren(empty);
-    return;
-  }
-  const frag = document.createDocumentFragment();
-  rows.forEach((row) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = row.title || '风险提醒';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = row.summary || '';
-    card.append(title, sub);
-    frag.appendChild(card);
-  });
-  list.replaceChildren(frag);
+function renderAdminProducts() {
+  renderAdminList('adminProductsList', 'adminProducts', 'productList', p => p.id+'|'+p.price, '暂无商品数据',
+    item => buildProfileCard(item.title || '商品', `${item.sellerName || '卖家'} · ${formatMoney(item.price || 0)}`)
+  );
 }
-
-function renderSellerCenterPage(){
-  if($("chatTitle")) $("chatTitle").textContent = '卖家中心';
-}
-
-async function renderBuyerOrdersPage(){
-  await loadProfileOrders();
+function renderAdminReports() {
+  renderAdminList('adminReportsList', 'adminReports', 'reportList', r => r.title, '暂无举报与风控提醒',
+    row => buildProfileCard(row.title || '风险提醒', row.summary || '')
+  );
 }
 
 function openBroadcastDetail(title, summary){
-  if($("broadcastDetailTitle")) $("broadcastDetailTitle").textContent = title || '广播详情';
-  if($("broadcastDetailSummary")) $("broadcastDetailSummary").textContent = summary || '';
+  setText("broadcastDetailTitle", title || '广播详情');
+  setText("broadcastDetailSummary", summary || '');
   window.openSecondaryPage('broadcastDetailPage', state.secondaryReturn || 'home');
 }
 
-let _profileOrdersSig = '';
+function bindProfileOrdersDelegation(list) {
+  if (list.dataset.profOrderBound === '1') return;
+  list.dataset.profOrderBound = '1';
+  list.addEventListener('click', (e) => {
+    if (e.target.closest('.profile-order-actions')) return;
+    const card = e.target.closest('[data-order-id]');
+    if (!card) return;
+    const order = state.ordersById?.get(card.dataset.orderId);
+    if (order) openOrderDetail(order, card.dataset.orderRole || 'buyer');
+  });
+}
 function renderProfileOrders(){
   const list = $("profileOrdersList");
   if(!list) return;
+  bindProfileOrdersDelegation(list);
   const sig = state.profileOrders.map(o => o.id + '|' + o.status + '|' + (o.total||0)).join(';');
-  if (sig === _profileOrdersSig) return;
-  _profileOrdersSig = sig;
+  if (!sigChanged('profileOrders', sig)) return;
   if(!state.profileOrders.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无订单';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无订单');
     return;
   }
   const frag = document.createDocumentFragment();
   state.profileOrders.forEach(order => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = `订单 #${String(order.id || '').slice(-6) || '-'} · ${formatMoney(order.total)}`;
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
     const names = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，');
-    sub.textContent = names || '订单内容';
-    const status = document.createElement('div');
-    status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
+    const card = buildProfileCard(`订单 #${formatOrderId(order.id) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
+    const status = createEl('div', 'profile-order-status' + (order.status === 'completed' ? ' done' : ''));
     status.textContent = formatOrderStatusLabel(order.status);
 
-    const actions = document.createElement('div');
-    actions.className = 'profile-order-actions';
+    const actions = createEl('div', 'profile-order-actions');
     const canManage = state.currentUser?.id && state.currentUser.id === order.sellerId;
 
     if (canManage) {
-      // Price edit + Accept button for pending orders
       if(order.status === 'pending'){
-        const editPriceBtn = document.createElement('button');
-        editPriceBtn.type = 'button';
-        editPriceBtn.className = 'secondary-btn';
-        editPriceBtn.textContent = '修改价格';
-        editPriceBtn.addEventListener('click', (e) => { e.stopPropagation();
+        actions.appendChild(createStopBtn('secondary-btn', '修改价格', () => {
           if(!order.id) return;
           showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
             try{ await doUpdateOrderPrice(order.id, raw); }catch(e){ showModal(e.message || '修改失败'); }
           });
-        });
-        actions.appendChild(editPriceBtn);
-        const acceptBtn = document.createElement('button');
-        acceptBtn.type = 'button';
-        acceptBtn.className = 'primary-btn';
-        acceptBtn.textContent = '接单';
-        acceptBtn.addEventListener('click', async (e) => { e.stopPropagation();
+        }));
+        actions.appendChild(createStopBtn('primary-btn', '接单', (e, btn) => {
           if(!order.id) return;
-          try{ await doAcceptOrder(order.id); }catch(e){ showModal(e.message || '接单失败'); }
-        });
-        actions.appendChild(acceptBtn);
+          withButtonLock(btn, () => doAcceptOrder(order.id), '接单中...');
+        }));
       }
-
-      // Complete button only on accepted orders
       if(order.status === 'accepted'){
-        const doneBtn = document.createElement('button');
-        doneBtn.type = 'button';
-        doneBtn.className = 'primary-btn';
-        doneBtn.textContent = '标记已完成';
-        doneBtn.addEventListener('click', async (e) => { e.stopPropagation();
+        actions.appendChild(createStopBtn('primary-btn', '标记已完成', (e, btn) => {
           if(!order.id) return;
-          try{ await doCompleteOrder(order.id); }catch(e){ showModal(e.message || '更新失败'); }
-        });
-        actions.appendChild(doneBtn);
+          withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+        }));
       }
     }
 
     // Buyer can confirm receipt on accepted orders
     const isBuyerUser = state.currentUser?.id && state.currentUser.id === order.buyerId;
     if(isBuyerUser && order.status === 'accepted'){
-      const receiveBtn = document.createElement('button');
-      receiveBtn.type = 'button';
-      receiveBtn.className = 'primary-btn';
-      receiveBtn.textContent = '确认收货';
-      receiveBtn.addEventListener('click', async (e) => { e.stopPropagation();
+      actions.appendChild(createStopBtn('primary-btn', '确认收货', () => {
         if(!order.id) return;
         showConfirm('确认已收到商品？订单将标记为已完成。', async () => {
           try{ await doCompleteOrder(order.id); }catch(e){ showModal(e.message || '确认失败'); }
         });
-      });
-      actions.appendChild(receiveBtn);
+      }));
     }
 
-    card.append(title, sub, status);
+    card.appendChild(status);
     if (actions.childElementCount) card.appendChild(actions);
-    const detailRole = (state.currentUser?.id && state.currentUser.id === order.buyerId) ? 'buyer' : 'seller';
-    card.addEventListener('click', () => openOrderDetail(order, detailRole));
+    card.dataset.orderId = order.id;
+    card.dataset.orderRole = (state.currentUser?.id && state.currentUser.id === order.buyerId) ? 'buyer' : 'seller';
+    // Click handled via delegation on profileOrdersList
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
 }
 
-function showProfileActionSheet(){ if($("profileActionSheet")) $("profileActionSheet").classList.remove("hidden"); }
-function hideProfileActionSheet(){ if($("profileActionSheet")) $("profileActionSheet").classList.add("hidden"); }
+function showProfileActionSheet(){ showEl("profileActionSheet"); }
+function hideProfileActionSheet(){ hideEl("profileActionSheet"); }
 
 async function sendFriendRequestToCurrentProfile(){
   const p = state.currentProfileUser;
@@ -1768,12 +1491,13 @@ async function sendFriendRequestToCurrentProfile(){
 }
 
 function applyChatRelationshipState(){
-  if(!$("chatSubtitle")) return;
+  const el = $("chatSubtitle");
+  if(!el) return;
   const peerId = conversationPeerId(state.activeConversation);
-  if(!peerId) { $("chatSubtitle").textContent = ''; return; }
+  if(!peerId) { el.textContent = ''; return; }
   const convFriendState = state.activeConversation?.peerIsFriend === true
     || state.conversationsById?.get(state.activeConversation?.id)?.peerIsFriend === true;
-  $("chatSubtitle").textContent = (convFriendState || isFriendUser(peerId)) ? '' : '对方还不是你的好友';
+  el.textContent = (convFriendState || isFriendUser(peerId)) ? '' : '对方还不是你的好友';
 }
 
 
@@ -1798,17 +1522,13 @@ function showTradePicker(title, items, renderLine, emptyText) {
   titleEl.textContent = title;
   list.replaceChildren();
   if (!Array.isArray(items) || !items.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = emptyText || '暂无可选项';
-    list.appendChild(empty);
+    showEmptyState(list, emptyText || '暂无可选项');
   } else {
     const frag = document.createDocumentFragment();
     items.forEach((item, idx) => {
-      const btn = document.createElement('button');
+      const btn = createEl('button', 'profile-order-card');
       btn.type = 'button';
-      btn.className = 'profile-order-card';
-      btn.innerHTML = `<div class="profile-order-title">${idx + 1}. ${escapeHTML(renderLine(item))}</div>`;
+      btn.appendChild(createEl('div', 'profile-order-title', `${idx + 1}. ${renderLine(item)}`));
       btn.addEventListener('click', () => close(item));
       frag.appendChild(btn);
     });
@@ -1834,7 +1554,7 @@ async function sendContactCardInChat(){
   await loadFriends(true);
   state._ccpSelectedFriend = null;
   if ($("ccpSearchInput")) $("ccpSearchInput").value = '';
-  if ($("ccpConfirmBar")) $("ccpConfirmBar").classList.add('hidden');
+  hideEl("ccpConfirmBar");
   renderContactCardPicker();
   window.openSecondaryPage('contactCardPickerPage', 'chat');
   if ($("chatTitle")) $("chatTitle").textContent = '选择名片';
@@ -1848,14 +1568,14 @@ async function sendProductCardInChat(){
 }
 
 function getOrdersBetweenUsers(peerId){
-  const all = [...(state.buyerOrders || []), ...(state.sellerOrders || [])];
-  const seen = new Set();
-  return all.filter((o) => {
-    if(!o || seen.has(o.id)) return false;
-    const match = (o.buyerId === state.currentUser?.id && o.sellerId === peerId) || (o.sellerId === state.currentUser?.id && o.buyerId === peerId);
-    if(match) seen.add(o.id);
-    return match;
-  });
+  const uid = state.currentUser?.id;
+  const results = [];
+  for (const o of state.ordersById.values()) {
+    if ((o.buyerId === uid && o.sellerId === peerId) || (o.sellerId === uid && o.buyerId === peerId)) {
+      results.push(o);
+    }
+  }
+  return results;
 }
 
 async function sendOrderCardInChat(){
@@ -1878,19 +1598,24 @@ function extractContactCardUserId(card = {}){
   const appMatch = fromText.match(/CT\d{5,}/i);
   const appId = appMatch ? appMatch[0].toUpperCase() : '';
 
-  const friends = (state.friends || []).map((item) => item.friend).filter(Boolean);
+  const srcFriends = state.friends || [];
   if (appId) {
-    const friend = friends.find((f) => String(f.appNumberId || '').toUpperCase() === appId);
-    if (friend?.id) return friend.id;
+    for (let i = 0; i < srcFriends.length; i++) {
+      const f = srcFriends[i].friend;
+      if (f && String(f.appNumberId || '').toUpperCase() === appId && f.id) return f.id;
+    }
   }
 
   const title = String(card.title || '').trim();
   if (title) {
-    const friend = friends.find((f) => {
-      const names = [f.remark, f.displayName, f.username].map((v) => String(v || '').trim()).filter(Boolean);
-      return names.includes(title);
-    });
-    if (friend?.id) return friend.id;
+    for (let i = 0; i < srcFriends.length; i++) {
+      const f = srcFriends[i].friend;
+      if (!f) continue;
+      const r = String(f.remark || '').trim();
+      const d = String(f.displayName || '').trim();
+      const u = String(f.username || '').trim();
+      if ((r && r === title) || (d && d === title) || (u && u === title)) return f.id;
+    }
   }
   return '';
 }
@@ -1913,8 +1638,8 @@ function renderContactCardPicker(keyword){
   allFriends.forEach(item => {
     const f = item.friend;
     if (!f) return;
-    if (search && !(f.displayName || '').toLowerCase().includes(search) && !(f.remark || '').toLowerCase().includes(search) && !(f.username || '').toLowerCase().includes(search)) return;
-    const groupName = item.group || '我的好友';
+    if (search && !(f._lcName || (f._lcName = (f.displayName || '').toLowerCase())).includes(search) && !(f._lcRemark || (f._lcRemark = (f.remark || '').toLowerCase())).includes(search) && !(f._lcUser || (f._lcUser = (f.username || '').toLowerCase())).includes(search)) return;
+    const groupName = item.group || DEFAULT_GROUP;
     if (!grouped.has(groupName)) grouped.set(groupName, []);
     grouped.get(groupName).push(f);
   });
@@ -1923,51 +1648,34 @@ function renderContactCardPicker(keyword){
   let totalVisible = 0;
   grouped.forEach(members => { totalVisible += members.length; });
   if (totalVisible === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'ccp-empty';
-    empty.textContent = search ? '未找到匹配的好友' : '通讯录暂无好友可发送';
-    list.replaceChildren(empty);
+    showEmptyState(list, search ? '未找到匹配的好友' : '通讯录暂无好友可发送', 'ccp-empty');
     return;
   }
 
   const frag = document.createDocumentFragment();
   grouped.forEach((members, groupName) => {
     if (!members.length) return;
-    const section = document.createElement('div');
+    const section = createEl('div');
     section.dataset.groupName = groupName;
 
-    const header = document.createElement('div');
-    header.className = 'qq-group-header expanded';
+    const header = createEl('div', 'qq-group-header expanded', groupName + ' ');
     header.dataset.role = 'friend-group-header';
-    header.textContent = groupName + ' ';
-    const count = document.createElement('span');
-    count.style.cssText = 'color:#8e8e93;font-size:12px;margin-left:6px;';
-    count.textContent = String(members.length);
+    const count = createEl('span', 'friend-group-count', String(members.length));
     header.appendChild(count);
     header.addEventListener('click', () => window.toggleQQGroup(header));
 
-    const content = document.createElement('div');
-    content.className = 'qq-group-content expanded';
+    const content = createEl('div', 'qq-group-content expanded');
     content.dataset.role = 'friend-group-content';
 
     members.forEach(f => {
-      const row = document.createElement('button');
+      const row = createEl('button', 'ccp-friend-row');
       row.type = 'button';
-      row.className = 'ccp-friend-row';
       row.dataset.friendId = f.id;
       row.appendChild(createAvatarNode(f, f.displayName || f.username || '友'));
-      const info = document.createElement('div');
-      info.className = 'ccp-friend-info';
-      const name = document.createElement('div');
-      name.className = 'ccp-friend-name';
-      name.textContent = f.remark || f.displayName || f.username || '好友';
-      const sub = document.createElement('div');
-      sub.className = 'ccp-friend-id';
-      sub.textContent = 'ID: ' + (f.appNumberId || f.username || '-');
-      info.append(name, sub);
+      const info = createEl('div', 'ccp-friend-info');
+      info.append(createEl('div', 'ccp-friend-name', f.remark || f.displayName || f.username || '好友'), createEl('div', 'ccp-friend-id', 'ID: ' + (f.appNumberId || f.username || '-')));
       row.appendChild(info);
-      const check = document.createElement('div');
-      check.className = 'ccp-check';
+      const check = createEl('div', 'ccp-check');
       row.appendChild(check);
 
       row.addEventListener('click', () => {
@@ -1982,8 +1690,7 @@ function renderContactCardPicker(keyword){
         check.textContent = '✓';
         state._ccpSelectedFriend = f;
         // Update confirm bar
-        const bar = $("ccpConfirmBar");
-        if (bar) bar.classList.remove('hidden');
+        showEl("ccpConfirmBar");
         if ($("ccpSelectedName")) $("ccpSelectedName").textContent = f.remark || f.displayName || f.username || '好友';
         const avatarWrap = $("ccpSelectedAvatar");
         if (avatarWrap) { avatarWrap.replaceChildren(); avatarWrap.appendChild(createAvatarNode(f, f.displayName || f.username || '友')); }
@@ -2004,19 +1711,20 @@ async function renderProductCardPicker(){
   if(!list) return;
   const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
   if(!products.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无可发送商品，请先发布';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无可发送商品，请先发布');
     return;
   }
   const frag = document.createDocumentFragment();
   products.forEach((p) => {
-    const card = document.createElement('button');
+    const card = createEl('button', 'picker-product-card');
     card.type = 'button';
-    card.className = 'picker-product-card';
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
-    card.innerHTML = `<img class="picker-product-img" src="${escapeHTML(imgUrl)}" alt="" /><div class="picker-product-info"><div class="picker-product-name">${escapeHTML(p.title || '商品')}</div><div class="picker-product-price">${escapeHTML(formatMoney(p.price))}</div></div>`;
+    const img = createEl('img', 'picker-product-img');
+    img.src = imgUrl;
+    img.alt = '';
+    const info = createEl('div', 'picker-product-info');
+    info.append(createEl('div', 'picker-product-name', p.title || '商品'), createEl('div', 'picker-product-price', formatMoney(p.price)));
+    card.append(img, info);
     card.addEventListener('click', async () => {
       await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: p.image || p.imageUrl || '', sellerId: p.sellerId || state.currentUser?.id || '', productId: p.id || '' } });
       if($("backBtn")) $("backBtn").click();
@@ -2047,10 +1755,7 @@ async function renderOrderCardPicker(filterTab){
     return o.sellerId === state.currentUser?.id;
   });
   if(!orders.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = tab === 'bought' ? '暂无从对方购买的订单' : '暂无卖给对方的订单';
-    list.replaceChildren(empty);
+    showEmptyState(list, tab === 'bought' ? '暂无从对方购买的订单' : '暂无卖给对方的订单');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -2059,12 +1764,15 @@ async function renderOrderCardPicker(filterTab){
     const role = isBuyer ? 'buyer' : 'seller';
     const roleLabel = isBuyer ? '买家' : '卖家';
     const itemsSummary = (o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，') || '订单内容';
-    const card = document.createElement('button');
+    const card = createEl('button', 'picker-order-card');
     card.type = 'button';
-    card.className = 'picker-order-card';
-    card.innerHTML = `<div class="picker-order-top"><span class="picker-order-id">#${escapeHTML(String(o.id||'').slice(-6))}</span><span class="picker-order-role ${role}">${roleLabel}</span></div><div class="picker-order-items">${escapeHTML(itemsSummary)}</div><div class="picker-order-bottom"><span class="picker-order-total">${escapeHTML(formatMoney(o.total))}</span><span class="picker-order-status">${escapeHTML(formatOrderStatusLabel(o.status))}</span></div>`;
+    const top = createEl('div', 'picker-order-top');
+    top.append(createEl('span', 'picker-order-id', `#${formatOrderId(o.id)}`), createEl('span', `picker-order-role ${role}`, roleLabel));
+    const bottom = createEl('div', 'picker-order-bottom');
+    bottom.append(createEl('span', 'picker-order-total', formatMoney(o.total)), createEl('span', 'picker-order-status', formatOrderStatusLabel(o.status)));
+    card.append(top, createEl('div', 'picker-order-items', itemsSummary), bottom);
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${String(o.id||'').slice(-6)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
@@ -2090,7 +1798,7 @@ const conversationPeerId = c => {
   if (!c || !c.members || !state.currentUser) return null;
   if (c._peerId !== undefined) return c._peerId;
   const uid = state.currentUser.id;
-  c._peerId = (c.members[0] === uid ? c.members[1] : c.members[0]) || null;
+  c._peerId = c.members.length >= 2 ? ((c.members[0] === uid ? c.members[1] : c.members[0]) || null) : null;
   return c._peerId;
 };
 
@@ -2104,15 +1812,15 @@ function normalizeCustomGroups(groups) {
     seen.add(trimmed);
     ordered.push(trimmed);
   });
-  if (!seen.has('我的好友')) ordered.unshift('我的好友');
+  if (!seen.has(DEFAULT_GROUP)) ordered.unshift(DEFAULT_GROUP);
   else {
-    const idx = ordered.indexOf('我的好友');
-    if (idx > 0) { ordered.splice(idx, 1); ordered.unshift('我的好友'); }
+    const idx = ordered.indexOf(DEFAULT_GROUP);
+    if (idx > 0) { ordered.splice(idx, 1); ordered.unshift(DEFAULT_GROUP); }
   }
   return ordered.slice(0, 20);
 }
 function getCustomGroups() {
-  return normalizeCustomGroups(state.currentUser?.customGroups || ['我的好友']);
+  return normalizeCustomGroups(state.currentUser?.customGroups || [DEFAULT_GROUP]);
 }
 
 function normalizeGroupNameInput(value) {
@@ -2129,7 +1837,7 @@ function syncSessionGroups(groups) {
 // Media/time utilities moved to app_utils.js
 
 function rebuildMessagesById() {
-  state.messagesById = new Map();
+  state.messagesById.clear();
   for (let i = 0; i < state.messages.length; i++) state.messagesById.set(state.messages[i].id, i);
   _messagesSig = '';
 }
@@ -2152,7 +1860,7 @@ function findMessageIndex(msg) {
 function upsertMessage(msg) {
   const idx = findMessageIndex(msg);
   if (idx >= 0) {
-    state.messages[idx] = { ...state.messages[idx], ...msg };
+    Object.assign(state.messages[idx], msg);
     state.messagesById.set(msg.id, idx);
     return { action: 'replace', index: idx };
   }
@@ -2160,31 +1868,29 @@ function upsertMessage(msg) {
   let lo = 0, hi = state.messages.length;
   while (lo < hi) { const mid = (lo + hi) >>> 1; if ((state.messages[mid].createdAt || 0) <= ts) lo = mid + 1; else hi = mid; }
   state.messages.splice(lo, 0, msg);
-  // Rebuild index after splice shifts indices
-  rebuildMessagesById();
+  // Incremental index update: shift entries after insertion point
+  for (let i = lo + 1; i < state.messages.length; i++) state.messagesById.set(state.messages[i].id, i);
+  state.messagesById.set(msg.id, lo);
+  _messagesSig = '';
   // Only return 'append' if inserted at the end; otherwise 'insert' triggers full re-render
   return { action: lo === state.messages.length - 1 ? 'append' : 'insert', index: lo };
 }
 function buildMessageChunk(msg, prevCreatedAt = 0) {
   const fragment = document.createDocumentFragment();
-  if ((msg.createdAt || 0) - prevCreatedAt > 180000) {
-    const t = document.createElement('div');
-    t.className = 'time-stamp';
-    const span = document.createElement('span');
-    span.textContent = formatTime(msg.createdAt);
-    t.appendChild(span);
+  if ((msg.createdAt || 0) - prevCreatedAt > DELAYS.TIME_SEPARATOR_GAP) {
+    const t = createEl('div', 'time-stamp');
+    t.appendChild(createEl('span', null, formatTime(msg.createdAt)));
     fragment.appendChild(t);
   }
 
-  const node = document.createElement('article');
-  node.className = `message-row ${msg.senderId === state.currentUser?.id ? 'me' : ''}`;
+  const node = createEl('article', `message-row ${msg.senderId === state.currentUser?.id ? 'me' : ''}`);
   node.dataset.id = msg.id;
   if (msg.clientMessageId) node.dataset.clientMessageId = msg.clientMessageId;
   let userObj = state.currentUser; let finalName = '我';
   if (msg.senderId !== state.currentUser?.id) {
-    const friend = state.friendsById ? state.friendsById.get(msg.senderId) : state.friends.find(f => f.friend?.id === msg.senderId);
-    userObj = friend ? friend.friend : { displayName: '用户' };
-    finalName = userObj.remark || userObj.displayName;
+    const friend = findFriendEntry(msg.senderId);
+    userObj = (friend && friend.friend) ? friend.friend : { displayName: '用户' };
+    finalName = userObj.remark || userObj.displayName || '用户';
   }
   const isTemp = String(msg.id).startsWith('temp_');
 
@@ -2192,50 +1898,33 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
     let txt = msg.text;
     if (txt === '你撤回了一条消息' && msg.senderId !== state.currentUser.id) txt = '对方撤回了一条消息';
     node.className = 'message-row system-msg';
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = txt || '';
-    node.appendChild(bubble);
+    node.appendChild(createEl('div', 'bubble', txt || ''));
   } else {
-    const avatarWrap = document.createElement('div');
-    avatarWrap.className = 'avatar-click-wrap';
-    const avatarNode = createAvatarNode(userObj, finalName);
-    avatarWrap.appendChild(avatarNode);
-    avatarWrap.addEventListener('click', (e) => {
-      const target = e.target;
-      if (!(target instanceof Element)) return;
-      if (!target.closest('.avatar')) return;
-      e.stopPropagation();
-      window.openUserProfile(msg.senderId, finalName);
-    });
+    const avatarWrap = createEl('div', 'avatar-click-wrap');
+    avatarWrap.dataset.senderId = msg.senderId;
+    avatarWrap.dataset.senderName = finalName;
+    avatarWrap.appendChild(createAvatarNode(userObj, finalName));
+    // Click handled via delegation on chatView
     node.appendChild(avatarWrap);
 
-    const wrap = document.createElement('div');
-    wrap.className = 'content-wrap';
+    const wrap = createEl('div', 'content-wrap');
     if (isTemp) wrap.style.opacity = '0.6';
 
     if (msg.type === 'audio') {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble audio-bubble';
-      const icon = document.createElement('span');
-      icon.textContent = '🔊';
-      const text = document.createElement('span');
-      text.textContent = '语音';
-      bubble.appendChild(icon);
-      bubble.appendChild(text);
-      bubble.addEventListener('click', (e) => { e.stopPropagation(); window.playAudio(msg.audioUrl, bubble); });
+      const bubble = createEl('div', 'bubble audio-bubble');
+      bubble.dataset.audioUrl = msg.audioUrl || '';
+      bubble.append(createEl('span', null, '🔊'), createEl('span', null, '语音'));
+      // Click handled via delegation on chatView
       wrap.appendChild(bubble);
     } else if (msg.type === 'image') {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble image-bubble';
+      const bubble = createEl('div', 'bubble image-bubble');
       const safeImage = normalizeMediaUrl(msg.imageUrl);
       if (safeImage) {
-        const img = document.createElement('img');
+        const img = createEl('img', 'chat-img-clickable');
         img.src = safeImage;
-        img.className = 'chat-img-clickable';
         img.style.cursor = 'zoom-in';
         img.style.pointerEvents = 'auto';
-        img.addEventListener('click', (e) => { e.stopPropagation(); window.openImageViewer(safeImage); });
+        // Click handled via delegation on chatView
         bubble.appendChild(img);
       } else {
         bubble.textContent = '图片已失效';
@@ -2243,59 +1932,31 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
       wrap.appendChild(bubble);
     } else if (msg.type === 'card' && msg.card) {
       const c = msg.card;
-      const card = document.createElement('div');
-      card.className = 'trade-card';
+      const card = createEl('div', 'trade-card');
       const isContactCard = isContactCardPayload(c);
-      if (isContactCard) {
-        card.classList.add('contact-card-message');
-      }
+      if (isContactCard) card.classList.add('contact-card-message');
       const safeImage = normalizeMediaUrl(c.imageUrl || '');
       if (isContactCard) {
-        const head = document.createElement('div');
-        head.className = 'contact-card-message-head';
+        const head = createEl('div', 'contact-card-message-head');
         if (safeImage) {
-          const avatar = document.createElement('img');
-          avatar.className = 'contact-card-message-avatar';
+          const avatar = createEl('img', 'contact-card-message-avatar');
           avatar.src = safeImage;
           head.appendChild(avatar);
         } else {
-          const avatar = document.createElement('div');
-          avatar.className = 'contact-card-message-avatar-fallback';
-          avatar.textContent = firstChar(c.title || '友');
-          head.appendChild(avatar);
+          head.appendChild(createEl('div', 'contact-card-message-avatar-fallback', firstChar(c.title || '友')));
         }
-        const headMeta = document.createElement('div');
-        const headTitle = document.createElement('div');
-        headTitle.className = 'trade-card-title';
-        headTitle.textContent = c.title || '好友名片';
-        const label = document.createElement('div');
-        label.className = 'contact-card-label';
-        label.textContent = c.meta || '个人名片';
-        headMeta.append(headTitle, label);
+        const headMeta = createEl('div');
+        headMeta.append(createEl('div', 'trade-card-title', c.title || '好友名片'), createEl('div', 'contact-card-label', c.meta || '个人名片'));
         head.appendChild(headMeta);
         card.appendChild(head);
       } else if (safeImage) {
-        const img = document.createElement('img');
-        img.className = 'trade-card-img';
+        const img = createEl('img', 'trade-card-img');
         img.src = safeImage;
         card.appendChild(img);
       }
-      if (!isContactCard) {
-        const title = document.createElement('div');
-        title.className = 'trade-card-title';
-        title.textContent = c.title || '闲置';
-        card.appendChild(title);
-      }
-      const desc = document.createElement('div');
-      desc.className = 'trade-card-sub';
-      desc.textContent = c.description || '';
-      card.appendChild(desc);
-      if (!isContactCard) {
-        const meta = document.createElement('div');
-        meta.className = 'trade-card-price';
-        meta.textContent = c.meta || '';
-        card.appendChild(meta);
-      }
+      if (!isContactCard) card.appendChild(createEl('div', 'trade-card-title', c.title || '闲置'));
+      card.appendChild(createEl('div', 'trade-card-sub', c.description || ''));
+      if (!isContactCard) card.appendChild(createEl('div', 'trade-card-price', c.meta || ''));
       const contactTargetUserId = isContactCard ? extractContactCardUserId(c) : '';
       if (isContactCard && contactTargetUserId) {
         card.classList.add('clickable-card');
@@ -2335,13 +1996,12 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
     } else if (msg.type === 'broadcast_card' && msg.broadcast) {
       wrap.appendChild(buildBroadcastCardMessage(msg));
     } else {
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble';
+      const bubble = createEl('div', 'bubble');
       const parts = String(msg.text || '').split('\n');
-      parts.forEach((part, idx) => {
-        if (idx > 0) bubble.appendChild(document.createElement('br'));
-        bubble.appendChild(document.createTextNode(part));
-      });
+      for (let pi = 0; pi < parts.length; pi++) {
+        if (pi > 0) bubble.appendChild(createEl('br', ''));
+        bubble.appendChild(document.createTextNode(parts[pi]));
+      }
       wrap.appendChild(bubble);
     }
 
@@ -2366,36 +2026,22 @@ function formatOrderStatusLabel(status){
 
 function buildOrderCardMessage(msg){
   const order = msg.order || {};
-  const wrap = document.createElement('div');
-  wrap.className = 'trade-card clickable-card';
+  const wrap = createEl('div', 'trade-card clickable-card');
   wrap.dataset.orderId = order.id || '';
 
   const safeOrderImage = normalizeMediaUrl(order.imageUrl || (order.items || []).find((item) => item && item.imageUrl)?.imageUrl || '');
   if (safeOrderImage) {
-    const cover = document.createElement('img');
-    cover.className = 'trade-card-cover';
+    const cover = createEl('img', 'trade-card-cover chat-img-clickable');
     cover.src = safeOrderImage;
     cover.alt = order.title || '订单商品';
-    cover.addEventListener('click', (e) => {
-      e.stopPropagation();
-      window.openImageViewer(safeOrderImage);
-    });
+    cover.style.cursor = 'zoom-in';
+    // Click handled via chatView delegation (chat-img-clickable class)
     wrap.appendChild(cover);
   }
 
-  const title = document.createElement('div');
-  title.className = 'trade-card-title';
-  title.textContent = order.title || `订单 #${String(order.id || '').slice(-6) || '-'}`;
-  const sub = document.createElement('div');
-  sub.className = 'trade-card-sub';
-  sub.textContent = order.summary || '订单通知';
-  const price = document.createElement('div');
-  price.className = 'trade-card-price';
-  price.textContent = formatMoney(order.total || 0);
-  const status = document.createElement('div');
-  status.className = 'trade-card-status' + (order.status === 'completed' ? ' done' : order.status === 'accepted' ? ' active' : '');
-  status.textContent = formatOrderStatusLabel(order.status);
-  wrap.append(title, sub, price, status);
+  appendTradeCardHeader(wrap, order.title || `订单 #${formatOrderId(order.id) || '-'}`, order.summary || '订单通知');
+  const statusCls = tradeStatusCls(order.status);
+  wrap.append(createEl('div', 'trade-card-price', formatMoney(order.total || 0)), createEl('div', statusCls, formatOrderStatusLabel(order.status)));
 
   const openDetail = (e) => {
     if (e) e.stopPropagation();
@@ -2403,12 +2049,9 @@ function buildOrderCardMessage(msg){
   };
   wrap.addEventListener('click', openDetail);
 
-  const actions = document.createElement('div');
-  actions.className = 'trade-card-actions';
-  const detailBtn = document.createElement('button');
+  const actions = createEl('div', 'trade-card-actions');
+  const detailBtn = createEl('button', 'secondary-btn', '查看详情');
   detailBtn.type = 'button';
-  detailBtn.className = 'secondary-btn';
-  detailBtn.textContent = '查看详情';
   detailBtn.addEventListener('click', openDetail);
   actions.appendChild(detailBtn);
 
@@ -2422,95 +2065,54 @@ function buildOrderCardMessage(msg){
 
   // Seller can accept pending orders
   if(isSeller && order.status === 'pending'){
-    const editPriceBtn = document.createElement('button');
-    editPriceBtn.type = 'button';
-    editPriceBtn.className = 'secondary-btn';
-    editPriceBtn.textContent = '修改价格';
-    editPriceBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    actions.appendChild(createStopBtn('secondary-btn', '修改价格', (e, btn) => {
       if(!order.id) return;
-      showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
-        editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
-        try{
-          await doUpdateOrderPrice(order.id, raw);
-        }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
+      showPrompt('请输入新的总价', String(order.total || ''), (raw) => {
+        withButtonLock(btn, () => doUpdateOrderPrice(order.id, raw), '修改中...');
       });
-    });
-    actions.appendChild(editPriceBtn);
-    const acceptBtn = document.createElement('button');
-    acceptBtn.type = 'button';
-    acceptBtn.className = 'primary-btn';
-    acceptBtn.textContent = '接单';
-    acceptBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if(!order.id || acceptBtn.disabled) return;
-      acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
-      try{
-        await doAcceptOrder(order.id);
-      }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
-    });
-    actions.appendChild(acceptBtn);
+    }));
+    actions.appendChild(createStopBtn('primary-btn', '接单', (e, btn) => {
+      if(!order.id) return;
+      withButtonLock(btn, () => doAcceptOrder(order.id), '接单中...');
+    }));
   }
 
   // Buyer waiting for seller to accept
   if(isBuyer && order.status === 'pending'){
-    const waitHint = document.createElement('span');
-    waitHint.className = 'trade-card-sub';
-    waitHint.textContent = '等待商家接单';
-    actions.appendChild(waitHint);
+    actions.appendChild(createEl('span', 'trade-card-sub', '等待商家接单'));
   }
 
   // Confirm receipt / mark complete for accepted orders
   if(isParticipant && order.status === 'accepted'){
-    const completeBtn = document.createElement('button');
-    completeBtn.type = 'button';
-    completeBtn.className = 'primary-btn';
-    completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成';
-    completeBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if(!order.id || completeBtn.disabled) return;
-      completeBtn.disabled = true; completeBtn.textContent = '处理中...';
-      try{
-        await doCompleteOrder(order.id);
-      }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成'; }
-    });
-    actions.appendChild(completeBtn);
+    actions.appendChild(createStopBtn('primary-btn', isBuyer ? '确认收货' : '标记已完成', (e, btn) => {
+      if(!order.id) return;
+      withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+    }));
   }
   wrap.appendChild(actions);
   return wrap;
 }
 
+function appendTradeCardHeader(container, titleText, subText) {
+  container.append(createEl('div', 'trade-card-title', titleText), createEl('div', 'trade-card-sub', subText));
+}
+
 function buildBroadcastCardMessage(msg){
-  const card = document.createElement('div');
-  card.className = 'trade-card';
-  const title = document.createElement('div');
-  title.className = 'trade-card-title';
-  title.textContent = (msg.broadcast && msg.broadcast.title) || '图文通知';
-  const sub = document.createElement('div');
-  sub.className = 'trade-card-sub';
-  sub.textContent = (msg.broadcast && msg.broadcast.summary) || '点击查看详情';
-  card.append(title, sub);
+  const card = createEl('div', 'trade-card');
+  appendTradeCardHeader(card, (msg.broadcast && msg.broadcast.title) || '图文通知', (msg.broadcast && msg.broadcast.summary) || '点击查看详情');
   if(msg.broadcast && msg.broadcast.cover){
-    const img = document.createElement('img');
-    img.className = 'trade-card-cover';
+    const img = createEl('img', 'trade-card-cover');
     img.src = normalizeMediaUrl(msg.broadcast.cover) || '';
     img.alt = 'broadcast';
     card.appendChild(img);
   }
-  const actions = document.createElement('div');
-  actions.className = 'trade-card-actions';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'primary-btn';
-  btn.textContent = '查看详情';
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
+  const actions = createEl('div', 'trade-card-actions');
+  actions.appendChild(createStopBtn('primary-btn', '查看详情', () => {
     openBroadcastDetail(
       (msg.broadcast && msg.broadcast.title) || '图文通知',
       (msg.broadcast && msg.broadcast.summary) || ''
     );
-  });
-  actions.appendChild(btn);
+  }));
   card.appendChild(actions);
   return card;
 }
@@ -2521,7 +2123,7 @@ async function openChatOrderDetail(order){
   let fullOrder = state.ordersById?.get(order.id);
   if(!fullOrder){
     // Reload orders and try again
-    try{ await Promise.all([loadBuyerOrders(), loadSellerOrders()]); }catch(_){}
+    try{ await Promise.all([loadBuyerOrders(), loadSellerOrders()]); }catch(e){ console.warn('[loadOrders]', e); }
     fullOrder = state.ordersById?.get(order.id) || order;
   }
   const currentUserId = state.currentUser?.id || '';
@@ -2560,12 +2162,13 @@ function prependMessagesToView(messages, oldFirstMessage = null) {
   const oldHeight = chatView.scrollHeight;
   const fragment = document.createDocumentFragment();
   let lastTime = 0;
-  messages.forEach((msg) => {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     fragment.appendChild(buildMessageChunk(msg, lastTime));
     lastTime = msg.createdAt || lastTime;
-  });
+  }
   chatView.prepend(fragment);
-  if (oldFirstMessage && lastTime && ((oldFirstMessage.createdAt || 0) - lastTime) <= 180000) {
+  if (oldFirstMessage && lastTime && ((oldFirstMessage.createdAt || 0) - lastTime) <= DELAYS.TIME_SEPARATOR_GAP) {
     const firstArticle = chatView.querySelector('article.message-row');
     const maybeStamp = firstArticle?.previousElementSibling;
     if (maybeStamp && maybeStamp.classList && maybeStamp.classList.contains('time-stamp')) maybeStamp.remove();
@@ -2606,11 +2209,8 @@ function removeMessageFromView(messageId) {
     const nextIdx = state.messagesById.get(nextId);
     const nextMsg = nextIdx !== undefined ? state.messages[nextIdx] : null;
     if (nextMsg) {
-      const stamp = document.createElement('div');
-      stamp.className = 'time-stamp';
-      const span = document.createElement('span');
-      span.textContent = formatTime(nextMsg.createdAt);
-      stamp.appendChild(span);
+      const stamp = createEl('div', 'time-stamp');
+      stamp.appendChild(createEl('span', null, formatTime(nextMsg.createdAt)));
       next.before(stamp);
     }
   }
@@ -2674,15 +2274,8 @@ function refreshMessageReadReceipts() {
   const wrap = row.querySelector('.content-wrap');
   if (!wrap) return;
   const isRead = peerLastReadAt >= Number(target.createdAt || 0);
-  const receipt = document.createElement('div');
-  receipt.className = `message-read-receipt ${isRead ? 'is-read' : 'is-unread'}`;
-  const dot = document.createElement('span');
-  dot.className = 'receipt-dot';
-  const text = document.createElement('span');
-  text.className = 'receipt-text';
-  text.textContent = isRead ? '已读' : '未读';
-  receipt.appendChild(dot);
-  receipt.appendChild(text);
+  const receipt = createEl('div', `message-read-receipt ${isRead ? 'is-read' : 'is-unread'}`);
+  receipt.append(createEl('span', 'receipt-dot'), createEl('span', 'receipt-text', isRead ? '已读' : '未读'));
   wrap.appendChild(receipt);
   _lastReceiptEl = receipt;
 }
@@ -2708,7 +2301,7 @@ function applyIncomingConversationMeta(conversationId, message) {
   if (!conv) return;
   conv.preview = summarizeMessagePreview(message);
   conv.lastMessageAt = message?.createdAt || Date.now();
-  const fromOther = message && message.senderId && message.senderId !== state.currentUser.id;
+  const fromOther = message && message.senderId && message.senderId !== state.currentUser?.id;
   if (state.activeConversation && state.activeConversation.id === conversationId) conv.unread = 0;
   else if (fromOther) conv.unread = (conv.unread || 0) + 1;
   sortConversationsInPlace();
@@ -2745,11 +2338,13 @@ function buildMallSignature(products) {
 }
 function isConversationMuted(conv) {
   if (!conv) return false;
+  if (state.mutedConvIds && conv.id) return state.mutedConvIds.has(conv.id);
   if (typeof conv.muted === 'boolean') return conv.muted;
   return Array.isArray(conv.mutedBy) && conv.mutedBy.includes(state.currentUser?.id);
 }
 function isConversationPinned(conv) {
   if (!conv) return false;
+  if (state.pinnedConvIds && conv.id) return state.pinnedConvIds.has(conv.id);
   if (typeof conv.pinned === 'boolean') return conv.pinned;
   return Array.isArray(conv.pinnedBy) && conv.pinnedBy.includes(state.currentUser?.id);
 }
@@ -2760,13 +2355,12 @@ function getConversationClearedAt(conv) {
 }
 function normalizeConversation(conv) {
   if (!conv) return conv;
-  return {
-    ...conv,
-    muted: isConversationMuted(conv),
-    pinned: isConversationPinned(conv),
-    clearedAt: getConversationClearedAt(conv),
-    peerLastReadAt: Number(conv.peerLastReadAt || 0)
-  };
+  // Mutate in-place instead of spread-copying the entire object
+  conv.muted = isConversationMuted(conv);
+  conv.pinned = isConversationPinned(conv);
+  conv.clearedAt = getConversationClearedAt(conv);
+  conv.peerLastReadAt = Number(conv.peerLastReadAt || 0);
+  return conv;
 }
 function buildConversationItemSignature(conv) {
   return (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
@@ -2776,22 +2370,21 @@ function buildConversationItemSignature(conv) {
     + '|' + (state.activeConversation && state.activeConversation.id === conv.id ? 1 : 0);
 }
 function createEmptyChatListNode() {
-  const empty = document.createElement('div');
-  empty.className = 'chat-list-empty';
-  const title = document.createElement('div');
-  title.textContent = '暂无消息';
-  const tip = document.createElement('div');
-  tip.className = 'chat-list-empty-tip';
-  tip.textContent = '点击右上角 ⊕ 添加好友';
-  empty.append(title, tip);
+  const empty = createEl('div', 'chat-list-empty');
+  empty.append(createEl('div', null, '暂无消息'), createEl('div', 'chat-list-empty-tip', '点击右上角 ⊕ 添加好友'));
   return empty;
 }
 
 function closeConversationSwipeRows(exceptWrap = null) {
-  document.querySelectorAll('.chat-swipe-row.revealed').forEach((row) => {
-    if (exceptWrap && row === exceptWrap) return;
+  const list = $("chatList");
+  if (!list) return;
+  const rows = list.getElementsByClassName('revealed');
+  // Iterate backwards since removing 'revealed' class mutates live collection
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (exceptWrap && row === exceptWrap) continue;
     row.classList.remove('revealed');
-  });
+  }
 }
 
 function bindConversationSwipeDismiss(){
@@ -2801,10 +2394,58 @@ function bindConversationSwipeDismiss(){
   list.addEventListener('scroll', () => closeConversationSwipeRows(), { passive: true });
   list.addEventListener('click', (e) => {
     if (!e.target.closest('.chat-swipe-row')) closeConversationSwipeRows();
+    // Delegated conversation item click
+    const chatItem = e.target.closest('.chat-item');
+    if (!chatItem) return;
+    // Skip if click was on a swipe action button
+    if (e.target.closest('.chat-swipe-actions')) return;
+    // Skip if click was on avatar (handled separately for profile popup)
+    if (e.target.closest('.avatar')) return;
+    const convId = chatItem.dataset.conversationId;
+    if (!convId) return;
+    if (convId === '__trade_alert__') {
+      state.tradeAlertReadAt = Date.now();
+      renderConversationListFromState();
+      Promise.all([loadBuyerOrders(), loadSellerOrders()]).then(() => {
+        const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
+        if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
+        else window.openSecondaryPage('buyerOrdersManagePage', 'home');
+      });
+    } else if (convId === '__system_message__') {
+      window.openSecondaryPage('systemMessagesPage', 'home');
+    } else {
+      window.openConversation(convId);
+    }
   });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#chatList .chat-swipe-row')) closeConversationSwipeRows();
   }, true);
+}
+
+function bindFriendListDelegation() {
+  const list = $("friendList");
+  if (!list || list.dataset.friendClickBound === '1') return;
+  list.dataset.friendClickBound = '1';
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chat-item[data-friend-id]');
+    if (!btn || e.target.closest('.friend-req-actions')) return;
+    const fid = btn.dataset.friendId;
+    if (fid) window.openUserProfile(fid, btn.dataset.friendName || '');
+  });
+}
+
+function bindRequestsListDelegation() {
+  const list = $("requestsList");
+  if (!list || list.dataset.reqClickBound === '1') return;
+  list.dataset.reqClickBound = '1';
+  list.addEventListener('click', (e) => {
+    const acceptBtn = e.target.closest('.friend-req-accept-btn');
+    if (acceptBtn) { e.stopPropagation(); const rid = acceptBtn.dataset.requestId; if (rid) window.acceptRequest(rid); return; }
+    const rejectBtn = e.target.closest('.secondary-btn[data-reject-id]');
+    if (rejectBtn) { e.stopPropagation(); const rid = rejectBtn.dataset.rejectId; if (rid) window.rejectRequest(rid); return; }
+    const row = e.target.closest('.chat-item[data-sender-id]');
+    if (row) { const sid = row.dataset.senderId; if (sid) window.openUserProfile(sid, row.dataset.senderName || ''); }
+  });
 }
 
 function attachConversationSwipeDelete(wrap, onDelete) {
@@ -2814,7 +2455,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
   let suppressClick = false;
   let tracking = false;
   let axis = '';
-  const threshold = 48;
+  const threshold = LIMITS.DRAG_THRESHOLD;
   const content = wrap.querySelector('.chat-swipe-content');
   if (!content) return;
 
@@ -2828,7 +2469,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
     closeConversationSwipeRows(wrap);
   };
 
-  const actionWidth = 156;
+  const actionWidth = LIMITS.SWIPE_ACTION_WIDTH;
 
   const move = (x, y, canPreventDefault = false, ev = null) => {
     if (!tracking) return;
@@ -2928,26 +2569,12 @@ function buildConversationRow(conv) {
   const isPinned = isConversationPinned(conv);
   const isMuted = isConversationMuted(conv);
   const peerId = conversationPeerId(conv);
-  const btn = document.createElement('button');
+  const cls = 'chat-item' + (isPinned ? ' is-pinned' : '') + (isMuted ? ' is-muted' : '') + (state.activeConversation && state.activeConversation.id === conv.id ? ' is-active' : '');
+  const btn = createEl('button', cls);
   btn.type = 'button';
-  btn.className = 'chat-item';
-  if (isPinned) btn.classList.add('is-pinned');
-  if (isMuted) btn.classList.add('is-muted');
-  if (state.activeConversation && state.activeConversation.id === conv.id) btn.classList.add('is-active');
   btn.dataset.conversationId = conv.id;
-  if (conv.syntheticType === 'trade') btn.addEventListener('click', async () => {
-    state.tradeAlertReadAt = Date.now();
-    renderConversationListFromState();
-    await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
-    const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
-    if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
-    else window.openSecondaryPage('buyerOrdersManagePage', 'home');
-  });
-  else if (conv.syntheticType === 'system') btn.addEventListener('click', () => { window.openSecondaryPage('systemMessagesPage', 'home'); });
-  else btn.addEventListener('click', () => window.openConversation(conv.id));
 
-  const avatarWrap = document.createElement('div');
-  avatarWrap.className = 'chat-item-avatar';
+  const avatarWrap = createEl('div', 'chat-item-avatar');
   if (conv.syntheticType === 'trade') avatarWrap.textContent = '💱';
   else if (conv.syntheticType === 'system') avatarWrap.textContent = '📢';
   else setAvatarContainer(avatarWrap, {avatarUrl: conv.peerAvatarUrl, displayName: conv.title}, conv.title);
@@ -2961,41 +2588,21 @@ function buildConversationRow(conv) {
   });
   btn.appendChild(avatarWrap);
 
-  const info = document.createElement('div');
-  info.className = 'chat-item-main';
+  const info = createEl('div', 'chat-item-main');
 
-  const titleRow = document.createElement('div');
-  titleRow.className = 'chat-item-title-row';
-  const title = document.createElement('strong');
-  title.className = 'chat-item-title';
-  title.textContent = conv.title || '';
-  const time = document.createElement('span');
-  time.className = 'chat-item-time';
-  time.textContent = formatConversationTime(conv.lastMessageAt);
-  titleRow.append(title, time);
+  const titleRow = createEl('div', 'chat-item-title-row');
+  titleRow.append(createEl('strong', 'chat-item-title', conv.title || ''), createEl('span', 'chat-item-time', formatConversationTime(conv.lastMessageAt)));
 
-  const metaRow = document.createElement('div');
-  metaRow.className = 'chat-item-meta';
-  const preview = document.createElement('div');
-  preview.className = 'preview';
-  preview.textContent = conv.preview || '';
-  metaRow.appendChild(preview);
-  if (isMuted) {
-    const mute = document.createElement('span');
-    mute.className = 'chat-item-status';
-    mute.textContent = '🔕';
-    metaRow.appendChild(mute);
-  }
+  const metaRow = createEl('div', 'chat-item-meta');
+  metaRow.appendChild(createEl('div', 'preview', conv.preview || ''));
+  if (isMuted) metaRow.appendChild(createEl('span', 'chat-item-status', '🔕'));
 
   info.append(titleRow, metaRow);
   btn.appendChild(info);
 
   if (conv.unread) {
-    const unread = document.createElement('span');
+    const unread = createEl('span', isMuted ? 'unread-dot' : 'unread-btn', isMuted ? '' : (conv.unread > 99 ? '99+' : String(conv.unread)));
     unread.dataset.role = 'unread';
-    if (isMuted) unread.className = 'unread-dot';
-    else unread.className = 'unread-btn';
-    unread.textContent = isMuted ? '' : (conv.unread > 99 ? '99+' : String(conv.unread));
     btn.appendChild(unread);
   }
 
@@ -3003,22 +2610,15 @@ function buildConversationRow(conv) {
     return btn;
   }
 
-  const wrap = document.createElement('div');
-  wrap.className = 'chat-swipe-row';
+  const wrap = createEl('div', 'chat-swipe-row');
   wrap.dataset.conversationId = conv.id;
-  const content = document.createElement('div');
-  content.className = 'chat-swipe-content';
+  const content = createEl('div', 'chat-swipe-content');
   content.appendChild(btn);
-  const actionsWrap = document.createElement('div');
-  actionsWrap.className = 'chat-swipe-actions';
-  const pinBtn = document.createElement('button');
+  const actionsWrap = createEl('div', 'chat-swipe-actions');
+  const pinBtn = createEl('button', 'chat-swipe-pin-btn', isPinned ? '取消置顶' : '置顶');
   pinBtn.type = 'button';
-  pinBtn.className = 'chat-swipe-pin-btn';
-  pinBtn.textContent = isPinned ? '取消置顶' : '置顶';
-  const deleteBtn = document.createElement('button');
+  const deleteBtn = createEl('button', 'chat-swipe-delete-btn', '删除');
   deleteBtn.type = 'button';
-  deleteBtn.className = 'chat-swipe-delete-btn';
-  deleteBtn.textContent = '删除';
   actionsWrap.append(pinBtn, deleteBtn);
   wrap.append(content, actionsWrap);
 
@@ -3054,6 +2654,7 @@ function buildConversationRow(conv) {
         const nextPinned = Boolean(res?.pinned);
         if (target) target.pinned = nextPinned;
         if (state.activeConversation?.id === conv.id) state.activeConversation.pinned = nextPinned;
+        if (state.pinnedConvIds) { nextPinned ? state.pinnedConvIds.add(conv.id) : state.pinnedConvIds.delete(conv.id); }
         showModal(nextPinned ? '已置顶会话' : '已取消置顶');
         sortConversationsInPlace();
         renderConversationListFromState();
@@ -3083,19 +2684,13 @@ function buildFriendGroupSignature(groupName, members) {
   return s;
 }
 function buildFriendRow(item, groupName = '') {
-  const btn = document.createElement('button');
+  const btn = createEl('button', 'chat-item');
   btn.type = 'button';
-  btn.className = 'chat-item';
   btn.dataset.friendId = item.friend.id;
   btn.dataset.friendKey = `${groupName}::${item.friend.id}`;
-  btn.addEventListener('click', () => window.openUserProfile(item.friend.id, item.friend.displayName));
-  btn.appendChild(createAvatarNode(item.friend, item.friend.displayName));
-  const info = document.createElement('div');
-  info.style.cssText = 'flex:1;min-width:0;text-align:left;';
-  const strong = document.createElement('strong');
-  strong.textContent = item.friend.remark || item.friend.displayName || '';
-  info.appendChild(strong);
-  btn.appendChild(info);
+  btn.dataset.friendName = item.friend.displayName || '';
+  // Click handled via delegation on friendList container
+  appendUserInfo(btn, item.friend, item.friend.remark || item.friend.displayName || '');
   return btn;
 }
 function patchFriendRow(row, item, groupName = '') {
@@ -3104,14 +2699,12 @@ function patchFriendRow(row, item, groupName = '') {
   return replacement;
 }
 function createFriendGroupSection(groupName, members) {
-  const wrap = document.createElement('div');
+  const wrap = createEl('div', '');
   wrap.dataset.groupName = groupName;
-  const header = document.createElement('div');
-  header.className = 'qq-group-header';
+  const header = createEl('div', 'qq-group-header');
   header.dataset.role = 'friend-group-header';
   header.addEventListener('click', () => window.toggleQQGroup(header));
-  const content = document.createElement('div');
-  content.className = 'qq-group-content';
+  const content = createEl('div', 'qq-group-content');
   content.dataset.role = 'friend-group-content';
   wrap.appendChild(header);
   wrap.appendChild(content);
@@ -3121,43 +2714,31 @@ function patchFriendGroupSection(section, groupName, members) {
   section.dataset.groupName = groupName;
   let header = section.querySelector('[data-role="friend-group-header"]');
   if (!header) {
-    header = document.createElement('div');
-    header.className = 'qq-group-header';
+    header = createEl('div', 'qq-group-header');
     header.dataset.role = 'friend-group-header';
     header.addEventListener('click', () => window.toggleQQGroup(header));
     section.prepend(header);
   }
   header.replaceChildren();
   header.append(document.createTextNode(groupName + ' '));
-  const count = document.createElement('span');
-  count.style.cssText = 'color:#8e8e93; font-size:12px; margin-left:6px;';
-  count.textContent = String(members.length);
+  const count = createEl('span', 'friend-group-count', String(members.length));
   header.appendChild(count);
   let content = section.querySelector('[data-role="friend-group-content"]');
   if (!content) {
-    content = document.createElement('div');
-    content.className = 'qq-group-content';
+    content = createEl('div', 'qq-group-content');
     content.dataset.role = 'friend-group-content';
     section.appendChild(content);
   }
-  const existingRows = new Map(Array.from(content.querySelectorAll('button.chat-item[data-friend-key]')).map((node) => [node.dataset.friendKey, node]));
-  const nextItemSignatures = {};
-  const orderedNodes = [];
-  members.forEach((item) => {
-    const itemKey = `${groupName}::${item.friend.id}`;
-    const sig = buildFriendItemSignature(item, groupName);
-    nextItemSignatures[itemKey] = sig;
-    const existing = existingRows.get(itemKey);
-    let row = existing;
-    if (!existing) row = buildFriendRow(item, groupName);
-    else if (state.friendItemSignatures[itemKey] !== sig) row = patchFriendRow(existing, item, groupName);
-    orderedNodes.push(row);
-    existingRows.delete(itemKey);
+  const nextItemSignatures = reconcileList(content, members, {
+    selector: 'button.chat-item[data-friend-key]',
+    dataKey: 'friendKey',
+    keyFn: (item) => `${groupName}::${item.friend.id}`,
+    sigFn: (item) => buildFriendItemSignature(item, groupName),
+    buildFn: (item) => buildFriendRow(item, groupName),
+    patchFn: (node, item) => patchFriendRow(node, item, groupName),
+    sigStore: state.friendItemSignatures,
   });
-  const needsOrderUpdate = orderedNodes.length !== content.childElementCount || orderedNodes.some((node, idx) => content.children[idx] !== node);
-  if (needsOrderUpdate) content.replaceChildren(...orderedNodes);
-  else existingRows.forEach((node) => node.remove());
-  Object.entries(nextItemSignatures).forEach(([id, sig]) => { state.friendItemSignatures[id] = sig; });
+  Object.assign(state.friendItemSignatures, nextItemSignatures);
   return section;
 }
 function buildMallItemSignature(product) {
@@ -3168,8 +2749,7 @@ function buildMallItemSignature(product) {
     + '|' + (product.location || '') + '|' + (product.distance ?? '');
 }
 function buildMallCard(product) {
-  const card = document.createElement('div');
-  card.className = 'product-card';
+  const card = createEl('div', 'product-card');
   card.dataset.productId = product.id;
   return patchMallCard(card, product);
 }
@@ -3177,51 +2757,28 @@ function patchMallCard(card, product) {
   const replacement = card.cloneNode(false);
   replacement.className = 'product-card';
   replacement.dataset.productId = product.id;
-  replacement.addEventListener('click', () => openProductDetail(product, false));
+  // Click handled via delegation on mall-grid container
   const safeImage = normalizeMediaUrl(product.image);
   if (safeImage) {
-    const img = document.createElement('img');
+    const img = createEl('img', '');
     img.src = safeImage;
     img.alt = product.title || '商品图';
     replacement.appendChild(img);
   } else {
-    const placeholder = document.createElement('div');
-    placeholder.style.cssText = 'height:140px;display:flex;align-items:center;justify-content:center;background:#f4f4f5;color:#8e8e93;';
-    placeholder.textContent = '无图片';
+    const placeholder = createEl('div', '', '无图片');
+    placeholder.className = 'empty-placeholder';
     replacement.appendChild(placeholder);
   }
-  const info = document.createElement('div');
-  info.className = 'product-info';
-  const title = document.createElement('div');
-  title.className = 'product-title';
-  title.textContent = product.title || '';
-  const price = document.createElement('div');
-  price.className = 'product-price';
-  price.textContent = `¥${product.price}`;
-  const stock = document.createElement('div');
-  stock.className = 'preview';
-  stock.textContent = `库存 ${Math.max(0, Math.floor(Number(product.stock || 0)))}`;
-  const seller = document.createElement('div');
-  seller.className = 'product-seller';
-  seller.appendChild(createAvatarNode({avatarUrl: product.sellerAvatarUrl || product.sellerAvatar, displayName: product.sellerName}, product.sellerName));
-  const sellerName = document.createElement('span');
-  sellerName.textContent = product.sellerName || '';
-  seller.appendChild(sellerName);
-  info.appendChild(title);
-  if (product.desc) {
-    const desc = document.createElement('div');
-    desc.className = 'product-desc';
-    desc.textContent = product.desc;
-    info.appendChild(desc);
-  }
-  info.appendChild(price);
+  const info = createEl('div', 'product-info');
+  info.appendChild(createEl('div', 'product-title', product.title || ''));
+  if (product.desc) info.appendChild(createEl('div', 'product-desc', product.desc));
+  info.appendChild(createEl('div', 'product-price', `¥${product.price}`));
+  const seller = createEl('div', 'product-seller');
+  seller.append(createAvatarNode({avatarUrl: product.sellerAvatarUrl || product.sellerAvatar, displayName: product.sellerName}, product.sellerName), createEl('span', '', product.sellerName || ''));
   info.appendChild(seller);
   if (product.location || product.distance != null) {
-    const loc = document.createElement('div');
-    loc.className = 'product-location';
     const distText = product.distance != null ? (product.distance < 1 ? `${Math.round(product.distance * 1000)}m` : `${product.distance.toFixed(1)}km`) : '';
-    loc.textContent = (product.location || '附近') + (distText ? ` · ${distText}` : '');
-    info.appendChild(loc);
+    info.appendChild(createEl('div', 'product-location', (product.location || '附近') + (distText ? ` · ${distText}` : '')));
   }
   replacement.appendChild(info);
   if (card.parentNode) card.replaceWith(replacement);
@@ -3253,6 +2810,18 @@ const SECONDARY_PAGE_IDS = [
   'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage',
   'msgSearchPage','mallSearchPage','systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
 ];
+const TAB_VIEW_IDS = ["chatListView","friendListView","mallView","profileView"];
+const ALL_VIEW_IDS = [...TAB_VIEW_IDS,"chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS];
+let _cachedAllViewEls = null;
+let _cachedTabViewEls = null;
+function hideAllViews() {
+  if (!_cachedAllViewEls) _cachedAllViewEls = ALL_VIEW_IDS.map(id => $(id)).filter(Boolean);
+  for (let i = 0; i < _cachedAllViewEls.length; i++) _cachedAllViewEls[i].classList.add('hidden');
+}
+function hideTabViews() {
+  if (!_cachedTabViewEls) _cachedTabViewEls = TAB_VIEW_IDS.map(id => $(id)).filter(Boolean);
+  for (let i = 0; i < _cachedTabViewEls.length; i++) _cachedTabViewEls[i].classList.add('hidden');
+}
 
 window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   // Push current secondary page onto stack for proper back navigation
@@ -3266,65 +2835,69 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
     if (!backTo || backTo === 'home') backTo = prevEntry.backTo;
   }
   state.secondaryPage = page; state.secondaryReturn = backTo;
-  ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-  if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
-  if($(page)) $(page).classList.remove('hidden');
-  if($("backBtn")) $("backBtn").classList.remove('hidden');
-  if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
-  if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
-  if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+  hideAllViews();
+  hideEl("chatSearchBar");
+  showEl(page);
+  showEl("backBtn");
+  hideEl("homeMoreBtn");
+  hideEl("chatSettingsBtn");
+  hideEl("sidebarToggleBtn");
+  toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
 
   if (page === 'friendRequestsView') {
-    if($("chatTitle")) $("chatTitle").textContent = '新的朋友';
+    setText("chatTitle", '新的朋友');
     refreshFriendRequestState({ forceList: true });
   }
-  else if (page === 'profileDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '详细资料'; if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove('hidden'); }
-  else if (page === 'messageSettingsPage') { if($("chatTitle")) $("chatTitle").textContent = '聊天信息'; if($("pinConversationBtn")) $("pinConversationBtn").textContent = (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天'; if($("muteSettingBtn")) $("muteSettingBtn").textContent = (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰'; }
-  else if (page === 'addFriendPage') { if($("chatTitle")) $("chatTitle").textContent = '添加朋友'; }
+  else if (page === 'profileDetailPage') { setText("chatTitle", '详细资料'); showEl("chatSettingsBtn"); }
+  else if (page === 'messageSettingsPage') {
+    setText("chatTitle", '聊天信息');
+    setText("pinConversationBtn", (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天');
+    setText("muteSettingBtn", (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰');
+  }
+  else if (page === 'addFriendPage') { setText("chatTitle", '添加朋友'); }
   else if (page === 'scanPage') {
-    if($("chatTitle")) $("chatTitle").textContent = '扫一扫';
-    if($("scanManualPanel")) $("scanManualPanel").classList.add('hidden');
+    setText("chatTitle", '扫一扫');
+    hideEl("scanManualPanel");
     if($("scanIdInput")) $("scanIdInput").value = '';
-    if($("scanHintText")) $("scanHintText").textContent = '将二维码放入框内，即可自动扫描';
+    setText("scanHintText", '将二维码放入框内，即可自动扫描');
     requestAnimationFrame(() => { startScanCamera(); });
   }
-  else if (page === 'privacyPage') { if($("chatTitle")) $("chatTitle").textContent = '黑名单管理'; }
-  else if (page === 'qrCodePage') { if($("chatTitle")) $("chatTitle").textContent = '二维码名片'; }
-  else if (page === 'editProfilePage') { if($("chatTitle")) $("chatTitle").textContent = '个人信息'; }
-  else if (page === 'forgotPasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '找回密码'; }
-  else if (page === 'changePasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '修改密码'; }
-  else if (page === 'changePhonePage') { if($("chatTitle")) $("chatTitle").textContent = '修改手机号'; }
-  else if (page === 'publishProductPage') { if($("chatTitle")) $("chatTitle").textContent = '发布闲置'; }
-  else if (page === 'myProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '我的闲置'; }
-  else if (page === 'settingsPage') { if($("chatTitle")) $("chatTitle").textContent = '设置'; }
-  else if (page === 'groupManagePage') { if($("chatTitle")) $("chatTitle").textContent = '分组管理'; renderGroupManageList(); }
-  else if (page === 'buyerOrdersManagePage') { if($("chatTitle")) $("chatTitle").textContent = '我购买的订单'; renderBuyerOrdersManage(); }
-  else if (page === 'sellerCenterPage') { if($("chatTitle")) $("chatTitle").textContent = '卖家中心'; }
-  else if (page === 'sellerPaymentPage') { if($("chatTitle")) $("chatTitle").textContent = '收款码管理'; }
-  else if (page === 'sellerOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '订单管理'; renderSellerOrdersManage(); }
-  else if (page === 'sellerProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '商品管理'; }
-  else if (page === 'productDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '商品详情'; }
-  else if (page === 'orderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
-  else if (page === 'contactCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送名片'; }
-  else if (page === 'productCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '我的商品'; }
-  else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '相关订单'; state.orderPickerTab = 'bought'; }
-  else if (page === 'broadcastManagePage') { if($("chatTitle")) $("chatTitle").textContent = '广播管理'; renderBroadcastDrafts(); }
-  else if (page === 'broadcastEditorPage') { if($("chatTitle")) $("chatTitle").textContent = '广播编辑'; }
-  else if (page === 'cartHubPage') { if($("chatTitle")) $("chatTitle").textContent = '购物车'; renderCartHubPage(); }
-  else if (page === 'profileCartPage') { if($("chatTitle")) $("chatTitle").textContent = '结算'; renderProfileCartPage(); }
-  else if (page === 'profileOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '我的订单'; renderProfileOrders(); }
-  else if (page === 'chatOrderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
-  else if (page === 'msgSearchPage') { if($("chatTitle")) $("chatTitle").textContent = '搜索'; setTimeout(() => { if($("msgSearchPageInput")) $("msgSearchPageInput").focus(); }, 100); }
-  else if (page === 'mallSearchPage') { if($("chatTitle")) $("chatTitle").textContent = '搜索'; setTimeout(() => { if($("mallSearchPageInput")) $("mallSearchPageInput").focus(); }, 100); }
-  else if (page === 'systemMessagesPage') { if($("chatTitle")) $("chatTitle").textContent = '系统消息'; renderSystemMessagesList(); }
+  else if (page === 'privacyPage') { setText("chatTitle", '黑名单管理'); }
+  else if (page === 'qrCodePage') { setText("chatTitle", '二维码名片'); }
+  else if (page === 'editProfilePage') { setText("chatTitle", '个人信息'); }
+  else if (page === 'forgotPasswordPage') { setText("chatTitle", '找回密码'); }
+  else if (page === 'changePasswordPage') { setText("chatTitle", '修改密码'); }
+  else if (page === 'changePhonePage') { setText("chatTitle", '修改手机号'); }
+  else if (page === 'publishProductPage') { setText("chatTitle", '发布闲置'); }
+  else if (page === 'myProductsPage') { setText("chatTitle", '我的闲置'); }
+  else if (page === 'settingsPage') { setText("chatTitle", '设置'); }
+  else if (page === 'groupManagePage') { setText("chatTitle", '分组管理'); renderGroupManageList(); }
+  else if (page === 'buyerOrdersManagePage') { setText("chatTitle", '我购买的订单'); renderBuyerOrdersManage(); }
+  else if (page === 'sellerCenterPage') { setText("chatTitle", '卖家中心'); }
+  else if (page === 'sellerPaymentPage') { setText("chatTitle", '收款码管理'); }
+  else if (page === 'sellerOrdersPage') { setText("chatTitle", '订单管理'); renderSellerOrdersManage(); }
+  else if (page === 'sellerProductsPage') { setText("chatTitle", '商品管理'); }
+  else if (page === 'productDetailPage') { setText("chatTitle", '商品详情'); }
+  else if (page === 'orderDetailPage') { setText("chatTitle", '订单详情'); }
+  else if (page === 'contactCardPickerPage') { setText("chatTitle", '发送名片'); }
+  else if (page === 'productCardPickerPage') { setText("chatTitle", '我的商品'); }
+  else if (page === 'orderCardPickerPage') { setText("chatTitle", '相关订单'); state.orderPickerTab = 'bought'; }
+  else if (page === 'broadcastManagePage') { setText("chatTitle", '广播管理'); renderBroadcastDrafts(); }
+  else if (page === 'broadcastEditorPage') { setText("chatTitle", '广播编辑'); }
+  else if (page === 'cartHubPage') { setText("chatTitle", '购物车'); renderCartHubPage(); }
+  else if (page === 'profileCartPage') { setText("chatTitle", '结算'); renderProfileCartPage(); }
+  else if (page === 'profileOrdersPage') { setText("chatTitle", '我的订单'); renderProfileOrders(); }
+  else if (page === 'chatOrderDetailPage') { setText("chatTitle", '订单详情'); }
+  else if (page === 'msgSearchPage') { setText("chatTitle", '搜索'); setTimeout(() => { if($("msgSearchPageInput")) $("msgSearchPageInput").focus(); }, 100); }
+  else if (page === 'mallSearchPage') { setText("chatTitle", '搜索'); setTimeout(() => { if($("mallSearchPageInput")) $("mallSearchPageInput").focus(); }, 100); }
+  else if (page === 'systemMessagesPage') { setText("chatTitle", '系统消息'); renderSystemMessagesList(); }
 
 };
 
 window.removeFromBlacklist = async (targetId) => { try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'remove' }) }); $("privacySettingsBtn").click(); } catch(e){ showModal(e.message || '操作失败'); } }
 window.toggleQQGroup = (el) => { el.classList.toggle('expanded'); const content = el.nextElementSibling; if(content) content.classList.toggle('expanded'); };
-window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return showModal('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; if($("imageViewer")) $("imageViewer").classList.remove('hidden'); };
-window.closeImageViewer = () => { if($("imageViewer")) $("imageViewer").classList.add('hidden'); if($("viewerImage")) $("viewerImage").removeAttribute('src'); };
+window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return showModal('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; showEl("imageViewer"); };
+window.closeImageViewer = () => { hideEl("imageViewer"); if($("viewerImage")) $("viewerImage").removeAttribute('src'); };
 
 window.playAudio = (url, el) => {
   const safe = normalizeMediaUrl(url);
@@ -3363,8 +2936,7 @@ window.deleteLocalMsg = async (id) => {
   applyLastOutgoingReadState();
   try {
     await api(`/api/conversations/${conversationId}/messages/${id}/delete`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
-    syncActiveConversationListMeta();
-    renderConversationListFromState();
+    syncAndRenderConvList();
     loadConversations();
   } catch(e) {
     state.messages = prevMessages;
@@ -3380,8 +2952,7 @@ window.recallMsg = async (id) => {
     await api(`/api/conversations/${state.activeConversation.id}/messages/${id}/recall`, { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id }) });
     if (!applyRecalledMessageLocally(id, state.currentUser.id)) renderMessages();
     applyLastOutgoingReadState();
-    syncActiveConversationListMeta();
-    renderConversationListFromState();
+    syncAndRenderConvList();
     loadConversations();
   } catch(e) { showModal(e.message || '撤回失败'); }
 };
@@ -3449,29 +3020,26 @@ function bindMessageContextMenu(node, msg) {
 }
 window.forwardMsg = (msgId) => {
   const _fwdIdx = state.messagesById.get(msgId); msgToForward = _fwdIdx !== undefined ? state.messages[_fwdIdx] : undefined; if(!msgToForward) return;
-  if($("contextMenu")) $("contextMenu").classList.add('hidden');
+  hideEl("contextMenu");
   const list = $("forwardList");
   if(list) {
     list.replaceChildren();
     state.conversations.forEach(c => {
-      const btn = document.createElement('button');
+      const btn = createEl('button', 'chat-item');
       btn.type = 'button';
-      btn.className = 'chat-item';
-      btn.appendChild(createAvatarNode({avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title));
-      const info = document.createElement('div');
-      info.style.cssText = 'flex:1; text-align:left;';
-      const strong = document.createElement('strong');
-      strong.textContent = c.title || '';
-      info.appendChild(strong);
-      btn.appendChild(info);
-      btn.addEventListener('click', () => window.confirmForward(c.id));
+      btn.dataset.convId = c.id;
+      appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
       list.appendChild(btn);
     });
+    list.addEventListener('click', (e) => {
+      const item = e.target.closest('.chat-item');
+      if (item?.dataset.convId) window.confirmForward(item.dataset.convId);
+    });
   }
-  if($("forwardModal")) $("forwardModal").classList.remove('hidden');
+  showEl("forwardModal");
 };
 window.confirmForward = async (convId) => {
-  if($("forwardModal")) $("forwardModal").classList.add('hidden'); if(!msgToForward) return;
+  hideEl("forwardModal"); if(!msgToForward) return;
   try { await api(`/api/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, type: msgToForward.type, text: msgToForward.text, imageUrl: msgToForward.imageUrl, audioUrl: msgToForward.audioUrl, card: msgToForward.card, order: msgToForward.order, broadcast: msgToForward.broadcast }) }); showModal('已转发'); } catch(e) { showModal('转发失败: ' + e.message); }
 };
 
@@ -3481,13 +3049,13 @@ window.showContextMenu = function(event, msg) {
   if (msg.type === 'text') appendActionButton(menu, '复制', () => window.copyText(encodeURIComponent(msg.text || '')));
   appendActionButton(menu, '转发', () => window.forwardMsg(msg.id));
   appendActionButton(menu, '删除', () => window.deleteLocalMsg(msg.id));
-  if (msg.senderId === state.currentUser.id && (Date.now() - msg.createdAt < 120000)) {
+  if (msg.senderId === state.currentUser.id && (Date.now() - msg.createdAt < DELAYS.MESSAGE_RECALL_WINDOW)) {
      appendActionButton(menu, '撤回', () => window.recallMsg(msg.id));
   }
   menu.style.visibility = 'hidden';
   menu.classList.remove('hidden');
   const rect = menu.getBoundingClientRect();
-  const anchor = event?.touches ? getTouchAnchor(event) : getTouchAnchor(event);
+  const anchor = getTouchAnchor(event);
   let x = anchor.clientX; let y = anchor.clientY;
   if (x + rect.width > window.innerWidth - 10) x = window.innerWidth - rect.width - 10; if (x < 10) x = 10;
   if (y < rect.height + 20) { y = y + 20; } else { y = y - rect.height - 15; }
@@ -3509,23 +3077,19 @@ window.openProductChat = async (sellerId, title, price, image, productId) => {
   } catch(e) { showModal("发起交易沟通失败"); }
 };
 
-window.acceptRequest = async (requestId) => {
-  const btn = $("profileAcceptRequestBtn");
-  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
-  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); showModal('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message || '操作失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '接受'; } }
+window.acceptRequest = (requestId) => {
+  withButtonLock($("profileAcceptRequestBtn"), async () => {
+    await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); showModal('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click();
+  }, '处理中...');
 };
 
 window.rejectRequest = (requestId) => {
-  showConfirm('确定拒绝该好友请求吗？', async () => {
-    const btn = $("profileRejectRequestBtn");
-    if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
-    try {
+  showConfirm('确定拒绝该好友请求吗？', () => {
+    withButtonLock($("profileRejectRequestBtn"), async () => {
       await api('/api/friends/reject', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) });
       await loadFriendRequests();
       updateProfileDetailActions();
-    } catch (e) {
-      showModal(e.message || '操作失败');
-    } finally { if (btn) { btn.disabled = false; btn.textContent = '拒绝'; } }
+    }, '处理中...');
   });
 };
 
@@ -3565,7 +3129,7 @@ window.toggleSellerProductListed = async (productId, nextListed) => {
 };
 
 window.deleteGroup = (groupName) => {
-  if(groupName === '我的好友') return showModal('”我的好友”是全部好友列表，不能删除。');
+  if(groupName === DEFAULT_GROUP) return showModal('”我的好友”是全部好友列表，不能删除。');
   showConfirm(`确定删除分组 [${groupName}] 吗？\n该分组下的好友将被移入”我的好友”。`, async () => {
     try {
       const data = await api('/api/groups/delete', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, groupName }) });
@@ -3578,7 +3142,7 @@ window.deleteGroup = (groupName) => {
 };
 
 window.renameGroup = (groupName) => {
-  if (groupName === '我的好友') return showModal('”我的好友”是全部好友列表，不能重命名。');
+  if (groupName === DEFAULT_GROUP) return showModal('”我的好友”是全部好友列表，不能重命名。');
   showPrompt('请输入新的分组名称', groupName, async (nextNameRaw) => {
     const nextName = normalizeGroupNameInput(nextNameRaw);
     if (!nextName) return showModal('分组名称不能为空');
@@ -3594,7 +3158,7 @@ window.renameGroup = (groupName) => {
 };
 
 window.moveGroupOrder = async (groupName, offset) => {
-  if (groupName === '我的好友') return;
+  if (groupName === DEFAULT_GROUP) return;
   try {
     const data = await api('/api/groups/reorder', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, groupName, offset }) });
     syncSessionGroups(data.groups || getCustomGroups());
@@ -3610,19 +3174,20 @@ window.openGroupSelect = (targetUserId) => {
     if (list) {
       list.replaceChildren();
       cg.forEach((g) => {
-        const btn = document.createElement('button');
-        btn.className = 'primary-btn';
+        const btn = createEl('button', 'primary-btn', g);
         btn.style.cssText = 'background:#f2f2f6; color:#000; width:100%; border-radius:8px; padding:12px; margin-bottom:10px;';
-        btn.textContent = g;
-        btn.addEventListener('click', () => window.confirmMoveGroup(g));
         list.appendChild(btn);
       });
+      list.onclick = (e) => {
+        const btn = e.target.closest('.primary-btn');
+        if (btn?.textContent) window.confirmMoveGroup(btn.textContent);
+      };
     }
-    if ($("groupSelectSheet")) $("groupSelectSheet").classList.remove('hidden');
+    showEl("groupSelectSheet");
 };
 
 window.confirmMoveGroup = async (groupName) => {
-    if ($("groupSelectSheet")) $("groupSelectSheet").classList.add('hidden');
+    hideEl("groupSelectSheet");
     try {
         await api('/api/friends/group', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: state.targetForGroupMove, group: groupName }) });
         showModal("已成功移至分组：" + groupName);
@@ -3646,7 +3211,7 @@ async function decodeScanFromImageFile(file){
       const value = (mm ? mm[1] : raw).trim();
       if (value && $('scanIdInput')) {
         $('scanIdInput').value = value;
-        $('scanManualPanel')?.classList.remove('hidden');
+        showEl('scanManualPanel');
         setTimeout(() => { $('scanSubmitBtn')?.click(); }, 100);
         return true;
       }
@@ -3673,10 +3238,10 @@ async function startScanCamera(){
     if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasCameraPermission()) {
       window.NativeBridge.requestCameraPermission();
       // Wait briefly for user to respond to permission dialog
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, DELAYS.PERMISSION_WAIT));
       if (!window.NativeBridge.hasCameraPermission()) {
         if ($('scanHintText')) $('scanHintText').textContent = '需要相机权限才能扫码，请在设置中开启';
-        $('scanFallbackBox')?.classList.remove('hidden');
+        showEl('scanFallbackBox');
         return;
       }
     }
@@ -3685,7 +3250,7 @@ async function startScanCamera(){
     state.scanStream = stream;
     video.srcObject = stream;
     video.classList.remove('hidden');
-    $('scanFallbackBox')?.classList.add('hidden');
+    hideEl('scanFallbackBox');
     if ($('scanHintText')) $('scanHintText').textContent = '将二维码放入框内，即可自动扫描';
 
     let detector = null;
@@ -3707,7 +3272,7 @@ async function startScanCamera(){
             const value = (mm ? mm[1] : raw).trim();
             if (value && $('scanIdInput')) {
               $('scanIdInput').value = value;
-              $('scanManualPanel')?.classList.remove('hidden');
+              showEl('scanManualPanel');
               if ($('scanHintText')) $('scanHintText').textContent = '已识别到二维码';
               stopScanCamera(true);
               setTimeout(() => { $('scanSubmitBtn')?.click(); }, 100);
@@ -3733,10 +3298,14 @@ function stopScanCamera(keepVideoHidden = false){
     video.srcObject = null;
     if (!keepVideoHidden) video.classList.add('hidden');
   }
-  $('scanFallbackBox')?.classList.remove('hidden');
+  showEl('scanFallbackBox');
 }
 
+let _openConvAc = null;
 window.openConversation = async (id, options = {}) => {
+  if (_openConvAc) { _openConvAc.abort(); _openConvAc = null; }
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  _openConvAc = ac;
   const { skipFetch = false } = options;
   const conv = state.conversationsById?.get(id);
   state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
@@ -3747,43 +3316,47 @@ window.openConversation = async (id, options = {}) => {
   }
   // Clear secondary page navigation state when entering a conversation
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
-  SECONDARY_PAGE_IDS.forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
-  if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
-  if($("chatListView")) $("chatListView").classList.add("hidden");
-  if($("friendListView")) $("friendListView").classList.add("hidden");
-  if($("mallView")) $("mallView").classList.add("hidden");
-  if($("profileView")) $("profileView").classList.add("hidden");
-  if($("chatView")) $("chatView").classList.remove("hidden");
-  if($("composerPanel")) $("composerPanel").classList.remove("hidden");
-  if($("homeTabbar")) $("homeTabbar").classList.add("hidden");
-  if($("backBtn")) $("backBtn").classList.remove("hidden");
-  if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
-  if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
+  SECONDARY_PAGE_IDS.forEach(id => hideEl(id));
+  setText("chatTitle", conv?.title || '会话');
+  hideEl("chatListView");
+  hideEl("friendListView");
+  hideEl("mallView");
+  hideEl("profileView");
+  showEl("chatView");
+  showEl("composerPanel");
+  hideEl("homeTabbar");
+  showEl("backBtn");
+  hideEl("homeMoreBtn");
+  showEl("chatSettingsBtn");
   // show sidebar in chat conversation view
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
-  if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
+  showEl("sidebarToggleBtn");
+  toggleEl("sidebarPanel", "sidebar-tab-hidden", false);
   applySidebarMode();
   applyChatRelationshipState();
+  const signal = ac ? ac.signal : null;
   if (!skipFetch) {
-    await fetchMessages(); 
-    await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
+    await Promise.all([
+      fetchMessages(),
+      api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal }).catch(() => {})
+    ]);
+    if (signal?.aborted) return;
     refreshMessageReadReceipts();
   } else {
     Promise.resolve().then(async () => {
       try {
-        if (!state.activeConversation || state.activeConversation.id !== id) return;
-        await fetchMessages();
-        if (state.activeConversation?.id === id) {
-          await api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) });
-          refreshMessageReadReceipts();
-        }
+        if (signal?.aborted || !state.activeConversation || state.activeConversation.id !== id) return;
+        await Promise.all([
+          fetchMessages(),
+          api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal }).catch(() => {})
+        ]);
+        if (signal?.aborted || state.activeConversation?.id !== id) return;
+        refreshMessageReadReceipts();
       } catch(_) {}
     });
   }
-  sortConversationsInPlace();
-  renderConversationListFromState();
-  loadConversations(); 
-  if ($("chatView")) setTimeout(() => $("chatView").scrollTop = $("chatView").scrollHeight, 100);
+  refreshConversations();
+  const _cv = $("chatView");
+  if (_cv) setTimeout(() => { _cv.scrollTop = _cv.scrollHeight; }, 100);
 };
 
 window.openPrivateChat = async (targetUserId) => {
@@ -3804,10 +3377,10 @@ window.openUserProfile = async (userId, fallbackName) => {
       setAvatarContainer($("profileAvatar"), data.profile, fallbackName);
 
       const finalName = data.profile.remarkName || data.profile.nickname || fallbackName || '未知用户';
-      if($("profileRemarkName")) $("profileRemarkName").textContent = finalName;
-      if($("profileNickName")) $("profileNickName").textContent = data.profile.nickname || '-'; 
-      if($("profileAppId")) $("profileAppId").textContent = `ID：${data.profile.appNumberId}`;
-      if($("profileSignature")) $("profileSignature").textContent = data.profile.signature || '这个人很神秘，还没有填写签名';
+      setText("profileRemarkName", finalName);
+      setText("profileNickName", data.profile.nickname || '-'); 
+      setText("profileAppId", `ID：${data.profile.appNumberId}`);
+      setText("profileSignature", data.profile.signature || '这个人很神秘，还没有填写签名');
       updateProfileDetailActions();
       await loadProfileStore(data.profile.id);
       window.openSecondaryPage('profileDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
@@ -3823,17 +3396,18 @@ window.insertEmoji = (emoji) => { const input = $("messageInput"); if(!input) re
 window.sendMessage = async (payload) => {
   if (!state.activeConversation) return;
   const _now = Date.now();
+  const sentConversationId = state.activeConversation.id;
   const clientMessageId = `c_${_now}_${Math.random().toString(36).slice(2, 8)}`;
   const tempMsg = { id: 'temp_'+_now, senderId: state.currentUser.id, createdAt: _now, clientMessageId, ...payload };
   state.messages.push(tempMsg);
   state.messagesById.set(tempMsg.id, state.messages.length - 1);
   appendMessageToView(tempMsg);
   const cv = $("chatView"); if (cv) setTimeout(() => { cv.scrollTop = cv.scrollHeight; }, 10);
-  syncActiveConversationListMeta();
-  renderConversationListFromState();
+  syncAndRenderConvList();
   try {
-    const res = await api(`/api/conversations/${state.activeConversation.id}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, clientMessageId, ...payload }) });
-    if (res?.message) {
+    const res = await api(`/api/conversations/${sentConversationId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, clientMessageId, ...payload }) });
+    const stillSameConv = state.activeConversation?.id === sentConversationId;
+    if (res?.message && stillSameConv) {
       const result = upsertMessage(res.message);
       if (result.action === 'replace') {
         if (!replaceMessageInView(res.message)) renderMessages();
@@ -3848,12 +3422,14 @@ window.sendMessage = async (payload) => {
     loadConversations();
     loadSystemMessages();
   } catch (err) {
-    state.messages = state.messages.filter(m => m.id !== tempMsg.id);
-    rebuildMessagesById();
-    if (!removeMessageFromView(tempMsg.id)) renderMessages();
-    applyLastOutgoingReadState();
-    syncActiveConversationListMeta();
-    renderConversationListFromState();
+    if (state.activeConversation?.id === sentConversationId) {
+      state.messages = state.messages.filter(m => m.id !== tempMsg.id);
+      rebuildMessagesById();
+      if (!removeMessageFromView(tempMsg.id)) renderMessages();
+      applyLastOutgoingReadState();
+      syncActiveConversationListMeta();
+      renderConversationListFromState();
+    }
     if (err.message && err.message.includes('拒收')) {
       showModal(err.message);
     } else {
@@ -3865,8 +3441,8 @@ window.sendMessage = async (payload) => {
 window.handleSendText = async () => {
     const input = $("messageInput"); if(!input) return; const text = input.value.trim(); if (!text) return;
     input.value = ""; input.style.height = 'auto'; 
-    if($("toggleActionsBtn")) $("toggleActionsBtn").classList.remove("hidden"); if($("sendMsgBtn")) $("sendMsgBtn").classList.add("hidden");
-    if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); if($("actionPanel")) $("actionPanel").classList.add("hidden");
+    showEl("toggleActionsBtn"); hideEl("sendMsgBtn");
+    hideEl("emojiPanel"); hideEl("actionPanel");
     await window.sendMessage({ type: "text", text });
 };
 
@@ -3970,10 +3546,14 @@ function bindAuthEvents() {
   // ---- Auth: terms/privacy viewer ----
   window._authTermsBackTarget = 'authWelcome';
   function authOpenLegal(type) {
-    const termsHtml = $("termsPage")?.querySelector('.legal-content')?.innerHTML || '';
-    const privacyHtml = $("privacyPolicyPage")?.querySelector('.legal-content')?.innerHTML || '';
+    const sourceEl = type === 'terms'
+      ? $("termsPage")?.querySelector('.legal-content')
+      : $("privacyPolicyPage")?.querySelector('.legal-content');
     const content = $("authTermsContent");
-    if (content) content.innerHTML = type === 'terms' ? termsHtml : privacyHtml;
+    if (content) {
+      content.textContent = '';
+      if (sourceEl) { const clone = sourceEl.cloneNode(true); while (clone.firstChild) content.appendChild(clone.firstChild); }
+    }
     // Find which auth step is currently visible to go back to
     const allSteps = document.querySelectorAll('#authScreen .auth-step');
     allSteps.forEach(s => { if (!s.classList.contains('hidden') && s.id !== 'authTermsView') window._authTermsBackTarget = s.id; });
@@ -3999,33 +3579,39 @@ function bindAuthEvents() {
     btn.addEventListener('click', () => authGotoStep(btn.dataset.authGoto));
   });
 
-  // ---- Login: Phone input → Next ----
-  bindPhoneValidation('loginPhone', 'loginPhoneNextBtn', 'loginAgreeCheck');
-  on("loginPhoneNextBtn", "click", async () => {
-    const phone = normalizePhoneInput($("loginPhone")?.value.trim());
+  // ---- Shared: phone → send code → go to code step ----
+  async function sendCodeAndNext({ phoneInputId, btnId, scene, stateKey, displayId, codeBoxesId, stepId, resendBtnId, enterInputId }) {
+    const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
     if (!phone) return;
-    window._authState.loginPhone = phone;
-    const btn = $("loginPhoneNextBtn");
+    window._authState[stateKey] = phone;
+    const btn = $(btnId);
     btn.disabled = true;
     btn.textContent = '发送中...';
     try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) });
+      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene }) });
     } catch (e) {
-      btn.disabled = false;
-      btn.textContent = '下一步';
+      btn.disabled = false; btn.textContent = '下一步';
       showModal(e.message || '发送验证码失败，请稍后再试');
       return;
     }
-    btn.disabled = false;
-    btn.textContent = '下一步';
-    if ($("loginCodePhoneDisplay")) $("loginCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
-    clearCodeBoxes('loginCodeBoxes');
-    authGotoStep('authLoginCode');
-    startResendCountdown('resendLoginCodeBtn', 60, async () => {
-      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'login' }) }); } catch (_) {}
-      startResendCountdown('resendLoginCodeBtn', 60, () => {});
-    });
-  });
+    btn.disabled = false; btn.textContent = '下一步';
+    if ($(displayId)) $(displayId).textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+    clearCodeBoxes(codeBoxesId);
+    authGotoStep(stepId);
+    const resendFn = async () => {
+      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene }) }); } catch (_) {}
+      startResendCountdown(resendBtnId, 60, resendFn);
+    };
+    startResendCountdown(resendBtnId, 60, resendFn);
+  }
+
+  // ---- Login: Phone input → Next ----
+  bindPhoneValidation('loginPhone', 'loginPhoneNextBtn', 'loginAgreeCheck');
+  on("loginPhoneNextBtn", "click", () => sendCodeAndNext({
+    phoneInputId: 'loginPhone', btnId: 'loginPhoneNextBtn', scene: 'login',
+    stateKey: 'loginPhone', displayId: 'loginCodePhoneDisplay',
+    codeBoxesId: 'loginCodeBoxes', stepId: 'authLoginCode', resendBtnId: 'resendLoginCodeBtn',
+  }));
   on("loginPhone", "keydown", (e) => { if (e.key === 'Enter' && !$("loginPhoneNextBtn")?.disabled) $("loginPhoneNextBtn").click(); });
 
   // ---- Login: SMS code auto-submit ----
@@ -4061,36 +3647,17 @@ function bindAuthEvents() {
       btn.textContent = "登录";
     }
   });
-  on("loginPwdPhone", "keydown", (e) => { if (e.key === 'Enter') $("loginPassword")?.focus(); });
-  on("loginPassword", "keydown", (e) => { if (e.key === 'Enter') $("doLoginBtn").click(); });
+  [['loginPwdPhone','loginPassword','focus'],['loginPassword','doLoginBtn','click']].forEach(
+    ([src,tgt,act]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.[act](); })
+  );
 
   // ---- Register: Phone → Next ----
   bindPhoneValidation('registerPhone', 'regPhoneNextBtn', 'regAgreeCheck');
-  on("regPhoneNextBtn", "click", async () => {
-    const phone = normalizePhoneInput($("registerPhone")?.value.trim());
-    if (!phone) return;
-    window._authState.regPhone = phone;
-    const btn = $("regPhoneNextBtn");
-    btn.disabled = true;
-    btn.textContent = '发送中...';
-    try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) });
-    } catch (e) {
-      btn.disabled = false;
-      btn.textContent = '下一步';
-      showModal(e.message || '发送验证码失败，请稍后再试');
-      return;
-    }
-    btn.disabled = false;
-    btn.textContent = '下一步';
-    if ($("regCodePhoneDisplay")) $("regCodePhoneDisplay").textContent = phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
-    clearCodeBoxes('regCodeBoxes');
-    authGotoStep('authRegCode');
-    startResendCountdown('resendRegCodeBtn', 60, async () => {
-      try { await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'register' }) }); } catch (_) {}
-      startResendCountdown('resendRegCodeBtn', 60, () => {});
-    });
-  });
+  on("regPhoneNextBtn", "click", () => sendCodeAndNext({
+    phoneInputId: 'registerPhone', btnId: 'regPhoneNextBtn', scene: 'register',
+    stateKey: 'regPhone', displayId: 'regCodePhoneDisplay',
+    codeBoxesId: 'regCodeBoxes', stepId: 'authRegCode', resendBtnId: 'resendRegCodeBtn',
+  }));
   on("registerPhone", "keydown", (e) => { if (e.key === 'Enter' && !$("regPhoneNextBtn")?.disabled) $("regPhoneNextBtn").click(); });
 
   // ---- Register: SMS code → Profile ----
@@ -4121,57 +3688,19 @@ function bindAuthEvents() {
       btn.textContent = "完成注册";
     }
   });
-  on("registerDisplayName", "keydown", (e) => { if (e.key === 'Enter') $("registerPassword")?.focus(); });
-  on("registerPassword", "keydown", (e) => { if (e.key === 'Enter') $("doRegisterBtn").click(); });
+  [['registerDisplayName','registerPassword','focus'],['registerPassword','doRegisterBtn','click']].forEach(
+    ([src,tgt,act]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.[act](); })
+  );
 
   // ---- Forgot password ----
   on("forgotPasswordBtn", "click", () => authGotoStep('authForgotPwd'));
   on("forgotPasswordBtn2", "click", () => authGotoStep('authForgotPwd'));
-  on("authForgotSendBtn", "click", async () => {
-    const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
-    if (!phone) return showModal('请输入11位手机号');
-    const sendBtn = $("authForgotSendBtn");
-    sendBtn.disabled = true;
-    sendBtn.textContent = '发送中...';
-    try {
-      await api('/api/auth/send-code', { method: 'POST', body: JSON.stringify({ phone, scene: 'reset' }) });
-      showModal('验证码已发送（测试环境请输入 1234）');
-    } catch (e) {
-      const waitSec = Number(e?.data?.retryAfterSec || 0);
-      if (waitSec > 0) showModal(`操作频繁，请${waitSec}秒后重试`);
-      else showModal(e.message || '发送验证码失败');
-    } finally {
-      sendBtn.disabled = false;
-      sendBtn.textContent = '获取验证码';
-    }
-  });
-  on("authForgotSubmitBtn", "click", async () => {
-    const phone = normalizePhoneInput($("authForgotPhone")?.value.trim());
-    const code = $("authForgotCode")?.value.trim();
-    const newPassword = $("authForgotNewPwd")?.value || '';
-    if (!phone || !code || !newPassword) return showModal('请填写完整信息');
-    if (!/^\d{4}$/.test(code)) return showModal('请输入4位验证码');
-    if (newPassword.length < 8) return showModal('新密码至少8位');
-    const submitBtn = $("authForgotSubmitBtn");
-    submitBtn.disabled = true;
-    submitBtn.textContent = '提交中...';
-    try {
-      await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
-      showModal('密码重置成功，请重新登录');
-      authGotoStep('authLoginPassword');
-    } catch (e) {
-      showModal(e.message || '重置密码失败');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = '重置密码';
-    }
-  });
 
-  // ---- Settings: forgot password page (in appScreen for logged-in users) ----
-  on("sendForgotCodeBtn", "click", async () => {
-    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
+  // ---- Shared: send reset code ----
+  async function handleSendResetCode(phoneInputId, sendBtnId) {
+    const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
     if (!phone) return showModal('请输入11位手机号');
-    const sendBtn = $("sendForgotCodeBtn");
+    const sendBtn = $(sendBtnId);
     sendBtn.disabled = true;
     sendBtn.textContent = '发送中...';
     try {
@@ -4182,104 +3711,101 @@ function bindAuthEvents() {
       if (waitSec > 0) showModal(`操作频繁，请${waitSec}秒后重试`);
       else showModal(e.message || '发送验证码失败');
     } finally { sendBtn.disabled = false; sendBtn.textContent = '获取验证码'; }
-  });
-  on("submitForgotPasswordBtn", "click", async () => {
-    const phone = normalizePhoneInput($("forgotPhoneInput")?.value.trim());
-    const code = $("forgotCodeInput")?.value.trim();
-    const newPassword = $("forgotNewPasswordInput")?.value || '';
+  }
+
+  // ---- Shared: submit reset password ----
+  async function handleResetPassword(phoneInputId, codeInputId, pwdInputId, submitBtnId, onSuccess) {
+    const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
+    const code = $(codeInputId)?.value.trim();
+    const newPassword = $(pwdInputId)?.value || '';
     if (!phone || !code || !newPassword) return showModal('请填写完整信息');
     if (!/^\d{4}$/.test(code)) return showModal('请输入4位验证码');
     if (newPassword.length < 8) return showModal('新密码至少8位');
-    const submitBtn = $("submitForgotPasswordBtn");
+    const submitBtn = $(submitBtnId);
     submitBtn.disabled = true;
     submitBtn.textContent = '提交中...';
     try {
       await api('/api/password/forgot', { method: 'POST', body: JSON.stringify({ phone, code, newPassword }) });
       showModal('密码重置成功，请重新登录');
-      localStorage.removeItem(SESSION_KEY); location.reload();
+      onSuccess();
     } catch (e) { showModal(e.message || '重置密码失败');
     } finally { submitBtn.disabled = false; submitBtn.textContent = '重置密码'; }
-  });
-  on("changePasswordBtn", "click", () => window.openSecondaryPage('changePasswordPage', 'settingsPage'));
-  on("changePhoneBtn", "click", () => window.openSecondaryPage('changePhonePage', 'settingsPage'));
-  on("openTermsPageBtn", "click", () => window.openSecondaryPage('termsPage', 'settingsPage'));
-  on("openPrivacyPageBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'settingsPage'));
-  on("openAboutPageBtn", "click", () => window.openSecondaryPage('aboutPage', 'settingsPage'));
-  on("aboutTermsBtn", "click", () => window.openSecondaryPage('termsPage', 'aboutPage'));
-  on("aboutPrivacyBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'aboutPage'));
-  on("sendChangePhoneCodeBtn", "click", async () => {
+  }
+
+  on("authForgotSendBtn", "click", () => handleSendResetCode('authForgotPhone', 'authForgotSendBtn'));
+  on("authForgotSubmitBtn", "click", () => handleResetPassword(
+    'authForgotPhone', 'authForgotCode', 'authForgotNewPwd', 'authForgotSubmitBtn',
+    () => authGotoStep('authLoginPassword')
+  ));
+
+  // ---- Settings: forgot password page (in appScreen for logged-in users) ----
+  on("sendForgotCodeBtn", "click", () => handleSendResetCode('forgotPhoneInput', 'sendForgotCodeBtn'));
+  on("submitForgotPasswordBtn", "click", () => handleResetPassword(
+    'forgotPhoneInput', 'forgotCodeInput', 'forgotNewPasswordInput', 'submitForgotPasswordBtn',
+    () => { localStorage.removeItem(SESSION_KEY); location.reload(); }
+  ));
+  [['changePasswordBtn','changePasswordPage','settingsPage'],['changePhoneBtn','changePhonePage','settingsPage'],
+   ['openTermsPageBtn','termsPage','settingsPage'],['openPrivacyPageBtn','privacyPolicyPage','settingsPage'],
+   ['openAboutPageBtn','aboutPage','settingsPage'],['aboutTermsBtn','termsPage','aboutPage'],
+   ['aboutPrivacyBtn','privacyPolicyPage','aboutPage']].forEach(
+    ([id,page,back]) => on(id, "click", () => window.openSecondaryPage(page, back))
+  );
+  on("sendChangePhoneCodeBtn", "click", () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     if(!phone) return showModal('请输入11位手机号');
-    const btn = $("sendChangePhoneCodeBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
-    try {
+    withButtonLock($("sendChangePhoneCodeBtn"), async () => {
       const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
       showModal(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
-    } catch (e) {
-      showModal(e.message || '发送失败');
-    } finally { if (btn) { btn.disabled = false; btn.textContent = '获取验证码'; } }
+    }, '发送中...');
   });
-  on("submitChangePhoneBtn", "click", async () => {
+  on("submitChangePhoneBtn", "click", () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     const code = $("changePhoneCodeInput")?.value.trim();
     if(!phone || !code) return showModal('请填写手机号和验证码');
-    const btn = $("submitChangePhoneBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
-    try {
+    withButtonLock($("submitChangePhoneBtn"), async () => {
       const data = await api('/api/users/change-phone', { method:'POST', body: JSON.stringify({ phone, code }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
-      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
+      setText("editPhoneDisplay", state.currentUser.phone || '未绑定');
       showModal('手机号修改成功');
       if($("backBtn")) $("backBtn").click();
-    } catch (e) {
-      showModal(e.message || '修改失败');
-    } finally { if (btn) { btn.disabled = false; btn.textContent = '确认修改'; } }
+    }, '提交中...');
   });
-  on("submitChangePasswordBtn", "click", async () => {
+  on("submitChangePasswordBtn", "click", () => {
     const oldPassword = $("oldPasswordInput")?.value || '';
     const newPassword = $("newPasswordInput")?.value || '';
     if(!oldPassword.trim() || !newPassword.trim()) return showModal('请填写旧密码和新密码');
     if(oldPassword === newPassword) return showModal('新密码不能与旧密码相同');
     if((newPassword || '').length < 8) return showModal('新密码至少8位');
-    const submitBtn = $("submitChangePasswordBtn");
-    submitBtn.disabled = true;
-    const prevText = submitBtn.textContent;
-    submitBtn.textContent = '提交中...';
-    try {
+    withButtonLock($("submitChangePasswordBtn"), async () => {
       await api('/api/password/change', { method:'POST', body: JSON.stringify({ oldPassword, newPassword }) });
       showModal('密码修改成功，请重新登录');
       localStorage.removeItem(SESSION_KEY);
       location.reload();
-    } catch (e) {
-      showModal(e.message || '修改密码失败');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = prevText || '保存新密码';
-    }
+    }, '提交中...');
   });
 
-  on("forgotPhoneInput", "keydown", (e) => { if(e.key === 'Enter') $("sendForgotCodeBtn").click(); });
-  on("forgotCodeInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
-  on("forgotNewPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitForgotPasswordBtn").click(); });
-  on("oldPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
-  on("newPasswordInput", "keydown", (e) => { if(e.key === 'Enter') $("submitChangePasswordBtn").click(); });
+  [['forgotPhoneInput','sendForgotCodeBtn'],['forgotCodeInput','submitForgotPasswordBtn'],
+   ['forgotNewPasswordInput','submitForgotPasswordBtn'],['oldPasswordInput','submitChangePasswordBtn'],
+   ['newPasswordInput','submitChangePasswordBtn']].forEach(
+    ([src,tgt]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.click(); })
+  );
 
-  on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
+  on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); const cv = $("chatView"); if (cv) cv.scrollTop = cv.scrollHeight; }, 300); });
 
   // Load older messages when scrolling near top (throttled)
-  if ($("chatView")) {
+  const _chatViewEl = $("chatView");
+  if (_chatViewEl) {
     let _scrollThrottled = false;
-    $("chatView").addEventListener("scroll", () => {
+    _chatViewEl.addEventListener("scroll", () => {
       if (_scrollThrottled) return;
       _scrollThrottled = true;
       setTimeout(() => { _scrollThrottled = false; }, 200);
-      const cv = $("chatView");
-      if (!cv || cv.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
+      if (_chatViewEl.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
       fetchMessages(state.oldestMessageTime);
     }, { passive: true });
   }
-  on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
+  on("closeGroupSelectSheetBtn", "click", () => { hideEl("groupSelectSheet"); });
   on("mallSearchPageBtn", "click", () => { if (checkSearchCooldown('mallSearch')) doMallSearchPage(); });
   on("mallSearchPageInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (checkSearchCooldown('mallSearch')) doMallSearchPage(); } });
 }
@@ -4294,13 +3820,9 @@ function bindProductEvents() {
     function render() {
       wrap.querySelectorAll('.tag-item').forEach(el => el.remove());
       tags.forEach((tag, i) => {
-        const span = document.createElement('span');
-        span.className = 'tag-item';
-        span.textContent = tag;
-        const btn = document.createElement('button');
-        btn.className = 'tag-item-remove';
+        const span = createEl('span', 'tag-item', tag);
+        const btn = createEl('button', 'tag-item-remove', '\u00d7');
         btn.type = 'button';
-        btn.textContent = '\u00d7';
         btn.addEventListener('click', (e) => { e.stopPropagation(); tags.splice(i, 1); render(); renderPresetChips(); });
         span.appendChild(btn);
         wrap.insertBefore(span, input);
@@ -4357,10 +3879,8 @@ function bindProductEvents() {
       const selectedCats = new Set(categoryTags.getTags());
       const catFrag = document.createDocumentFragment();
       _categoryPresets.forEach(cat => {
-        const chip = document.createElement('button');
+        const chip = createEl('button', 'preset-chip' + (selectedCats.has(cat) ? ' selected' : ''), cat);
         chip.type = 'button';
-        chip.className = 'preset-chip' + (selectedCats.has(cat) ? ' selected' : '');
-        chip.textContent = cat;
         chip.addEventListener('click', () => {
           if (selectedCats.has(cat)) categoryTags.removeTag(cat);
           else categoryTags.addTag(cat);
@@ -4374,10 +3894,8 @@ function bindProductEvents() {
       const selectedSpecs = new Set(specsTags.getTags());
       const specFrag = document.createDocumentFragment();
       _specPresets.forEach(spec => {
-        const chip = document.createElement('button');
+        const chip = createEl('button', 'preset-chip' + (selectedSpecs.has(spec) ? ' selected' : ''), spec);
         chip.type = 'button';
-        chip.className = 'preset-chip' + (selectedSpecs.has(spec) ? ' selected' : '');
-        chip.textContent = spec;
         chip.addEventListener('click', () => {
           if (selectedSpecs.has(spec)) specsTags.removeTag(spec);
           else specsTags.addTag(spec);
@@ -4407,7 +3925,7 @@ function bindProductEvents() {
     if ($('presetManageTitle')) $('presetManageTitle').textContent = type === 'category' ? '管理分类' : '管理规格';
     if ($('presetManageInput')) { $('presetManageInput').value = ''; $('presetManageInput').placeholder = type === 'category' ? '输入新分类' : '输入新规格'; }
     renderPresetManageList();
-    $('presetManagePanel')?.classList.remove('hidden');
+    showEl('presetManagePanel');
   }
 
   // ---- Drag-to-reorder state ----
@@ -4442,8 +3960,7 @@ function bindProductEvents() {
       listEl: list,
       listTop: listRect.top,
     };
-    document.body.style.userSelect = 'none';
-    document.body.style.webkitUserSelect = 'none';
+    disableTextSelection();
   }
 
   function _moveDrag(e) {
@@ -4475,8 +3992,7 @@ function bindProductEvents() {
     if (!_dragState) return;
     const { startIdx, currentIdx, ghostEl } = _dragState;
     ghostEl.remove();
-    document.body.style.userSelect = '';
-    document.body.style.webkitUserSelect = '';
+    enableTextSelection();
     if (startIdx !== currentIdx) {
       const arr = _getPresetArr();
       const [moved] = arr.splice(startIdx, 1);
@@ -4493,29 +4009,27 @@ function bindProductEvents() {
     if (!list) return;
     const items = _presetManageType === 'category' ? _categoryPresets : _specPresets;
     if (items.length === 0) {
-      const emptyDiv = document.createElement('div');
-      emptyDiv.style.cssText = 'text-align:center;color:#999;padding:20px;font-size:14px;';
-      emptyDiv.textContent = '暂无项目，请在下方添加';
-      list.replaceChildren(emptyDiv);
+      showEmptyState(list, '暂无项目，请在下方添加');
       return;
     }
     const _pmFrag = document.createDocumentFragment();
     items.forEach((item, i) => {
-      const row = document.createElement('div');
-      row.className = 'preset-manage-item';
+      const row = createEl('div', 'preset-manage-item');
       row.setAttribute('data-idx', i);
-      row.innerHTML = `<span class="preset-drag-handle">☰</span><span class="preset-manage-item-text"></span><button type="button" class="preset-manage-item-edit">编辑</button><button type="button" class="preset-manage-item-del">删除</button>`;
-      row.querySelector('.preset-manage-item-text').textContent = item;
-      // Drag handle events
-      const handle = row.querySelector('.preset-drag-handle');
+      const handle = createEl('span', 'preset-drag-handle', '☰');
+      const textSpan = createEl('span', 'preset-manage-item-text', item);
+      const editBtn = createEl('button', 'preset-manage-item-edit', '编辑');
+      editBtn.type = 'button';
+      const delBtn = createEl('button', 'preset-manage-item-del', '删除');
+      delBtn.type = 'button';
+      row.append(handle, textSpan, editBtn, delBtn);
       handle.addEventListener('mousedown', (e) => { e.preventDefault(); _startDrag(e, i, row); });
       handle.addEventListener('touchstart', (e) => { _startDrag(e, i, row); }, { passive: false });
-      row.querySelector('.preset-manage-item-edit').addEventListener('click', () => {
-        const textEl = row.querySelector('.preset-manage-item-text');
-        const inp = document.createElement('input');
-        inp.className = 'preset-manage-input';
+      editBtn.addEventListener('click', () => {
+        const textEl = textSpan;
+        const inp = createEl('input', 'preset-manage-input');
         inp.value = item;
-        inp.style.cssText = 'flex:1;height:30px;';
+        inp.classList.add('preset-edit-input');
         textEl.replaceWith(inp);
         inp.focus();
         inp.select();
@@ -4532,7 +4046,7 @@ function bindProductEvents() {
         inp.addEventListener('blur', save);
         inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } });
       });
-      row.querySelector('.preset-manage-item-del').addEventListener('click', () => {
+      delBtn.addEventListener('click', () => {
         const arr = _presetManageType === 'category' ? _categoryPresets : _specPresets;
         arr.splice(i, 1);
         saveProductPresets();
@@ -4552,9 +4066,9 @@ function bindProductEvents() {
 
   on('manageCategoryBtn', 'click', () => openPresetManagePanel('category'));
   on('manageSpecBtn', 'click', () => openPresetManagePanel('spec'));
-  on('presetManageCloseBtn', 'click', () => $('presetManagePanel')?.classList.add('hidden'));
+  on('presetManageCloseBtn', 'click', () => hideEl('presetManagePanel'));
   if ($('presetManagePanel')) {
-    $('presetManagePanel').querySelector('.preset-manage-mask')?.addEventListener('click', () => $('presetManagePanel').classList.add('hidden'));
+    $('presetManagePanel').querySelector('.preset-manage-mask')?.addEventListener('click', () => hideEl('presetManagePanel'));
   }
   on('presetManageAddBtn', 'click', () => {
     const input = $('presetManageInput');
@@ -4611,7 +4125,7 @@ function bindProductEvents() {
   if ($("mallTabs")) $("mallTabs").addEventListener("click", (e) => {
     const tab = e.target.closest('.mall-tab');
     if (!tab || !tab.dataset.mallTab) return;
-    $("mallTabs").querySelectorAll('.mall-tab').forEach(t => t.classList.remove('active'));
+    e.currentTarget.querySelectorAll('.mall-tab.active').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     state.mallTab = tab.dataset.mallTab;
     state.mallListSignature = '';
@@ -4721,28 +4235,26 @@ function bindProfileEvents() {
   on("myProfileCard", "click", () => { 
       if(!state.currentUser) return; window.openSecondaryPage('editProfilePage');
       $("editNameInput").value = state.currentUser.displayName || ''; $("editSignatureInput").value = state.currentUser.signature || '';
-      if($("editAppIdDisplay")) $("editAppIdDisplay").textContent = state.currentUser.appNumberId || '-';
-      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
+      setText("editAppIdDisplay", state.currentUser.appNumberId || '-');
+      setText("editPhoneDisplay", state.currentUser.phone || '未绑定');
       state.tempAvatarUrl = state.currentUser.avatarUrl || null;
       if (state.tempAvatarUrl) setImagePreview($("editAvatarPreview"), state.tempAvatarUrl, firstChar(state.currentUser?.displayName));
       else $("editAvatarPreview").textContent = firstChar(state.currentUser.displayName);
   });
 
-  on("saveProfileBtn", "click", async () => {
+  on("saveProfileBtn", "click", () => {
       const name = $("editNameInput").value.trim(); const sign = $("editSignatureInput").value.trim();
       if(!name) return showModal("名字不能为空");
-      const btn = $("saveProfileBtn");
-      if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
-      try {
+      withButtonLock($("saveProfileBtn"), async () => {
           const data = await api('/api/users/update', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, displayName: name, signature: sign, avatarUrl: state.tempAvatarUrl }) });
           state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); showModal("资料修改成功！");
-          if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName;
+          setText("profileDisplayName", state.currentUser.displayName);
           if($("myProfileAvatar")) {
               if(state.currentUser.avatarUrl) setImagePreview($("myProfileAvatar"), state.currentUser.avatarUrl, firstChar(state.currentUser.displayName));
               else $("myProfileAvatar").textContent = firstChar(state.currentUser.displayName);
           }
           if($("backBtn")) $("backBtn").click();
-      } catch(e) { showModal("保存失败: " + e.message); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+      }, '保存中...');
   });
 
   on("messagesTab", "click", () => setMainTab('messages'));
@@ -4761,48 +4273,48 @@ function bindProfileEvents() {
     try { stopScanCamera(); } catch(_) {}
       const backTo = state.secondaryReturn;
       state.secondaryPage = null; state.secondaryReturn = null;
-      SECONDARY_PAGE_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+      SECONDARY_PAGE_IDS.forEach(id => hideEl(id));
       // Pop from navigation stack to restore previous secondary page with its original backTo
       if (state.secondaryStack.length > 0) {
           const prev = state.secondaryStack.pop();
           state.secondaryPage = prev.page; state.secondaryReturn = prev.backTo;
-          ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-          if($(prev.page)) $(prev.page).classList.remove('hidden');
-          if($("backBtn")) $("backBtn").classList.remove('hidden');
-          if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
-          if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
-          if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
-          if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
+          hideAllViews();
+          showEl(prev.page);
+          showEl("backBtn");
+          hideEl("homeMoreBtn");
+          hideEl("chatSettingsBtn");
+          hideEl("sidebarToggleBtn");
+          toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
           return;
       }
       if (backTo === 'chat' && state.activeConversation) {
-          if($("backBtn")) $("backBtn").classList.remove('hidden');
-          if($("chatView")) $("chatView").classList.remove('hidden');
-          if($("composerPanel")) $("composerPanel").classList.remove('hidden');
-          if($("chatTitle")) $("chatTitle").textContent = state.conversationsById?.get(state.activeConversation.id)?.title || '会话';
-          if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
+          showEl("backBtn");
+          showEl("chatView");
+          showEl("composerPanel");
+          setText("chatTitle", state.conversationsById?.get(state.activeConversation.id)?.title || '会话');
+          showEl("chatSettingsBtn");
           // restore sidebar when returning to conversation
-          if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
-          if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
+          showEl("sidebarToggleBtn");
+          toggleEl("sidebarPanel", "sidebar-tab-hidden", false);
           return;
       }
       state.activeConversation = null;
       state.chatListSignature = '';
       state.conversationItemSignatures = {};
       renderConversationListFromState();
-      if($("chatView")) $("chatView").classList.add("hidden"); if($("composerPanel")) $("composerPanel").classList.add("hidden"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
-      if($("homeTabbar")) $("homeTabbar").classList.remove("hidden"); if($("backBtn")) $("backBtn").classList.add("hidden"); if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
+      hideEl("chatView"); hideEl("composerPanel"); hideEl("chatSearchBar");
+      showEl("homeTabbar"); hideEl("backBtn"); hideEl("chatSettingsBtn");
       const activeTab = document.querySelector('.tab-item.active');
       if(activeTab) {
           if(activeTab.id === 'messagesTab') setMainTab('messages'); else if(activeTab.id === 'friendsTab') setMainTab('friends'); else if(activeTab.id === 'mallTab') setMainTab('mall'); else if(activeTab.id === 'profileTab') setMainTab('profile');
       } else { setMainTab('messages'); }
   });
 
-  on("logoutBtn", "click", () => { showConfirm("确定要退出登录吗？", async () => { nativeOnLogout(state.currentUser?.id); try { await api('/api/logout', { method: 'POST' }); } catch (e) { console.warn('logout api failed, fallback to local logout', e); } localStorage.removeItem(SESSION_KEY); location.reload(); }); });
+  on("logoutBtn", "click", () => { showConfirm("确定要退出登录吗？", async () => { nativeOnLogout(state.currentUser?.id); try { await api('/api/logout', { method: 'POST' }); } catch (e) { console.warn('logout api failed, fallback to local logout', e); } localStorage.removeItem(SESSION_KEY); localStorage.removeItem(CART_STORAGE_KEY); state.profileCartBySeller = {}; location.reload(); }); });
   on("clearCacheBtn", "click", () => { showConfirm("确定清理本地缓存吗？", () => { localStorage.clear(); location.reload(); }); });
   on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
   on("globalNotifyBtn", "click", () => { showModal("新消息通知目前跟随系统默认设置开启"); });
-  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
+  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`; setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`); });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage', 'profile'); loadMyProducts(); });
   on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
@@ -4813,29 +4325,20 @@ function bindProfileEvents() {
     window.openSecondaryPage('sellerCenterPage', 'profile');
   });
   on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', 'sellerCenterPage'); });
-  on("buyerOrdersSearchInput", "input", () => { state.buyerOrderSearch = $("buyerOrdersSearchInput")?.value?.trim() || ''; renderBuyerOrdersManage(); });
-  on("buyerOrdersFromBtn", "click", () => { openDatePicker('buyer', 'from', state.buyerOrderFrom); });
-  on("buyerOrdersToBtn", "click", () => { openDatePicker('buyer', 'to', state.buyerOrderTo); });
-  on("buyerOrdersClearFilterBtn", "click", () => { state.buyerOrderSearch=''; state.buyerOrderFrom=''; state.buyerOrderTo=''; renderBuyerOrdersManage(); });
-  on("buyerFilterToggleBtn", "click", () => { const d = $("buyerFilterDrawer"); if(d) d.classList.toggle('open'); $("buyerFilterToggleBtn")?.classList.toggle('active'); });
-  on("buyerOrdersRangePresets", "click", (e) => {
-    const btn = e.target.closest('.order-filter-chip');
-    if (!btn) return;
-    const days = Number(btn.dataset.range || 0);
-    if (!days) return;
-    applyOrderQuickRange('buyer', days);
-  });
-  on("sellerOrdersSearchInput", "input", () => { state.sellerOrderSearch = $("sellerOrdersSearchInput")?.value?.trim() || ''; renderSellerOrdersManage(); });
-  on("sellerOrdersFromBtn", "click", () => { openDatePicker('seller', 'from', state.sellerOrderFrom); });
-  on("sellerOrdersToBtn", "click", () => { openDatePicker('seller', 'to', state.sellerOrderTo); });
-  on("sellerOrdersClearFilterBtn", "click", () => { state.sellerOrderSearch=''; state.sellerOrderFrom=''; state.sellerOrderTo=''; renderSellerOrdersManage(); });
-  on("sellerFilterToggleBtn", "click", () => { const d = $("sellerFilterDrawer"); if(d) d.classList.toggle('open'); $("sellerFilterToggleBtn")?.classList.toggle('active'); });
-  on("sellerOrdersRangePresets", "click", (e) => {
-    const btn = e.target.closest('.order-filter-chip');
-    if (!btn) return;
-    const days = Number(btn.dataset.range || 0);
-    if (!days) return;
-    applyOrderQuickRange('seller', days);
+  [['buyer', renderBuyerOrdersManage], ['seller', renderSellerOrdersManage]].forEach(([role, renderFn]) => {
+    const cap = role.charAt(0).toUpperCase() + role.slice(1);
+    on(`${role}OrdersSearchInput`, "input", () => { state[`${role}OrderSearch`] = $(`${role}OrdersSearchInput`)?.value?.trim() || ''; renderFn(); });
+    on(`${role}OrdersFromBtn`, "click", () => { openDatePicker(role, 'from', state[`${role}OrderFrom`]); });
+    on(`${role}OrdersToBtn`, "click", () => { openDatePicker(role, 'to', state[`${role}OrderTo`]); });
+    on(`${role}OrdersClearFilterBtn`, "click", () => { state[`${role}OrderSearch`]=''; state[`${role}OrderFrom`]=''; state[`${role}OrderTo`]=''; renderFn(); });
+    on(`${role}FilterToggleBtn`, "click", () => { const d = $(`${role}FilterDrawer`); if(d) d.classList.toggle('open'); $(`${role}FilterToggleBtn`)?.classList.toggle('active'); });
+    on(`${role}OrdersRangePresets`, "click", (e) => {
+      const btn = e.target.closest('.order-filter-chip');
+      if (!btn) return;
+      const days = Number(btn.dataset.range || 0);
+      if (!days) return;
+      applyOrderQuickRange(role, days);
+    });
   });
   // Date picker confirm/cancel
   on("datePickerConfirmBtn", "click", () => closeDatePicker(true));
@@ -4924,40 +4427,29 @@ function bindProfileEvents() {
     renderSellerPaymentDraft();
     window.openSecondaryPage('sellerPaymentPage', 'sellerCenterPage');
   });
-  on("sellerWxPayUploadBtn", "click", () => { $("sellerWxPayFileInput")?.click(); });
-  on("sellerAliPayUploadBtn", "click", () => { $("sellerAliPayFileInput")?.click(); });
-  on("sellerCloudPayUploadBtn", "click", () => { $("sellerCloudPayFileInput")?.click(); });
-  on("sellerWxPayFileInput", "change", async () => {
-    const file = $("sellerWxPayFileInput")?.files?.[0];
-    if($("sellerWxPayFileInput")) $("sellerWxPayFileInput").value = '';
-    await uploadSellerPaymentCode('wechat', file);
+  [['WxPay','wechat'],['AliPay','alipay'],['CloudPay','cloudpay']].forEach(([prefix, key]) => {
+    const uploadBtnId = `seller${prefix}UploadBtn`, fileInputId = `seller${prefix}FileInput`;
+    on(uploadBtnId, "click", () => { $(fileInputId)?.click(); });
+    on(fileInputId, "change", async () => {
+      const file = $(fileInputId)?.files?.[0];
+      if($(fileInputId)) $(fileInputId).value = '';
+      await uploadSellerPaymentCode(key, file);
+    });
   });
-  on("sellerAliPayFileInput", "change", async () => {
-    const file = $("sellerAliPayFileInput")?.files?.[0];
-    if($("sellerAliPayFileInput")) $("sellerAliPayFileInput").value = '';
-    await uploadSellerPaymentCode('alipay', file);
-  });
-  on("sellerCloudPayFileInput", "change", async () => {
-    const file = $("sellerCloudPayFileInput")?.files?.[0];
-    if($("sellerCloudPayFileInput")) $("sellerCloudPayFileInput").value = '';
-    await uploadSellerPaymentCode('cloudpay', file);
-  });
-  on("saveSellerPaymentBtn", "click", async () => {
+  on("saveSellerPaymentBtn", "click", () => {
     const paymentCodes = {
       wechat: state.paymentCodeDraft?.wechat || '',
       alipay: state.paymentCodeDraft?.alipay || '',
       cloudpay: state.paymentCodeDraft?.cloudpay || '',
     };
     if (!paymentCodes.wechat && !paymentCodes.alipay && !paymentCodes.cloudpay) return showModal('请至少上传一个收款码');
-    const btn = $("saveSellerPaymentBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
-    try{
+    withButtonLock($("saveSellerPaymentBtn"), async () => {
       const data = await api('/api/users/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, paymentCodes }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
       showModal('收款码已保存');
       window.openSecondaryPage('sellerCenterPage', state.secondaryReturn || 'profile');
-    }catch(e){ showModal(e.message || '保存失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+    }, '保存中...');
   });
 }
 
@@ -4969,21 +4461,13 @@ function bindSocialEvents() {
           const data = await api(`/api/blacklist?userId=${encodeURIComponent(state.currentUser.id)}`);
           const list = $("blacklistContainer"); if(!list) return;
           const blacklist = data.users || data.blacklist || [];
-          if(blacklist.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center;padding:40px;color:var(--text-muted);font-size:14px;'; emptyDiv.textContent = '黑名单为空'; list.replaceChildren(emptyDiv); }
+          if(blacklist.length === 0) { showEmptyState(list, '黑名单为空'); }
           else {
             list.replaceChildren();
             blacklist.forEach((u) => {
-              const row = document.createElement('div');
-              row.className = 'chat-item';
-              row.appendChild(createAvatarNode(u, u.displayName));
-              const info = document.createElement('div');
-              info.style.cssText = 'flex:1;text-align:left;';
-              const strong = document.createElement('strong');
-              strong.textContent = u.displayName || '';
-              info.appendChild(strong);
-              row.appendChild(info);
-              const btn = document.createElement('button');
-              btn.className = 'primary-btn';
+              const row = createEl('div', 'chat-item');
+              appendUserInfo(row, u, u.displayName || '');
+              const btn = createEl('button', 'primary-btn');
               btn.style.background = '#ff3b30';
               btn.textContent = '移出';
               btn.addEventListener('click', () => window.removeFromBlacklist(u.id));
@@ -5008,24 +4492,17 @@ function bindSocialEvents() {
       profileCard.onclick = null;
       profileCard.style.opacity = '0.5';
       if(!peerId) {
-        const hint = document.createElement('div');
+        const hint = createEl('div', '', '当前会话暂无可查看的用户资料');
         hint.style.cssText = 'padding:12px 0; color:var(--text-muted); font-size:14px;';
-        hint.textContent = '当前会话暂无可查看的用户资料';
         profileCard.appendChild(hint);
         return;
       }
-      const friend = state.friendsById ? state.friendsById.get(peerId) : state.friends.find(f => f.friend.id === peerId);
+      const friend = findFriendEntry(peerId);
       const userObj = friend ? friend.friend : { displayName: state.activeConversation?.title || state.conversationsById?.get(state.activeConversation?.id)?.title || '未知用户', avatarUrl: state.activeConversation?.peerAvatarUrl || null };
       const finalName = userObj.remark || userObj.displayName || '未知用户';
       profileCard.style.opacity = '';
-      profileCard.appendChild(createAvatarNode(userObj, finalName));
-      const info = document.createElement('div');
-      info.style.cssText = 'flex:1;text-align:left;';
-      const strong = document.createElement('strong');
-      strong.style.fontSize = '18px';
-      strong.textContent = finalName;
-      info.appendChild(strong);
-      profileCard.appendChild(info);
+      const info = appendUserInfo(profileCard, userObj, finalName);
+      info.querySelector('strong').style.fontSize = '18px';
       profileCard.onclick = () => window.openUserProfile(peerId, finalName);
   });
 
@@ -5038,10 +4515,14 @@ function bindSocialEvents() {
         const nextMuted = Boolean(res?.muted);
         if (state.activeConversation) state.activeConversation.muted = nextMuted;
         if (conv) conv.muted = nextMuted;
+        const cid = state.activeConversation?.id;
+        if (cid && state.mutedConvIds) { nextMuted ? state.mutedConvIds.add(cid) : state.mutedConvIds.delete(cid); }
       } else if (action === 'pin') {
         const nextPinned = Boolean(res?.pinned);
         if (state.activeConversation) state.activeConversation.pinned = nextPinned;
         if (conv) conv.pinned = nextPinned;
+        const cid = state.activeConversation?.id;
+        if (cid && state.pinnedConvIds) { nextPinned ? state.pinnedConvIds.add(cid) : state.pinnedConvIds.delete(cid); }
       } else if (action === 'clear') {
         const now = Number(res?.clearedAt) || Date.now();
         if (state.activeConversation) {
@@ -5066,19 +4547,15 @@ function bindSocialEvents() {
     const res = await toggleAction('mute');
     if (!res) return;
     showModal(res.muted ? '已开启免打扰' : '已关闭免打扰');
-    if($("muteSettingBtn")) $("muteSettingBtn").textContent = res.muted ? '取消免打扰' : '消息免打扰';
-    sortConversationsInPlace();
-    renderConversationListFromState();
-    loadConversations();
+    setText("muteSettingBtn", res.muted ? '取消免打扰' : '消息免打扰');
+    refreshConversations();
   });
   on("pinConversationBtn", "click", async () => {
     const res = await toggleAction('pin');
     if (!res) return;
     showModal(res.pinned ? '已置顶会话' : '已取消置顶');
-    if($("pinConversationBtn")) $("pinConversationBtn").textContent = res.pinned ? '取消置顶' : '置顶聊天';
-    sortConversationsInPlace();
-    renderConversationListFromState();
-    loadConversations();
+    setText("pinConversationBtn", res.pinned ? '取消置顶' : '置顶聊天');
+    refreshConversations();
   });
   on("clearChatBtn", "click", () => {
     showConfirm("确认清空聊天记录？", async () => {
@@ -5097,10 +4574,23 @@ function bindSocialEvents() {
     });
   });
 
+  async function doAddBlacklist(targetId) {
+    showLoading('处理中...');
+    try {
+      await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'add' }) });
+      showModal('已加入黑名单');
+      loadFriends().catch(() => {});
+      loadConversations().catch(() => {});
+    } catch(e) { showModal(e?.message || '加入黑名单失败');
+    } finally { hideLoading(); }
+  }
   on("blacklistBtn", "click", () => {
       const peerId = conversationPeerId(state.activeConversation);
       if(!peerId) return showModal('未找到会话对象');
-      showConfirm("确定把他加入黑名单吗？加入后将拒收他的消息。", async () => { showLoading('处理中...'); try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) }); showModal("已加入黑名单"); loadFriends().catch(() => {}); loadConversations().catch(() => {}); if($("backBtn")) $("backBtn").click(); } catch(e){ console.warn('add blacklist failed', e); showModal(e?.message || '加入黑名单失败'); } finally { hideLoading(); } });
+      showConfirm("确定把他加入黑名单吗？加入后将拒收他的消息。", async () => {
+        await doAddBlacklist(peerId);
+        if($("backBtn")) $("backBtn").click();
+      });
   });
   on("deleteFriendBtn", "click", () => {
       showConfirm("确定删除好友并清空聊天记录?", async () => {
@@ -5118,10 +4608,10 @@ function bindSocialEvents() {
       });
   });
 
-  on("homeMoreBtn", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.remove("hidden"); });
-  on("closePlusMenuBtn", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); });
-  on("menuAddFriend", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('addFriendPage'); if($("myProfileIdDisplay")) $("myProfileIdDisplay").textContent = state.currentUser.appNumberId || state.currentUser.username; });
-  on("menuScan", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('scanPage'); });
+  on("homeMoreBtn", "click", () => { showEl("plusMenuSheet"); });
+  on("closePlusMenuBtn", "click", () => { hideEl("plusMenuSheet"); });
+  on("menuAddFriend", "click", () => { hideEl("plusMenuSheet"); window.openSecondaryPage('addFriendPage'); setText("myProfileIdDisplay", state.currentUser.appNumberId || state.currentUser.username); });
+  on("menuScan", "click", () => { hideEl("plusMenuSheet"); window.openSecondaryPage('scanPage'); });
 
   // Search for user first, then show preview card
   on("doSearchFriendBtn", "click", async () => {
@@ -5138,26 +4628,37 @@ function bindSocialEvents() {
       const user = res.user;
       if (!user || !resultEl) return;
       // Check if already friends
-      const isFriend = (state.friends || []).some(f => f.friendId === user.id || f.userId === user.id);
-      const safeAvatarUrl = escapeHTML(user.avatarUrl || '');
-      const avatarContent = user.avatarUrl
-        ? `<img src="${safeAvatarUrl}" alt="" />`
-        : firstChar(user.displayName);
-      resultEl.innerHTML = `
-        <div class="add-friend-card">
-          <div class="add-friend-card-top">
-            <div class="add-friend-avatar" ${user.avatarUrl ? '' : 'style="background:#07c160"'}>${avatarContent}</div>
-            <div class="add-friend-info">
-              <div class="add-friend-name">${escapeHTML(user.displayName)}</div>
-              <div class="add-friend-meta">ID: ${escapeHTML(user.appNumberId || '')}${user.role === 'seller' ? ' · 商家' : ''}</div>
-            </div>
-          </div>
-          ${user.signature ? `<div class="add-friend-sig">${escapeHTML(user.signature)}</div>` : ''}
-          <div class="add-friend-actions">
-            <button type="button" class="add-friend-add-btn ${isFriend ? 'already' : ''}" id="addFriendSendBtn" data-uid="${escapeHTML(user.id)}" data-uname="${escapeHTML(user.username)}" ${isFriend ? 'disabled' : ''}>${isFriend ? '已是好友' : '添加好友'}</button>
-          </div>
-        </div>
-      `;
+      const isFriend = isFriendUser(user.id);
+      const card = createEl('div', 'add-friend-card');
+      const cardTop = createEl('div', 'add-friend-card-top');
+      const avatarDiv = createEl('div', 'add-friend-avatar');
+      if (user.avatarUrl) {
+        const avatarImg = createEl('img');
+        avatarImg.src = user.avatarUrl;
+        avatarImg.alt = '';
+        avatarDiv.appendChild(avatarImg);
+      } else {
+        avatarDiv.style.background = '#07c160';
+        avatarDiv.textContent = firstChar(user.displayName);
+      }
+      const infoDiv = createEl('div', 'add-friend-info');
+      infoDiv.append(
+        createEl('div', 'add-friend-name', user.displayName),
+        createEl('div', 'add-friend-meta', `ID: ${user.appNumberId || ''}${user.role === 'seller' ? ' · 商家' : ''}`)
+      );
+      cardTop.append(avatarDiv, infoDiv);
+      card.appendChild(cardTop);
+      if (user.signature) card.appendChild(createEl('div', 'add-friend-sig', user.signature));
+      const actionsDiv = createEl('div', 'add-friend-actions');
+      const addBtn = createEl('button', `add-friend-add-btn${isFriend ? ' already' : ''}`, isFriend ? '已是好友' : '添加好友');
+      addBtn.type = 'button';
+      addBtn.id = 'addFriendSendBtn';
+      addBtn.dataset.uid = user.id;
+      addBtn.dataset.uname = user.username;
+      if (isFriend) addBtn.disabled = true;
+      actionsDiv.appendChild(addBtn);
+      card.appendChild(actionsDiv);
+      resultEl.replaceChildren(card);
       resultEl.classList.remove('hidden');
     } catch(e) {
       if (emptyEl) {
@@ -5203,7 +4704,7 @@ function bindSocialEvents() {
       } catch(e) { showModal(e.message || '未找到该用户'); }
   };
   on("toggleManualScanBtn", "click", () => {
-    if($("scanManualPanel")) $("scanManualPanel").classList.toggle('hidden');
+    toggleEl("scanManualPanel", 'hidden');
     if(!$("scanManualPanel")?.classList.contains('hidden') && $("scanIdInput")) $("scanIdInput").focus();
   });
   on("startCameraScanBtn", "click", startScanCamera);
@@ -5214,14 +4715,14 @@ function bindSocialEvents() {
   on("scanMyQrBtn", "click", () => {
     window.openSecondaryPage("qrCodePage", "scanPage");
     if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`;
-    if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`;
+    setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`);
   });
   on("scanCaptureInput", "change", async (e) => {
     const file = e?.target?.files?.[0];
     if (!file) return;
     const ok = await decodeScanFromImageFile(file);
     if (!ok) {
-      $("scanManualPanel")?.classList.remove('hidden');
+      showEl("scanManualPanel");
       if($("scanIdInput")) $("scanIdInput").focus();
       showModal('未能识别二维码，请手动输入 ChatTrade ID');
     }
@@ -5331,18 +4832,16 @@ function bindBroadcastEvents() {
     window.openSecondaryPage('broadcastEditorPage', 'broadcastManagePage');
   });
   on("saveBroadcastDraftBtn", "click", saveBroadcastDraft);
-  on("sendBroadcastNowBtn", "click", async () => {
+  on("sendBroadcastNowBtn", "click", () => {
     const draft = state.selectedBroadcastDraft;
     if(!draft) return showModal('请先选择一条广播');
     const title = draft.title || '广播通知';
     const summary = draft.summary || '';
-    const btn = $("sendBroadcastNowBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
-    try {
+    withButtonLock($("sendBroadcastNowBtn"), async () => {
       await window.sendMessage({ type: 'broadcast_card', broadcast: { title, summary, cover: '' } });
       showToast('广播已发送');
       if($("backBtn")) $("backBtn").click();
-    } catch(e) { showModal(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '发送'; } }
+    }, '发送中...');
   });
 
   on("profileMoreBtn", "click", () => showProfileActionSheet());
@@ -5353,15 +4852,20 @@ function bindBroadcastEvents() {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
       showPrompt("请输入好友备注名", p.remarkName || "", async (newRemark) => {
-        try { await api('/api/friends/remark', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: p.id, remark: newRemark }) }); showModal("备注设置成功"); loadFriends(); loadConversations(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message); }
+        try {
+          await api('/api/friends/remark', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: p.id, remark: newRemark }) });
+          showModal("备注设置成功");
+          loadFriends();
+          loadConversations();
+          if($("backBtn")) $("backBtn").click();
+        } catch(e) { showModal(e.message); }
       });
   });
   on("profileActionMoveGroupBtn", "click", () => { hideProfileActionSheet(); if(state.currentProfileUser) window.openGroupSelect(state.currentProfileUser.id); });
   on("profileActionBlacklistBtn", "click", async () => {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
-      showLoading('处理中...');
-      try { await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) }); showModal('已加入黑名单'); loadFriends().catch(() => {}); loadConversations().catch(() => {}); } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
+      await doAddBlacklist(p.id);
   });
   on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); showModal('已收到举报，我们会尽快处理'); });
   on("btnSettingsMoveGroup", "click", () => { const peerId = conversationPeerId(state.activeConversation); if(peerId) window.openGroupSelect(peerId); });
@@ -5388,38 +4892,38 @@ function bindBroadcastEvents() {
 // Messaging, recording, call UI
 function bindChatEvents() {
   document.addEventListener("keydown", (e) => { if(e.key === "Escape" && $("imageViewer") && !$("imageViewer").classList.contains("hidden")) window.closeImageViewer(); });
-  on("closeForwardModalBtn", "click", () => { if($("forwardModal")) $("forwardModal").classList.add("hidden"); });
+  on("closeForwardModalBtn", "click", () => { hideEl("forwardModal"); });
   
   on("chatView", "click", (e) => {
       if(e.target.tagName !== 'IMG') {
-          if($("actionPanel")) $("actionPanel").classList.add("hidden"); 
-          if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); 
+          hideEl("actionPanel"); 
+          hideEl("emojiPanel"); 
       }
   });
 
   on("sendMsgBtn", "click", window.handleSendText);
   on("messageInput", "keydown", (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.handleSendText(); } });
-  on("emojiBtn", "click", () => { if($("actionPanel")) $("actionPanel").classList.add("hidden"); if($("emojiPanel")) $("emojiPanel").classList.toggle("hidden"); });
-  on("toggleActionsBtn", "click", () => { if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); if($("actionPanel")) $("actionPanel").classList.toggle("hidden"); });
+  on("emojiBtn", "click", () => { hideEl("actionPanel"); toggleEl("emojiPanel", "hidden"); });
+  on("toggleActionsBtn", "click", () => { hideEl("emojiPanel"); toggleEl("actionPanel", "hidden"); });
 
   let typingDebounceTimer = null;
   on("messageInput", "input", function() {
       this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';
       const hasText = this.value.trim().length > 0;
-      if($("toggleActionsBtn")) $("toggleActionsBtn").classList.toggle("hidden", hasText); if($("sendMsgBtn")) $("sendMsgBtn").classList.toggle("hidden", !hasText);
-      if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: conversationPeerId(state.activeConversation), signal: {type:'typing'} }) }); typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }
+      toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
+      if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { const _peerId = conversationPeerId(state.activeConversation); if (_peerId) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: _peerId, signal: {type:'typing'} }) }); } typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }
   });
 
   on("voiceToggleBtn", "click", () => {
       if(!$("pttBtn") || !$("messageInput")) return; const isVoice = $("pttBtn").classList.contains("hidden");
-      if($("actionPanel")) $("actionPanel").classList.add("hidden"); if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); 
+      hideEl("actionPanel"); hideEl("emojiPanel"); 
       $("pttBtn").classList.toggle("hidden", !isVoice); $("messageInput").classList.toggle("hidden", isVoice);
-      if($("voiceToggleBtn")) $("voiceToggleBtn").textContent = isVoice ? "⌨️" : "🎙️";
+      setText("voiceToggleBtn", isVoice ? "⌨️" : "🎙️");
       if(!isVoice) {
           const hasText = $("messageInput").value.trim().length > 0;
-          if($("toggleActionsBtn")) $("toggleActionsBtn").classList.toggle("hidden", hasText); if($("sendMsgBtn")) $("sendMsgBtn").classList.toggle("hidden", !hasText);
+          toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
       } else {
-          if($("toggleActionsBtn")) $("toggleActionsBtn").classList.remove("hidden"); if($("sendMsgBtn")) $("sendMsgBtn").classList.add("hidden");
+          showEl("toggleActionsBtn"); hideEl("sendMsgBtn");
       }
   });
 
@@ -5431,7 +4935,7 @@ function bindChatEvents() {
           // On Android native app, ensure mic permission before recording
           if (window.__NATIVE_ANDROID__ && window.NativeBridge && !window.NativeBridge.hasMicrophonePermission()) {
             window.NativeBridge.requestMicrophonePermission();
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, DELAYS.PERMISSION_WAIT));
             if (!window.NativeBridge.hasMicrophonePermission()) throw new Error('需要麦克风权限才能录音，请在设置中开启');
           }
           _pttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -5442,6 +4946,7 @@ function bindChatEvents() {
               if (Date.now() - recordStartTime < 1000) return showModal("录音太短");
               try {
                   const audioBlob = new Blob(state.audioChunks, { type: mimeType || 'audio/webm' });
+                  if (audioBlob.size > 10 * 1024 * 1024) return showModal('语音文件过大，请缩短录音');
                   const audioUrl = await uploadBinary(audioBlob, `voice_${Date.now()}.webm`, audioBlob.type || 'audio/webm');
                   await window.sendMessage({ type: 'audio', audioUrl });
               } catch (err) {
@@ -5449,7 +4954,7 @@ function bindChatEvents() {
               }
           };
           state.mediaRecorder.start();
-      } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; if (_pttStream) try { _pttStream.getTracks().forEach(t => t.stop()); } catch(_) {} showModal("无录音权限"); }
+      } catch(err) { setText("pttBtn", "按住 说话"); if (_pttStream) try { _pttStream.getTracks().forEach(t => t.stop()); } catch(_) {} showModal("无录音权限"); }
   });
   const stopPttRecording = () => {
       if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
@@ -5458,11 +4963,11 @@ function bindChatEvents() {
   on("pttBtn", "touchend", (e) => { e.preventDefault(); stopPttRecording(); });
   on("pttBtn", "touchcancel", (e) => { e.preventDefault(); stopPttRecording(); });
 
-  on("btnTakePhoto", "click", () => { if($("cameraInput")) $("cameraInput").click(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendImage", "click", () => { if($("imageInput")) $("imageInput").click(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnCallVoice", "click", () => { window.startCall('voice'); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnCallVideo", "click", () => { window.startCall('video'); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendContactCard", "click", async () => { await sendContactCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
+  on("btnTakePhoto", "click", () => { if($("cameraInput")) $("cameraInput").click(); hideEl("actionPanel"); });
+  on("btnSendImage", "click", () => { if($("imageInput")) $("imageInput").click(); hideEl("actionPanel"); });
+  on("btnCallVoice", "click", () => { window.startCall('voice'); hideEl("actionPanel"); });
+  on("btnCallVideo", "click", () => { window.startCall('video'); hideEl("actionPanel"); });
+  on("btnSendContactCard", "click", async () => { await sendContactCardInChat(); hideEl("actionPanel"); });
 
   // Contact card picker: search and confirm
   on("ccpSearchInput", "input", () => { renderContactCardPicker(); });
@@ -5485,9 +4990,9 @@ function bindChatEvents() {
     if ($("backBtn")) $("backBtn").click();
   });
 
-  on("btnSendProductCard", "click", async () => { await sendProductCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendOrderCard", "click", async () => { await sendOrderCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendPaymentCode", "click", async () => { await sendPaymentCodeInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
+  on("btnSendProductCard", "click", async () => { await sendProductCardInChat(); hideEl("actionPanel"); });
+  on("btnSendOrderCard", "click", async () => { await sendOrderCardInChat(); hideEl("actionPanel"); });
+  on("btnSendPaymentCode", "click", async () => { await sendPaymentCodeInChat(); hideEl("actionPanel"); });
   // Order picker tab switching
   if($("orderPickerTabs")){
     $("orderPickerTabs").addEventListener('click', (e) => {
@@ -5529,8 +5034,20 @@ function bindChatEvents() {
   on("cameraInput", "change", handleImageUpload);
 
   on("toggleSpeakerBtn", "click", () => { showModal('【原生限制说明】\n网页端无法用代码强制切换听筒，请直接按手机侧边的音量键调节声音。'); });
-  on("toggleMuteBtn", "click", () => { if (!state.rtc.localStream) return; isMuted = !isMuted; state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted); if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; } if($("muteText")) $("muteText").textContent = isMuted ? "已静音" : "静音"; });
-  on("toggleCameraBtn", "click", () => { if (!state.rtc.localStream) return; isCameraOff = !isCameraOff; state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff); if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; } if($("cameraText")) $("cameraText").textContent = isCameraOff ? "已关镜头" : "镜头"; });
+  on("toggleMuteBtn", "click", () => {
+    if (!state.rtc.localStream) return;
+    isMuted = !isMuted;
+    state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+    if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; }
+    setText("muteText", isMuted ? "已静音" : "静音");
+  });
+  on("toggleCameraBtn", "click", () => {
+    if (!state.rtc.localStream) return;
+    isCameraOff = !isCameraOff;
+    state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff);
+    if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; }
+    setText("cameraText", isCameraOff ? "已关镜头" : "镜头");
+  });
   
   on("acceptCallBtn", "click", async () => {
       if (state.rtc._accepting) return;
@@ -5540,9 +5057,9 @@ function bindChatEvents() {
           if (!conversationId) return; state.rtc.conversationId = conversationId; 
           if(!state.activeConversation || state.activeConversation.id !== conversationId) { window.openConversation(conversationId, { skipFetch: true }); }
           syncCallConversationState(conversationId, state.rtc.pendingOffer?.senderId || state.rtc.incomingMeta?.senderId || state.rtc.peerId || null, state.rtc.incomingMeta?.senderName || '');
-          if($("callPanel")) $("callPanel").classList.remove('hidden');
-          if($("callTitle")) $("callTitle").textContent = `连接中...`; 
-          if($("chatSubtitle")) $("chatSubtitle").textContent = '建立连接中…';
+          showEl("callPanel");
+          setText("callTitle", `连接中...`); 
+          setText("chatSubtitle", '建立连接中…');
           if (!state.rtc.pendingOffer) { state.rtc.pendingAccept = true; return; } 
           const { senderId, mode, signal } = state.rtc.pendingOffer; state.rtc.pendingAccept = false; state.rtc.peerId = senderId; setRtcPhase('connecting'); 
           await createPeerConnection(mode); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)); 
@@ -5561,7 +5078,7 @@ function bindChatEvents() {
           let peerName = peerMeta.name;
           
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
-          if($("callName")) $("callName").textContent = peerName;
+          setText("callName", peerName);
           state.rtc.pendingOffer = null; 
       } catch (err) { finalizeCall({ alertText: err && err.message ? err.message : '接听失败', event: 'reject', reason: 'error' }); } finally { state.rtc._accepting = false; }
   });
@@ -5577,20 +5094,18 @@ function bindChatEvents() {
   let _callFloatingTimer = null;
   function minimizeCall() {
     if (!hasActiveCallSession()) return;
-    if ($("callPanel")) $("callPanel").classList.add('hidden');
-    const bubble = $("callFloatingBubble");
-    if (bubble) {
-      bubble.classList.remove('hidden');
+    hideEl("callPanel");
+    showEl("callFloatingBubble");
+    if ($("callFloatingBubble")) {
       updateFloatingDuration();
       clearInterval(_callFloatingTimer);
       _callFloatingTimer = setInterval(updateFloatingDuration, 1000);
     }
   }
   function restoreCall() {
-    const bubble = $("callFloatingBubble");
-    if (bubble) bubble.classList.add('hidden');
+    hideEl("callFloatingBubble");
     clearInterval(_callFloatingTimer);
-    if (hasActiveCallSession() && $("callPanel")) $("callPanel").classList.remove('hidden');
+    if (hasActiveCallSession()) showEl("callPanel");
   }
   function updateFloatingDuration() {
     if (!callStartTime) return;
@@ -5644,7 +5159,7 @@ function bindChatEvents() {
   // Hide floating bubble when call ends (use lazy reference since window.stopCall is defined later)
   window._stopCallWithBubble = () => {
     clearInterval(_callFloatingTimer);
-    if ($("callFloatingBubble")) $("callFloatingBubble").classList.add('hidden');
+    hideEl("callFloatingBubble");
   };
 
 }
@@ -5657,9 +5172,7 @@ function bindSearchAndEmojiEvents() {
   function showCooldownToast(seconds) {
     let toast = document.querySelector('.search-cooldown-toast');
     if (toast) toast.remove();
-    toast = document.createElement('div');
-    toast.className = 'search-cooldown-toast';
-    toast.textContent = `搜索太频繁，请 ${seconds} 秒后再试`;
+    toast = createEl('div', 'search-cooldown-toast', `搜索太频繁，请 ${seconds} 秒后再试`);
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 1500);
   }
@@ -5690,25 +5203,38 @@ function bindSearchAndEmojiEvents() {
       const el = $("msgSearchPageResults");
       if (!el) return;
       if (!res.results || !res.results.length) {
-        el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关聊天记录</div>';
+        showEmptyState(el, '未找到相关聊天记录');
         return;
       }
-      const kw = escapeHTML(keyword);
-      const kwRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-      const highlightText = (text) => {
-        const escaped = escapeHTML(text.length > 80 ? text.slice(0, 80) + '...' : text);
-        return escaped.replace(kwRe, '<mark style="background:#b4efc8;padding:0 1px;border-radius:2px;">$&</mark>');
+      const kwRe = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      const highlightInto = (parent, text) => {
+        const truncated = text.length > 80 ? text.slice(0, 80) + '...' : text;
+        let lastIdx = 0;
+        truncated.replace(kwRe, (match, offset) => {
+          if (offset > lastIdx) parent.appendChild(document.createTextNode(truncated.slice(lastIdx, offset)));
+          const mark = createEl('mark', 'search-highlight', match);
+          parent.appendChild(mark);
+          lastIdx = offset + match.length;
+          return match;
+        });
+        if (lastIdx < truncated.length) parent.appendChild(document.createTextNode(truncated.slice(lastIdx)));
       };
-      let searchHtml = '<div style="padding:10px 16px; font-size:12px; color:#999;">聊天记录</div>' +
-        res.results.map(r => `<button class="chat-item msg-search-item" data-conv-id="${escapeHTML(r.conversationId)}" data-msg-id="${escapeHTML(r.messageId)}" style="text-align:left; border-bottom:1px solid #f2f2f6; background:#fff;">
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:500;margin-bottom:2px;">${escapeHTML(r.peerName)}</div>
-            <div style="font-size:13px;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${highlightText(r.text)}</div>
-          </div>
-          <div style="font-size:11px;color:#bbb;white-space:nowrap;margin-left:8px;">${formatTime(r.createdAt)}</div>
-        </button>`).join('');
-      if (res.total > 20) searchHtml += `<div style="padding:12px;text-align:center;font-size:13px;color:#07c160;">共找到 ${escapeHTML(String(res.total))} 条结果</div>`;
-      el.innerHTML = searchHtml;
+      const frag = document.createDocumentFragment();
+      frag.appendChild(createEl('div', 'msg-search-header', '聊天记录'));
+      res.results.forEach(r => {
+        const btn = createEl('button', 'chat-item msg-search-item');
+        btn.dataset.convId = r.conversationId;
+        btn.dataset.msgId = r.messageId;
+        const info = createEl('div', 'msg-search-info');
+        info.appendChild(createEl('div', 'msg-search-name', r.peerName));
+        const preview = createEl('div', 'msg-search-preview');
+        highlightInto(preview, r.text);
+        info.appendChild(preview);
+        btn.append(info, createEl('div', 'msg-search-time', formatTime(r.createdAt)));
+        frag.appendChild(btn);
+      });
+      if (res.total > 20) frag.appendChild(createEl('div', 'msg-search-count', `共找到 ${res.total} 条结果`));
+      el.replaceChildren(frag);
       if (!el._msgSearchDelegate) {
         el._msgSearchDelegate = true;
         el.addEventListener('click', async (e) => {
@@ -5718,7 +5244,7 @@ function bindSearchAndEmojiEvents() {
           const msgId = btn.dataset.msgId;
           if (!convId) return;
           if ($("msgSearchPageInput")) $("msgSearchPageInput").value = '';
-          if ($("msgSearchPageResults")) $("msgSearchPageResults").innerHTML = '';
+          if ($("msgSearchPageResults")) $("msgSearchPageResults").replaceChildren();
           state.secondaryPage = null;
           await window.openConversation(convId);
           if (msgId) {
@@ -5746,38 +5272,36 @@ function bindSearchAndEmojiEvents() {
   // ── In-chat message search ──
   on("chatSearchMsgBtn", "click", () => {
     if ($("backBtn")) $("backBtn").click(); // go back from settings page
-    const bar = $("chatSearchBar");
-    if (bar) { bar.classList.remove('hidden'); bar.style.display = 'flex'; }
+    showEl("chatSearchBar");
     if ($("chatSearchInput")) { $("chatSearchInput").value = ''; $("chatSearchInput").focus(); }
     if ($("chatSearchCount")) $("chatSearchCount").textContent = '';
     state._chatSearchResults = [];
     state._chatSearchIdx = -1;
   });
-  on("chatSearchCloseBtn", "click", () => {
-    const bar = $("chatSearchBar");
-    if (bar) { bar.classList.add('hidden'); bar.style.display = 'none'; }
-    // Remove highlights
-    document.querySelectorAll('#chatView .search-highlight').forEach(el => {
+  function clearSearchHighlights() {
+    const cv = $("chatView");
+    if (!cv) return;
+    const marks = cv.getElementsByClassName('search-highlight');
+    // Iterate backwards since DOM mutates during replacement
+    for (let i = marks.length - 1; i >= 0; i--) {
+      const el = marks[i];
       const parent = el.parentNode;
       parent.replaceChild(document.createTextNode(el.textContent), el);
       parent.normalize();
-    });
+    }
     state._chatSearchResults = [];
     state._chatSearchIdx = -1;
+  }
+  on("chatSearchCloseBtn", "click", () => {
+    hideEl("chatSearchBar");
+    clearSearchHighlights();
   });
   let _chatSearchTimer = null;
   on("chatSearchInput", "input", () => {
     clearTimeout(_chatSearchTimer);
     _chatSearchTimer = setTimeout(() => {
       const keyword = ($("chatSearchInput")?.value || '').trim().toLowerCase();
-      // Remove old highlights
-      document.querySelectorAll('#chatView .search-highlight').forEach(el => {
-        const parent = el.parentNode;
-        parent.replaceChild(document.createTextNode(el.textContent), el);
-        parent.normalize();
-      });
-      state._chatSearchResults = [];
-      state._chatSearchIdx = -1;
+      clearSearchHighlights();
       if (!keyword) { if ($("chatSearchCount")) $("chatSearchCount").textContent = ''; return; }
       // Search in loaded messages DOM
       const chatView = $("chatView");
@@ -5797,8 +5321,7 @@ function bindSearchAndEmojiEvents() {
             const range = document.createRange();
             range.setStart(node, idx);
             range.setEnd(node, idx + keyword.length);
-            const mark = document.createElement('span');
-            mark.className = 'search-highlight';
+            const mark = createEl('span', 'search-highlight');
             mark.style.cssText = 'background:#b4efc8;padding:0 1px;border-radius:2px;';
             range.surroundContents(mark);
             matches.push(mark);
@@ -5830,12 +5353,12 @@ function bindSearchAndEmojiEvents() {
 
   const emojiList = ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚"];
   if($("emojiPanel")) {
-    $("emojiPanel").replaceChildren();
-    emojiList.forEach((e) => {
-      const span = document.createElement('span');
-      span.textContent = e;
-      span.addEventListener('click', () => window.insertEmoji(e));
-      $("emojiPanel").appendChild(span);
+    const panel = $("emojiPanel");
+    panel.replaceChildren();
+    emojiList.forEach((e) => panel.appendChild(createEl('span', '', e)));
+    panel.addEventListener('click', (e) => {
+      const span = e.target.closest('span');
+      if (span && span.textContent) window.insertEmoji(span.textContent);
     });
   }
 }
@@ -5858,18 +5381,22 @@ function tabLoad(key, loadFn) {
 function setMainTab(tab) {
   // Clear secondary navigation state when switching to a main tab
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
-  ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) { $(t+'Tab').classList.remove('active'); } });
-  if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
-  ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) { $(id).classList.add('hidden'); } });
+  const tabEl = $(tab+'Tab');
+  if (tabEl) {
+    const parent = tabEl.parentElement;
+    if (parent) parent.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
+    tabEl.classList.add('active');
+  }
+  hideTabViews();
 
-  if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
-  else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
-  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); tabLoad('mall', loadMall); }
-  else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; updateMyCartBadge(); }
-  if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
+  if (tab === 'messages') { showEl("chatListView"); setText("chatTitle", "微信"); tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
+  else if (tab === 'friends') { showEl("friendListView"); setText("chatTitle", "通讯录"); tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
+  else if (tab === 'mall') { showEl("mallView"); setText("chatTitle", "发现"); if (!state.userLocation) refreshUserLocation(); tabLoad('mall', loadMall); }
+  else if (tab === 'profile') { showEl("profileView"); setText("chatTitle", "我"); updateMyCartBadge(); }
+  toggleEl("homeMoreBtn", "hidden", tab !== 'messages');
   // sidebar avatar bar only visible inside chat conversation, hide on all tab views
-  if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
+  toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
+  hideEl("sidebarToggleBtn");
 }
 
 function renderGroupManageList() {
@@ -5878,79 +5405,45 @@ function renderGroupManageList() {
     state.currentUser.customGroups = cg;
     list.replaceChildren();
     cg.forEach((g, index) => {
-      const row = document.createElement('div');
-      row.className = 'chat-item';
-      row.style.justifyContent = 'space-between';
-      row.style.gap = '8px';
-      const left = document.createElement('div');
-      left.style.cssText = 'display:flex; align-items:center; gap:8px; min-width:0; flex:1;';
-      const name = document.createElement('span');
-      name.style.cssText = 'font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
-      name.textContent = g;
-      left.appendChild(name);
-      if (g === '我的好友') {
-        const tag = document.createElement('span');
-        tag.style.cssText = 'color:#b2b2b2; font-size:12px;';
-        tag.textContent = '全部好友';
-        left.appendChild(tag);
-      }
+      const row = createEl('div', 'chat-item group-manage-row');
+      const left = createEl('div', 'group-manage-left');
+      left.appendChild(createEl('span', 'group-manage-name', g));
+      if (g === DEFAULT_GROUP) left.appendChild(createEl('span', 'group-manage-tag', '全部好友'));
       row.appendChild(left);
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex; gap:6px; flex-shrink:0;';
-      const mkBtn = (text, color, handler) => {
-        const btn = document.createElement('button');
-        btn.textContent = text;
-        btn.style.cssText = `background:${color}; color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;`;
+      const actions = createEl('div', 'group-manage-actions');
+      const mkBtn = (text, colorCls, handler) => {
+        const btn = createEl('button', `group-manage-btn ${colorCls}`, text);
         btn.addEventListener('click', handler);
         return btn;
       };
-      if (g !== '我的好友') actions.appendChild(mkBtn('重命名', '#007aff', () => window.renameGroup(g)));
-      actions.appendChild(mkBtn('上移', '#8e8e93', () => window.moveGroupOrder(g, -1)));
-      actions.appendChild(mkBtn('下移', '#8e8e93', () => window.moveGroupOrder(g, 1)));
-      if (g !== '我的好友') actions.appendChild(mkBtn('删除', '#ff3b30', () => window.deleteGroup(g)));
+      if (g !== DEFAULT_GROUP) actions.appendChild(mkBtn('重命名', 'blue', () => window.renameGroup(g)));
+      actions.appendChild(mkBtn('上移', 'gray', () => window.moveGroupOrder(g, -1)));
+      actions.appendChild(mkBtn('下移', 'gray', () => window.moveGroupOrder(g, 1)));
+      if (g !== DEFAULT_GROUP) actions.appendChild(mkBtn('删除', 'red', () => window.deleteGroup(g)));
       row.appendChild(actions);
       list.appendChild(row);
     });
 }
 
-let _loadMyProductsPromise = null;
-async function loadMyProducts() {
-  if (_loadMyProductsPromise) return _loadMyProductsPromise;
-  _loadMyProductsPromise = _loadMyProductsImpl();
-  try { return await _loadMyProductsPromise; } finally { _loadMyProductsPromise = null; }
-}
-async function _loadMyProductsImpl() {
+const loadMyProducts = singleFlight(async function _loadMyProductsImpl() {
   try {
     const data = await api(`/api/users/${state.currentUser.id}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
     const list = $("myProductsList"); if(!list) return;
     const products = data.profile.products || [];
-    if(products.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;'; emptyDiv.textContent = '你还没有发布任何闲置商品'; list.replaceChildren(emptyDiv); return; }
+    if(products.length === 0) { showEmptyState(list, '你还没有发布任何闲置商品'); return; }
     list.replaceChildren();
     products.forEach((p) => {
-      const row = document.createElement('div');
-      row.className = 'chat-item';
-      row.style.alignItems = 'flex-start';
+      const row = createEl('div', 'chat-item my-product-row');
       const safeImage = normalizeMediaUrl(p.image);
       if (safeImage) {
-        const img = document.createElement('img');
+        const img = createEl('img', 'my-product-img');
         img.src = safeImage;
-        img.style.cssText = 'width:60px; height:60px; object-fit:cover; border-radius:6px; margin-right:12px;';
         row.appendChild(img);
       }
-      const info = document.createElement('div');
-      info.style.cssText = 'flex:1;text-align:left;';
-      const title = document.createElement('strong');
-      title.style.cssText = 'font-size:15px; margin-bottom:4px; display:block;';
-      title.textContent = p.title || '';
-      const price = document.createElement('div');
-      price.style.cssText = 'color:#ff3b30; font-weight:bold; font-size:14px;';
-      price.textContent = `¥${p.price}`;
-      info.appendChild(title);
-      info.appendChild(price);
+      const info = createEl('div', 'my-product-info');
+      info.append(createEl('strong', 'my-product-title', p.title || ''), createEl('div', 'my-product-price', `¥${p.price}`));
       row.appendChild(info);
-      const btn = document.createElement('button');
-      btn.textContent = '下架';
-      btn.style.cssText = 'background:#ff3b30; color:#fff; border:none; padding:6px 12px; border-radius:4px; font-size:12px; cursor:pointer;';
+      const btn = createEl('button', 'my-product-delist-btn', '下架');
       btn.addEventListener('click', () => window.deleteMyProduct(p.id));
       row.appendChild(btn);
       list.appendChild(row);
@@ -5959,13 +5452,10 @@ async function _loadMyProductsImpl() {
     console.warn('load my products failed', e);
     const list = $("myProductsList");
     if (list) {
-      const empty = document.createElement('div');
-      empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;';
-      empty.textContent = e?.message || '加载我的商品失败';
-      list.replaceChildren(empty);
+      showEmptyState(list, e?.message || '加载我的商品失败');
     }
   }
-}
+});
 
 function refreshUserLocation() {
   if (!navigator.geolocation) {
@@ -5990,13 +5480,7 @@ function refreshUserLocation() {
   );
 }
 
-let _loadMallPromise = null;
-async function loadMall() {
-  if (_loadMallPromise) return _loadMallPromise;
-  _loadMallPromise = _loadMallImpl();
-  try { return await _loadMallPromise; } finally { _loadMallPromise = null; }
-}
-async function _loadMallImpl() {
+const loadMall = singleFlight(async function _loadMallImpl() {
   try {
     let qs = 'userId=' + state.currentUser.id;
     if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
@@ -6005,51 +5489,51 @@ async function _loadMallImpl() {
     else qs += '&sort=nearby';
     const data = await api('/api/mall?' + qs);
     const products = data.items || data.products || [];
+    // Build product lookup for O(1) access by delegated click handlers
+    const prodMap = new Map();
+    for (const p of products) if (p.id) prodMap.set(String(p.id), p);
+    state.mallProductsById = prodMap;
     const list = $("mallList"); if (!list) return;
     const nextSignature = buildMallSignature(products);
-    const nextItemSignatures = {};
     let grid = list.querySelector('.mall-grid');
     if (products.length === 0) {
       state.mallListSignature = nextSignature;
       state.mallItemSignatures = {};
-      const empty = document.createElement('div');
-      empty.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;';
-      empty.textContent = state.mallTab === 'nearby' ? '附近暂无闲置商品，快去发布吧' : '暂无商品，快去发布吧';
-      list.replaceChildren(empty);
+      showEmptyState(list, state.mallTab === 'nearby' ? '附近暂无闲置商品，快去发布吧' : '暂无商品，快去发布吧');
       return;
     }
     if (nextSignature === state.mallListSignature && grid) return;
     if (!grid || list.children.length !== 1 || list.firstElementChild !== grid) {
-      grid = document.createElement('div');
-      grid.className = 'mall-grid';
+      grid = createEl('div', 'mall-grid');
       list.replaceChildren(grid);
     }
-    const existingCards = new Map(Array.from(grid.querySelectorAll('.product-card[data-product-id]')).map((node) => [node.dataset.productId, node]));
-    const orderedNodes = [];
-    products.forEach((product) => {
-      const id = String(product.id);
-      const sig = buildMallItemSignature(product);
-      nextItemSignatures[id] = sig;
-      const existing = existingCards.get(id);
-      let card = existing;
-      if (!existing) card = buildMallCard(product);
-      else if (state.mallItemSignatures[id] !== sig) card = patchMallCard(existing, product);
-      orderedNodes.push(card);
-      existingCards.delete(id);
+    if (grid.dataset.mallClickBound !== '1') {
+      grid.dataset.mallClickBound = '1';
+      grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.product-card[data-product-id]');
+        if (!card) return;
+        const product = state.mallProductsById?.get(card.dataset.productId);
+        if (product) openProductDetail(product, false);
+      });
+    }
+    state.mallItemSignatures = reconcileList(grid, products, {
+      selector: '.product-card[data-product-id]',
+      dataKey: 'productId',
+      keyFn: (p) => String(p.id),
+      sigFn: buildMallItemSignature,
+      buildFn: buildMallCard,
+      patchFn: patchMallCard,
+      sigStore: state.mallItemSignatures,
     });
-    const needsOrderUpdate = orderedNodes.length !== grid.childElementCount || orderedNodes.some((node, idx) => grid.children[idx] !== node);
-    if (needsOrderUpdate) grid.replaceChildren(...orderedNodes);
-    else existingCards.forEach((node) => node.remove());
     state.mallListSignature = nextSignature;
-    state.mallItemSignatures = nextItemSignatures;
-  } catch(e) { if($("mallList")) { const empty = document.createElement('div'); empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;'; empty.textContent = '加载失败'; $("mallList").replaceChildren(empty); } }
-}
+  } catch(e) { const _ml = $("mallList"); if (_ml) showEmptyState(_ml, '加载失败'); }
+});
 
 async function doMallSearchPage() {
   const keyword = ($('mallSearchPageInput')?.value || '').trim();
   const el = $("mallSearchPageResults");
   if (!el) return;
-  if (!keyword) { el.innerHTML = ''; return; }
+  if (!keyword) { el.replaceChildren(); return; }
   try {
     let qs = 'userId=' + state.currentUser.id + '&q=' + encodeURIComponent(keyword);
     if (state.userLocation) qs += '&lat=' + state.userLocation.lat + '&lng=' + state.userLocation.lng;
@@ -6057,29 +5541,23 @@ async function doMallSearchPage() {
     const data = await api('/api/mall?' + qs);
     const products = data.items || data.products || [];
     if (!products.length) {
-      el.innerHTML = '<div style="padding:24px; text-align:center; color:#999; font-size:14px;">未找到相关商品</div>';
+      showEmptyState(el, '未找到相关商品');
       return;
     }
-    const grid = document.createElement('div');
-    grid.className = 'mall-grid';
+    const grid = createEl('div', 'mall-grid');
     products.forEach(p => grid.appendChild(buildMallCard(p)));
     el.replaceChildren(grid);
   } catch (_) {
-    el.innerHTML = '<div style="padding:24px; text-align:center; color:#999;">搜索失败</div>';
+    showEmptyState(el, '搜索失败');
   }
 }
 
-let _loadFriendRequestsPromise = null;
-async function loadFriendRequests() {
-  if (_loadFriendRequestsPromise) return _loadFriendRequestsPromise;
-  _loadFriendRequestsPromise = _loadFriendRequestsImpl();
-  try { return await _loadFriendRequestsPromise; } finally { _loadFriendRequestsPromise = null; }
-}
-async function _loadFriendRequestsImpl() {
+const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl() {
   try {
     const data = await api(`/api/friends/requests?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.friendRequests = data.requests || [];
-    const pendingCount = state.friendRequests.filter(r => r.status === 'pending').length;
+    let pendingCount = 0;
+    for (let i = 0; i < state.friendRequests.length; i++) { if (state.friendRequests[i].status === 'pending') pendingCount++; }
     if($("friendsTabBadge")) {
       $("friendsTabBadge").classList.toggle("hidden", pendingCount === 0);
       $("friendsTabBadge").textContent = pendingCount > 99 ? '99+' : (pendingCount ? String(pendingCount) : '');
@@ -6090,54 +5568,36 @@ async function _loadFriendRequestsImpl() {
     }
     if($("requestsList")) {
       const container = $("requestsList");
+      bindRequestsListDelegation();
       container.replaceChildren();
       if (!state.friendRequests.length) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.textContent = '暂无新的朋友';
-        container.replaceChildren(empty);
+        showEmptyState(container, '暂无新的朋友');
         return;
       }
       state.friendRequests.forEach((r) => {
         const sender = r.sender || r.fromUser || {};
         const senderName = sender.displayName || sender.username || sender.id || '未知用户';
-        const row = document.createElement('div');
-        row.className = 'chat-item';
+        const row = createEl('div', 'chat-item');
         row.style.cursor = 'pointer';
-        const avatarWrap = document.createElement('div');
-        avatarWrap.className = 'avatar-click-wrap';
+        row.dataset.senderId = sender.id || '';
+        row.dataset.senderName = senderName;
+        const avatarWrap = createEl('div', 'avatar-click-wrap');
         setAvatarContainer(avatarWrap, sender, senderName);
         row.appendChild(avatarWrap);
-        const info = document.createElement('div');
-        info.style.cssText = 'flex:1;min-width:0;text-align:left;';
-        const strong = document.createElement('strong');
-        strong.textContent = senderName;
-        const preview = document.createElement('div');
-        preview.className = 'preview';
-        preview.textContent = r.greeting || '';
-        info.appendChild(strong);
-        info.appendChild(preview);
+        const info = createEl('div', 'friend-req-info');
+        info.append(createEl('strong', '', senderName), createEl('div', 'preview', r.greeting || ''));
         row.appendChild(info);
-        row.addEventListener('click', () => { if(sender.id) window.openUserProfile(sender.id, senderName); });
+        // Click handled via delegation on requestsList container
         if (r.status === 'pending') {
-          const actions = document.createElement('div');
-          actions.style.cssText = 'display:flex; gap:8px; margin-left:auto;';
-          const acceptBtn = document.createElement('button');
-          acceptBtn.className = 'primary-btn';
-          acceptBtn.style.cssText = 'min-height:36px; padding:0 14px; font-size:13px;';
-          acceptBtn.textContent = '同意';
-          acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); window.acceptRequest(r.id); });
-          const rejectBtn = document.createElement('button');
-          rejectBtn.className = 'secondary-btn';
-          rejectBtn.textContent = '拒绝';
-          rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); window.rejectRequest(r.id); });
-          actions.appendChild(rejectBtn);
-          actions.appendChild(acceptBtn);
+          const actions = createEl('div', 'friend-req-actions');
+          const acceptBtn = createEl('button', 'primary-btn friend-req-accept-btn', '同意');
+          acceptBtn.dataset.requestId = r.id;
+          const rejectBtn = createEl('button', 'secondary-btn', '拒绝');
+          rejectBtn.dataset.rejectId = r.id;
+          actions.append(rejectBtn, acceptBtn);
           row.appendChild(actions);
         } else {
-          const done = document.createElement('span');
-          done.style.cssText = 'color:#8e8e93; font-size:14px;';
-          done.textContent = r.status === 'rejected' ? '已拒绝' : '已处理';
+          const done = createEl('span', 'friend-req-done', r.status === 'rejected' ? '已拒绝' : '已处理');
           row.appendChild(done);
         }
         container.appendChild(row);
@@ -6146,26 +5606,17 @@ async function _loadFriendRequestsImpl() {
   } catch(e) {
     console.warn('load friend requests failed', e);
     if($("requestsList")) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = '加载失败，请重试';
-      $("requestsList").replaceChildren(empty);
+      showEmptyState($("requestsList"), '加载失败，请重试');
     }
   }
-}
+});
 
 function refreshFriendRequestState() {
   if (!state.currentUser || !state.currentUser.id) return Promise.resolve();
   return loadFriendRequests();
 }
 
-let _loadFriendsPromise = null;
-async function loadFriends() {
-  if (_loadFriendsPromise) return _loadFriendsPromise;
-  _loadFriendsPromise = _loadFriendsImpl();
-  try { return await _loadFriendsPromise; } finally { _loadFriendsPromise = null; }
-}
-async function _loadFriendsImpl() {
+const loadFriends = singleFlight(async function _loadFriendsImpl() {
   try {
     const keyword = $("friendSearchInput") ? $("friendSearchInput").value.trim().toLowerCase() : "";
     const data = await api(`/api/friends?userId=${encodeURIComponent(state.currentUser.id)}`);
@@ -6175,9 +5626,9 @@ async function _loadFriendsImpl() {
     state.friendsById = new Map();
     for (const f of data.friends) if (f.friend?.id) state.friendsById.set(f.friend.id, f);
     const grouped = new Map();
-    grouped.set('我的好友', filteredFriends.slice());
+    grouped.set(DEFAULT_GROUP, filteredFriends.slice());
     filteredFriends.forEach((f) => {
-      const groupName = f.group && f.group !== '我的好友' ? f.group : '';
+      const groupName = f.group && f.group !== DEFAULT_GROUP ? f.group : '';
       if (!groupName) return;
       if (!grouped.has(groupName)) grouped.set(groupName, []);
       grouped.get(groupName).push(f);
@@ -6187,26 +5638,19 @@ async function _loadFriendsImpl() {
     const nextSignature = buildFriendListSignature(customGroups, grouped);
     const container = $("friendList");
     if (!container) return;
-    const nextGroupSignatures = {};
+    bindFriendListDelegation();
     if (nextSignature === state.friendListSignature && container.childElementCount) return;
-    const existingGroups = new Map(Array.from(container.querySelectorAll(':scope > div[data-group-name]')).map((node) => [node.dataset.groupName, node]));
-    const orderedGroups = [];
-    customGroups.forEach((groupName) => {
-      const members = grouped.get(groupName) || [];
-      const groupSig = buildFriendGroupSignature(groupName, members);
-      nextGroupSignatures[groupName] = groupSig;
-      const existing = existingGroups.get(groupName);
-      let section = existing;
-      if (!existing) section = createFriendGroupSection(groupName, members);
-      else if (state.friendGroupSignatures[groupName] !== groupSig) section = patchFriendGroupSection(existing, groupName, members);
-      orderedGroups.push(section);
-      existingGroups.delete(groupName);
+    const groupItems = customGroups.map(name => ({ name, members: grouped.get(name) || [] }));
+    state.friendGroupSignatures = reconcileList(container, groupItems, {
+      selector: ':scope > div[data-group-name]',
+      dataKey: 'groupName',
+      keyFn: (g) => g.name,
+      sigFn: (g) => buildFriendGroupSignature(g.name, g.members),
+      buildFn: (g) => createFriendGroupSection(g.name, g.members),
+      patchFn: (node, g) => patchFriendGroupSection(node, g.name, g.members),
+      sigStore: state.friendGroupSignatures,
     });
-    const needsOrderUpdate = orderedGroups.length !== container.childElementCount || orderedGroups.some((node, idx) => container.children[idx] !== node);
-    if (needsOrderUpdate) container.replaceChildren(...orderedGroups);
-    else existingGroups.forEach((node) => node.remove());
     state.friendListSignature = nextSignature;
-    state.friendGroupSignatures = nextGroupSignatures;
     const nextFriendItemSignatures = {};
     customGroups.forEach((groupName) => {
       const members = grouped.get(groupName) || [];
@@ -6218,29 +5662,59 @@ async function _loadFriendsImpl() {
     console.warn('load friends failed', e);
     const container = $("friendList");
     if (container) {
-      const empty = document.createElement('div');
-      empty.className = 'chat-list-empty';
-      empty.textContent = e?.message || '加载联系人失败';
-      container.replaceChildren(empty);
+      showEmptyState(container, e?.message || '加载联系人失败', 'chat-list-empty');
     }
   }
-}
+});
 
 
 function applyLastOutgoingReadState(){
   refreshMessageReadReceipts();
 }
+function markConversationRead(convId) {
+  if (!convId || !state.currentUser) return;
+  api(`/api/conversations/${convId}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
+}
 
-let _messagesSig = '';
-function renderMessages(preserveScroll = false) {
+function bindChatViewDelegation(chatView) {
+  if (chatView.dataset.msgClickBound === '1') return;
+  chatView.dataset.msgClickBound = '1';
+  chatView.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    // Avatar click → open profile
+    const avatarWrap = target.closest('.avatar-click-wrap[data-sender-id]');
+    if (avatarWrap && target.closest('.avatar')) {
+      e.stopPropagation();
+      window.openUserProfile(avatarWrap.dataset.senderId, avatarWrap.dataset.senderName || '');
+      return;
+    }
+    // Image click → open viewer
+    const imgEl = target.closest('.chat-img-clickable');
+    if (imgEl) {
+      e.stopPropagation();
+      window.openImageViewer(imgEl.src);
+      return;
+    }
+    // Audio bubble click → play audio
+    const audioBubble = target.closest('.audio-bubble[data-audio-url]');
+    if (audioBubble) {
+      e.stopPropagation();
+      window.playAudio(audioBubble.dataset.audioUrl, audioBubble);
+      return;
+    }
+  });
+}
+const renderMessages = safeRender(function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
-  // Build lightweight signature: id|type|recalled for each message
+  bindChatViewDelegation(chatView);
+  // Build lightweight signature: id|type|createdAt per message — single string, no array alloc
   let sig = state.messages.length + ':';
   for (let i = 0; i < state.messages.length; i++) {
     const m = state.messages[i];
     sig += m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0) + ';';
   }
-  if (sig === _messagesSig && !preserveScroll) return;
+  if (!sigChanged('messages', sig) && !preserveScroll) return;
   _messagesSig = sig;
   const oldScrollHeight = chatView.scrollHeight;
   chatView.replaceChildren();
@@ -6254,7 +5728,7 @@ function renderMessages(preserveScroll = false) {
   chatView.appendChild(fragment);
   if (preserveScroll) { chatView.scrollTop = chatView.scrollHeight - oldScrollHeight; } else { setTimeout(() => chatView.scrollTo({ top: chatView.scrollHeight, behavior: 'smooth' }), 10); }
   refreshMessageReadReceipts();
-}
+});
 
 async function fetchMessages(before = 0) {
   if (state.isLoadingMessages || !state.activeConversation) return;
@@ -6273,7 +5747,19 @@ async function fetchMessages(before = 0) {
       applyLastOutgoingReadState();
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
-      state.messages.unshift(...data.messages);
+      const MAX_CLIENT_MESSAGES = 500;
+      // Prepend older messages; avoid double allocation from concat+slice
+      const newMsgs = data.messages;
+      const total = newMsgs.length + state.messages.length;
+      if (total > MAX_CLIENT_MESSAGES) {
+        // Keep only the most recent MAX_CLIENT_MESSAGES
+        const drop = total - MAX_CLIENT_MESSAGES;
+        state.messages = drop >= newMsgs.length
+          ? state.messages.slice(drop - newMsgs.length)
+          : newMsgs.slice(drop).concat(state.messages);
+      } else {
+        state.messages.unshift(...newMsgs);
+      }
       rebuildMessagesById();
       prependMessagesToView(data.messages, oldFirst);
     }
@@ -6284,10 +5770,17 @@ async function fetchMessages(before = 0) {
 }
 
 // WebRTC/calling functions moved to app_calling.js
+let _connectRealtimeInFlight = false;
+let _convUpdateTimer = null;
 async function connectRealtime() {
+  if (_connectRealtimeInFlight) return;
+  _connectRealtimeInFlight = true;
+  try {
   if (state.eventSource) {
     if (state._sseHandlers) { for (const [evt, fn] of state._sseHandlers) state.eventSource.removeEventListener(evt, fn); }
+    state._sseHandlers = [];
     state.eventSource.close();
+    state.eventSource = null;
   }
   let sseToken = '';
   try {
@@ -6302,6 +5795,7 @@ async function connectRealtime() {
     return;
   }
   state.eventSource = new EventSource(`/api/events?sse=${encodeURIComponent(sseToken)}`);
+  if (_convUpdateTimer) { clearTimeout(_convUpdateTimer); _convUpdateTimer = null; }
   state._sseHandlers = [];
   const _on = (evt, fn) => { state._sseHandlers.push([evt, fn]); state.eventSource.addEventListener(evt, fn); };
   _on('message_created', async (e) => { try {
@@ -6314,14 +5808,12 @@ async function connectRealtime() {
       else renderMessages(); // 'insert' in middle — full re-render needed
   applyLastOutgoingReadState();
       state.oldestMessageTime = state.messages[0]?.createdAt || 0;
-      syncActiveConversationListMeta();
-      scheduleRenderConversationList();
-      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
+      syncAndRenderConvList(true);
+      markConversationRead(state.activeConversation.id);
     } else if(state.activeConversation && state.activeConversation.id === data.conversationId) {
       await fetchMessages();
-      api(`/api/conversations/${state.activeConversation.id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
-      syncActiveConversationListMeta();
-      scheduleRenderConversationList();
+      markConversationRead(state.activeConversation.id);
+      syncAndRenderConvList(true);
     } else if (data.message) {
       applyIncomingConversationMeta(data.conversationId, data.message);
       scheduleRenderConversationList();
@@ -6335,8 +5827,7 @@ async function connectRealtime() {
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
       if (!applyRecalledMessageLocally(data.messageId, data.message?.senderId)) { fetchMessages(); }
-      syncActiveConversationListMeta();
-      scheduleRenderConversationList();
+      syncAndRenderConvList(true);
     } else if (data.message) {
       applyIncomingConversationMeta(data.conversationId, data.message);
       scheduleRenderConversationList();
@@ -6344,7 +5835,12 @@ async function connectRealtime() {
       loadConversations();
     }
   } catch (err) { console.warn('[sse] message_recalled handler error', err); } });
-  _on('conversation_updated', () => { loadConversations().catch(() => {}); scheduleTradeReminderRefresh(180); });
+  _on('conversation_updated', () => {
+    // Debounce rapid conversation_updated events to avoid hammering the API
+    if (_convUpdateTimer) clearTimeout(_convUpdateTimer);
+    _convUpdateTimer = setTimeout(() => { _convUpdateTimer = null; loadConversations().catch(() => {}); }, 150);
+    scheduleTradeReminderRefresh(180);
+  });
   _on('friends_updated', async () => { await loadFriends(); if (state.activeConversation) applyChatRelationshipState(); });
   _on('friend_request_updated', loadFriendRequests);
   _on('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
@@ -6354,9 +5850,9 @@ async function connectRealtime() {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
-      if($("chatSubtitle")) $("chatSubtitle").textContent = "对方正在输入...";
+      setText("chatSubtitle", "对方正在输入...");
       clearTimeout(state.typingTimer);
-      state.typingTimer = setTimeout(() => { applyChatRelationshipState(); }, 3000);
+      state.typingTimer = setTimeout(() => { applyChatRelationshipState(); }, DELAYS.TYPING_TIMEOUT);
     }
   });
 
@@ -6367,25 +5863,42 @@ async function connectRealtime() {
     if (!payload.mode) payload.mode = 'voice';
     if (signal.type === 'offer') {
       if (isIgnoredCallPayload(payload)) return;
-      if (hasActiveCallSession() && !isSameIncomingCall(payload)) { api(`/api/conversations/${payload.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null }) }).catch(() => {}); return; }
-      state.rtc.earlyCandidates = state.rtc.earlyCandidates || []; state.rtc.callId = payload.callId || state.rtc.callId || null; state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; state.rtc.pendingOffer = payload; setRtcPhase('incoming');
+      if (hasActiveCallSession() && !isSameIncomingCall(payload)) {
+        api(`/api/conversations/${payload.conversationId}/call`, {
+          method: 'POST',
+          body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: payload.senderId, event: 'reject', mode: payload.mode, reason: 'busy', callId: payload.callId || null })
+        }).catch(() => {});
+        return;
+      }
+      state.rtc.earlyCandidates = state.rtc.earlyCandidates || [];
+      state.rtc.callId = payload.callId || state.rtc.callId || null;
+      state.rtc.conversationId = payload.conversationId;
+      state.rtc.incomingMeta = {
+        senderId: payload.senderId,
+        senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null,
+        mode: payload.mode,
+        conversationId: payload.conversationId,
+        callId: payload.callId || state.rtc.callId || null
+      };
+      state.rtc.pendingOffer = payload;
+      setRtcPhase('incoming');
       
       let peerName = payload.senderName || payload.senderId;
-      const f = state.friendsById ? state.friendsById.get(payload.senderId) : state.friends.find(x=>x.friend.id === payload.senderId);
+      const f = findFriendEntry(payload.senderId);
       if(f) peerName = f.friend.remark || f.friend.displayName;
       
       if (shouldPresentIncomingUI(payload)) {
         updateCallUIInfo(payload.senderId, payload.mode, "邀请你进行通话...");
-        if($("callName")) $("callName").textContent = peerName;
-        if($("callPanel")) $("callPanel").classList.remove('hidden');
+        setText("callName", peerName);
+        showEl("callPanel");
         setCallActionLayout('incoming');
       }
       clearTimeout(outgoingTimeoutTimer);
       clearTimeout(incomingTimeoutTimer);
-      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, 30000);
+      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, DELAYS.INCOMING_CALL_TIMEOUT);
       if (state.activeConversation?.id !== payload.conversationId) window.openConversation(payload.conversationId, { skipFetch: true });
       syncCallConversationState(payload.conversationId, payload.senderId, payload.senderName || payload.senderId);
-      if($("chatSubtitle")) $("chatSubtitle").textContent = payload.mode === 'video' ? '收到视频来电' : '收到语音来电';
+      setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');
       if (state.rtc.pendingAccept && $("acceptCallBtn")) $("acceptCallBtn").click();
     } else if (signal.type === 'answer' && state.rtc.pc) {
       if (!isCurrentCallPayload(payload)) return;
@@ -6394,11 +5907,11 @@ async function connectRealtime() {
       await flushQueuedRemoteCandidates();
 
       let peerName = payload.senderName || state.rtc.peerId;
-      const f = state.friendsById ? state.friendsById.get(state.rtc.peerId) : state.friends.find(x=>x.friend.id === state.rtc.peerId);
+      const f = findFriendEntry(state.rtc.peerId);
       if(f) peerName = f.friend.remark || f.friend.displayName;
 
       markCallConnecting(state.rtc.peerId, state.rtc.mode, '对方已接听，建立连接中...');
-      if($("callName")) $("callName").textContent = peerName;
+      setText("callName", peerName);
     } else if (signal.type === 'candidate') {
       if (!isCurrentCallPayload(payload)) return;
       if (state.rtc.pc && state.rtc.pc.remoteDescription) { 
@@ -6422,20 +5935,38 @@ async function connectRealtime() {
       if (hasActiveCallSession() && !isSameIncomingCall(payload)) { autoBusyIncomingCall(payload); return; }
       state.rtc.callId = payload.callId || state.rtc.callId || null;
       state.rtc.peerId = payload.senderId || state.rtc.peerId || null;
-      state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; setRtcPhase('incoming');
+      state.rtc.conversationId = payload.conversationId;
+      state.rtc.incomingMeta = {
+        senderId: payload.senderId,
+        senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null,
+        mode: payload.mode,
+        conversationId: payload.conversationId,
+        callId: payload.callId || state.rtc.callId || null
+      };
+      setRtcPhase('incoming');
       if (shouldPresentIncomingUI(payload)) {
         updateCallUIInfo(payload.senderId, payload.mode, "收到来电");
-        if($("callPanel")) $("callPanel").classList.remove('hidden');
+        showEl("callPanel");
         setCallActionLayout('incoming');
       }
       clearTimeout(incomingTimeoutTimer);
-      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, 30000);
+      incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, DELAYS.INCOMING_CALL_TIMEOUT);
       if (state.activeConversation?.id !== payload.conversationId) window.openConversation(payload.conversationId, { skipFetch: true });
       syncCallConversationState(payload.conversationId, payload.senderId, payload.senderName || payload.senderId);
-      if($("chatSubtitle")) $("chatSubtitle").textContent = payload.mode === 'video' ? '收到视频来电' : '收到语音来电';
+      setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');
       return;
     }
-    if (payload.event === 'accept') { if (!isCurrentCallPayload(payload)) return; clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; syncCallConversationState(payload.conversationId || state.rtc.conversationId, state.rtc.peerId || payload.senderId, payload.senderName || ''); markCallConnecting(state.rtc.peerId || payload.senderId, payload.mode || state.rtc.mode, '对方已接听，建立连接中...'); if($("chatSubtitle")) $("chatSubtitle").textContent = '建立连接中…'; scheduleConnectTimeout(); return; }
+    if (payload.event === 'accept') {
+      if (!isCurrentCallPayload(payload)) return;
+      clearTimeout(outgoingTimeoutTimer);
+      clearTimeout(incomingTimeoutTimer);
+      state.rtc.callId = payload.callId || state.rtc.callId || null;
+      syncCallConversationState(payload.conversationId || state.rtc.conversationId, state.rtc.peerId || payload.senderId, payload.senderName || '');
+      markCallConnecting(state.rtc.peerId || payload.senderId, payload.mode || state.rtc.mode, '对方已接听，建立连接中...');
+      setText("chatSubtitle", '建立连接中…');
+      scheduleConnectTimeout();
+      return;
+    }
     if (payload.event === 'cancel' || payload.event === 'reject' || payload.event === 'end') { 
       if (!isCurrentCallPayload(payload)) return;
       if (payload.event === 'cancel') finalizeCall({ alertText: state.rtc.phase === 'incoming' ? '对方已取消通话' : '通话已取消' });
@@ -6477,6 +6008,7 @@ async function connectRealtime() {
     const delay = Math.min(1500 * Math.pow(2, state._sseRetryCount - 1), 30000);
     setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, delay);
   };
+  } finally { _connectRealtimeInFlight = false; }
 }
 
 window.addEventListener('pagehide', () => {
@@ -6499,19 +6031,33 @@ function updateMessagesTabBadge(totalUnread) {
 function sortConversationsInPlace() {
   if (!Array.isArray(state.conversations)) return;
   state.conversations.sort((a, b) => {
-    const aPinned = Number(isConversationPinned(a));
-    const bPinned = Number(isConversationPinned(b));
-    if (bPinned !== aPinned) return bPinned - aPinned;
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (bp !== ap) return bp - ap;
     return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
   });
 }
 /* ===== Sidebar Avatar Bar ===== */
 let _sidebarSignature = '';
-function renderSidebar() {
+let _sidebarDelegated = false;
+function ensureSidebarDelegation() {
+  if (_sidebarDelegated) return;
+  const list = $('sidebarList');
+  if (!list) return;
+  _sidebarDelegated = true;
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.sidebar-item');
+    if (!item) return;
+    const convId = item.dataset.convId;
+    if (convId) window.openConversation(convId);
+  });
+}
+const renderSidebar = safeRender(function renderSidebar() {
   const panel = $('sidebarPanel');
   const list = $('sidebarList');
   if (!panel || !list) return;
   if (state.sidebarMode === 'hidden') return;
+  ensureSidebarDelegation();
 
   const convs = (state.conversations || []).filter(c => !c.synthetic && !c.syntheticType);
   const visible = convs.filter(c => {
@@ -6526,18 +6072,16 @@ function renderSidebar() {
   _sidebarSignature = sig;
 
   const frag = document.createDocumentFragment();
-  visible.forEach(conv => {
-    const item = document.createElement('div');
-    item.className = 'sidebar-item';
-    if (state.activeConversation && state.activeConversation.id === conv.id) item.classList.add('is-active');
+  const expanded = state.sidebarMode === 'expanded';
+  const activeId = state.activeConversation?.id;
+  for (const conv of visible) {
+    const item = createEl('div', 'sidebar-item' + (activeId === conv.id ? ' is-active' : ''));
     item.dataset.convId = conv.id;
-    item.addEventListener('click', () => { window.openConversation(conv.id); });
 
-    const avatarWrap = document.createElement('div');
-    avatarWrap.className = 'sidebar-item-avatar';
+    const avatarWrap = createEl('div', 'sidebar-item-avatar');
     const safeAvatar = normalizeMediaUrl(conv.peerAvatarUrl);
     if (safeAvatar) {
-      const img = document.createElement('img');
+      const img = createEl('img');
       img.src = safeAvatar;
       img.alt = '';
       img.onerror = function() { this.remove(); avatarWrap.textContent = firstChar(conv.title); };
@@ -6546,34 +6090,20 @@ function renderSidebar() {
       avatarWrap.textContent = firstChar(conv.title);
     }
 
-    if (conv.unread && conv.unread > 0) {
-      const badge = document.createElement('span');
-      const isMuted = isConversationMuted(conv);
-      if (isMuted) {
-        badge.className = 'sidebar-badge-dot';
-      } else {
-        badge.className = 'sidebar-badge';
-        badge.textContent = conv.unread > 99 ? '99+' : String(conv.unread);
-      }
-      avatarWrap.appendChild(badge);
+    if (conv.unread > 0) {
+      const muted = isConversationMuted(conv);
+      avatarWrap.appendChild(createEl('span', muted ? 'sidebar-badge-dot' : 'sidebar-badge', muted ? null : (conv.unread > 99 ? '99+' : String(conv.unread))));
     }
     item.appendChild(avatarWrap);
 
-    if (state.sidebarMode === 'expanded') {
-      const name = document.createElement('div');
-      name.className = 'sidebar-item-name';
-      name.textContent = conv.title || '';
-      item.appendChild(name);
-      const preview = document.createElement('div');
-      preview.className = 'sidebar-item-preview';
-      preview.textContent = conv.preview || '';
-      item.appendChild(preview);
+    if (expanded) {
+      item.append(createEl('div', 'sidebar-item-name', conv.title || ''), createEl('div', 'sidebar-item-preview', conv.preview || ''));
     }
 
     frag.appendChild(item);
-  });
+  }
   list.replaceChildren(frag);
-}
+});
 
 function applySidebarMode() {
   const panel = $('sidebarPanel');
@@ -6605,12 +6135,24 @@ function cycleSidebarMode() {
   applySidebarMode();
 }
 
+function refreshConversations() {
+  sortConversationsInPlace();
+  renderConversationListFromState();
+  loadConversations();
+}
+
+function syncAndRenderConvList(scheduled) {
+  syncActiveConversationListMeta();
+  if (scheduled) scheduleRenderConversationList();
+  else renderConversationListFromState();
+}
+
 let _renderConvListTimer = null;
 function scheduleRenderConversationList() {
   if (_renderConvListTimer) return;
   _renderConvListTimer = requestAnimationFrame(() => { _renderConvListTimer = null; renderConversationListFromState(); });
 }
-function renderConversationListFromState() {
+const renderConversationListFromState = safeRender(function renderConversationListFromState() {
   bindConversationSwipeDismiss();
   let filteredConvs = state.conversations || [];
 
@@ -6655,11 +6197,9 @@ function renderConversationListFromState() {
   let totalUnread = 0;
   const visible = filteredConvs.filter((conv) => {
     const clearedAt = getConversationClearedAt(conv);
-    return !(clearedAt && (conv.lastMessageAt || 0) <= clearedAt && !(conv.unread > 0));
-  });
-  visible.forEach((conv) => {
-    const isMuted = isConversationMuted(conv);
-    if (conv.unread && !isMuted) totalUnread += conv.unread;
+    if (clearedAt && (conv.lastMessageAt || 0) <= clearedAt && !(conv.unread > 0)) return false;
+    if (conv.unread && !isConversationMuted(conv)) totalUnread += conv.unread;
+    return true;
   });
   if (tradeConv) visible.unshift(tradeConv);
   if (systemConv) visible.unshift(systemConv);
@@ -6673,99 +6213,84 @@ function renderConversationListFromState() {
   state.chatListSignature = nextSignature;
 
   if(container) {
-    const nextIds = new Set(visible.map((conv) => String(conv.id)));
-    const nextItemSignatures = {};
-    const existingRows = new Map(Array.from(container.querySelectorAll('[data-conversation-id]')).map((node) => [node.dataset.conversationId, node]));
-    const orderedNodes = [];
     if (visible.length === 0) {
       state.conversationItemSignatures = {};
       container.replaceChildren(createEmptyChatListNode());
     } else {
-      visible.forEach((conv) => {
-        const id = String(conv.id);
-        const itemSig = buildConversationItemSignature(conv);
-        nextItemSignatures[id] = itemSig;
-        const existing = existingRows.get(id);
-        let row = existing;
-        if (!existing) row = buildConversationRow(conv);
-        else if (state.conversationItemSignatures[id] !== itemSig) row = patchConversationRow(existing, conv);
-        orderedNodes.push(row);
-        existingRows.delete(id);
+      state.conversationItemSignatures = reconcileList(container, visible, {
+        selector: '[data-conversation-id]',
+        dataKey: 'conversationId',
+        keyFn: (conv) => String(conv.id),
+        sigFn: buildConversationItemSignature,
+        buildFn: buildConversationRow,
+        patchFn: patchConversationRow,
+        sigStore: state.conversationItemSignatures,
       });
-      const hasOnlyEmptyState = container.children.length === 1 && container.firstElementChild && container.firstElementChild.classList.contains('chat-list-empty');
-      const needsOrderUpdate = hasOnlyEmptyState || orderedNodes.length !== container.childElementCount || orderedNodes.some((node, idx) => container.children[idx] !== node);
-      if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
-      else existingRows.forEach((node, id) => { if (!nextIds.has(id)) node.remove(); });
-      state.conversationItemSignatures = nextItemSignatures;
     }
   }
   updateMessagesTabBadge(totalUnread);
   renderSidebar();
-}
+});
 
-let _loadSystemMessagesPromise = null;
-async function loadSystemMessages(){
+const loadSystemMessages = singleFlight(async function _loadSystemMessagesImpl(){
   if(!state.currentUser) return;
-  if (_loadSystemMessagesPromise) return _loadSystemMessagesPromise;
-  _loadSystemMessagesPromise = _loadSystemMessagesImpl();
-  try { return await _loadSystemMessagesPromise; } finally { _loadSystemMessagesPromise = null; }
-}
-async function _loadSystemMessagesImpl(){
   try{
     const data = await api('/api/system/messages');
     state.systemMessages = data.items || [];
-  }catch(_){
+  }catch(e){
+    console.warn('[loadSystemMessages]', e);
     state.systemMessages = [];
   }
   scheduleRenderConversationList();
-}
+});
 
 function renderSystemMessagesList(){
   const list = $("systemMessagesList");
   if(!list) return;
+  if (list.dataset.sysMsgBound !== '1') {
+    list.dataset.sysMsgBound = '1';
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('[data-sys-title]');
+      if (card) openBroadcastDetail(card.dataset.sysTitle, card.dataset.sysText);
+    });
+  }
   const msgs = state.systemMessages || [];
   if(!msgs.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '📢 暂无系统消息';
-    list.replaceChildren(empty);
+    showEmptyState(list, '📢 暂无系统消息', 'order-empty-state');
     return;
   }
   const frag = document.createDocumentFragment();
   msgs.forEach(msg => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = msg.title || '系统通知';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = msg.summary || msg.text || '';
-    const time = document.createElement('div');
-    time.className = 'order-card-time';
+    const title = msg.title || '系统通知';
+    const text = msg.summary || msg.text || '';
+    const card = buildProfileCard(title, text, 'button');
+    card.dataset.sysTitle = title;
+    card.dataset.sysText = text;
+    const time = createEl('div', 'order-card-time', msg.createdAt ? formatTime(msg.createdAt) : '');
     time.style.marginTop = '6px';
-    time.textContent = msg.createdAt ? formatTime(msg.createdAt) : '';
-    card.append(title, sub, time);
-    card.addEventListener('click', () => openBroadcastDetail(msg.title || '系统消息', msg.summary || msg.text || ''));
+    card.appendChild(time);
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
   state.systemMessagesReadAt = Date.now();
 }
 
-let _loadConversationsPromise = null;
-async function loadConversations() {
-  if (_loadConversationsPromise) return _loadConversationsPromise;
-  _loadConversationsPromise = _loadConversationsImpl();
-  try { return await _loadConversationsPromise; } finally { _loadConversationsPromise = null; }
-}
-async function _loadConversationsImpl() {
+const loadConversations = singleFlight(async function _loadConversationsImpl() {
   try {
     const data = await api(`/api/conversations?userId=${encodeURIComponent(state.currentUser.id)}`);
-    state.conversations = (data.conversations || []).map(normalizeConversation);
+    const convArr = data.conversations || [];
+    // Normalize in-place — avoid .map() allocation since normalizeConversation mutates
+    for (let ci = 0; ci < convArr.length; ci++) normalizeConversation(convArr[ci]);
+    state.conversations = convArr;
     state.conversationsById = new Map();
-    for (const c of state.conversations) state.conversationsById.set(c.id, c);
+    state.mutedConvIds = new Set();
+    state.pinnedConvIds = new Set();
+    const uid = state.currentUser?.id;
+    for (const c of convArr) {
+      state.conversationsById.set(c.id, c);
+      if (c.muted) state.mutedConvIds.add(c.id);
+      if (c.pinned) state.pinnedConvIds.add(c.id);
+    }
     if (state.activeConversation) {
       const next = state.conversationsById.get(state.activeConversation.id);
       if (next) Object.assign(state.activeConversation, {
@@ -6786,7 +6311,7 @@ async function _loadConversationsImpl() {
     renderConversationListFromState();
     refreshMessageReadReceipts();
   } catch(e) { console.error(e); }
-}
+});
 
 // ==========================================
 // ★ 4. 引擎强力发车 ★
@@ -6799,15 +6324,15 @@ async function bootstrap() {
     const user = session.user;
     state.sessionToken = session.token || null;
     state.csrfToken = session.csrfToken || null;
-    if (!user || !user.id || !state.sessionToken) { if($("authScreen")) $("authScreen").classList.remove("hidden"); return; }
+    if (!user || !user.id || !state.sessionToken) { showEl("authScreen"); return; }
 
     // Show app screen immediately with cached user data to avoid blank white page
     state.currentUser = user;
     nativeOnLogin(user.id);
     loadCartFromStorage();
     updateMyCartBadge();
-    if($("authScreen")) $("authScreen").classList.add("hidden");
-    if($("appScreen")) $("appScreen").classList.remove("hidden");
+    hideEl("authScreen");
+    showEl("appScreen");
 
     try {
       const _ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -6825,25 +6350,25 @@ async function bootstrap() {
         console.warn("账号已失效，需重新登录");
         localStorage.removeItem(SESSION_KEY);
         state.currentUser = null;
-        if($("appScreen")) $("appScreen").classList.add("hidden");
-        if($("authScreen")) $("authScreen").classList.remove("hidden");
+        hideEl("appScreen");
+        showEl("authScreen");
         return;
       }
       // Network error or timeout: stay on app screen with cached data
       console.warn("网络异常，使用缓存数据", e);
     }
     
-    if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName; 
-    if($("profileUsername")) $("profileUsername").textContent = `ID: ${state.currentUser.appNumberId}`; 
+    setText("profileDisplayName", state.currentUser.displayName); 
+    setText("profileUsername", `ID: ${state.currentUser.appNumberId}`); 
     setAvatarContainer($("myProfileAvatar"), state.currentUser, state.currentUser.displayName);
     
     connectRealtime().catch(() => {});
 
     ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) $(t+'Tab').classList.remove('active'); });
     if($('messagesTab')) $('messagesTab').classList.add('active');
-    ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-    if($("chatListView")) $("chatListView").classList.remove('hidden');
-    if($("chatTitle")) $("chatTitle").textContent = "微信"; 
+    hideTabViews();
+    showEl("chatListView");
+    setText("chatTitle", "微信"); 
     
     loadConversations().catch(() => {});
     loadSystemMessages().catch(() => {});

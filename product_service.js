@@ -1,6 +1,4 @@
-function normalizeText(value, maxLen) {
-  return String(value || '').trim().slice(0, maxLen);
-}
+const { normalizeText } = require('./order_utils');
 
 function isValidMediaUrl(value) {
   const url = String(value || '').trim();
@@ -57,14 +55,18 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
     listed: normalizeListed(body.listed, true),
     createdAt: Date.now(),
   });
-  // Auto-add new categories/specs to user presets
+  // Auto-add new categories/specs to user presets (Set-based O(1) dedup)
   if (!Array.isArray(authUser.categoryPresets)) authUser.categoryPresets = [];
   if (!Array.isArray(authUser.specPresets)) authUser.specPresets = [];
   if (category) {
+    const existingCats = new Set(authUser.categoryPresets);
     const parts = category.split(/[\/,、]/);
-    for (let i = 0; i < parts.length; i++) { const c = parts[i].trim(); if (c && !authUser.categoryPresets.includes(c)) authUser.categoryPresets.push(c); }
+    for (let i = 0; i < parts.length; i++) { const c = parts[i].trim(); if (c && !existingCats.has(c) && authUser.categoryPresets.length < 50) { authUser.categoryPresets.push(c); existingCats.add(c); } }
   }
-  specs.forEach(s => { if (s && !authUser.specPresets.includes(s)) authUser.specPresets.push(s); });
+  if (specs.length) {
+    const existingSpecs = new Set(authUser.specPresets);
+    for (let i = 0; i < specs.length; i++) { const s = specs[i]; if (s && !existingSpecs.has(s) && authUser.specPresets.length < 50) { authUser.specPresets.push(s); existingSpecs.add(s); } }
+  }
 
   rebuildMallIndex();
   schedulePersist('product_create', { userId: authUser.id });

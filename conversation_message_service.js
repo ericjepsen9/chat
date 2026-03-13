@@ -1,8 +1,5 @@
 const ALLOWED_MESSAGE_TYPES = new Set(['text', 'image', 'audio', 'card', 'order_card', 'broadcast_card', 'system']);
-
-function formatOrderSummary(items = []) {
-  return items.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
-}
+const { formatOrderSummary } = require('./order_utils');
 
 function buildOrderCardPayload(order, authUserId) {
   return {
@@ -21,16 +18,15 @@ function buildOrderCardPayload(order, authUserId) {
 }
 
 function listConversationMessages({ conv, authUser, searchParams, getVisibleMessagesSlice }) {
-  if (conv.members[0] !== authUser.id && conv.members[1] !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
-  const before = parseInt(searchParams.get('before') || '0', 10);
-  const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
+  if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
+  const before = Math.max(0, parseInt(searchParams.get('before') || '0', 10) || 0);
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '30', 10) || 30), 100);
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
-  const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
-  return {
-    ok: true,
-    status: 200,
-    payload: { ...result, peerLastReadAt: peerId ? (conv.lastRead?.[peerId] || 0) : 0 },
-  };
+  const members = conv.members || [];
+  const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
+  // Attach peerLastReadAt directly instead of spread-copying result
+  result.peerLastReadAt = peerId ? (conv.lastRead?.[peerId] || 0) : 0;
+  return { ok: true, status: 200, payload: result };
 }
 
 function createConversationMessage({
@@ -46,13 +42,14 @@ function createConversationMessage({
   schedulePersist,
   broadcastToConversation,
 }) {
-  if (conv.members[0] !== authUser.id && conv.members[1] !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  if (!Array.isArray(conv.members) || !conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
 
   if (!body.type || !ALLOWED_MESSAGE_TYPES.has(body.type)) {
     return { ok: false, status: 400, error: 'invalid_message_type' };
   }
 
   if (conv.type === 'direct') {
+    if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
     const peerUser = index.usersById.get(peerId);
     if (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
@@ -64,6 +61,7 @@ function createConversationMessage({
 
   if (body.type === 'order_card') {
     if (conv.type !== 'direct') return { ok: false, status: 400, error: 'order_card_only_for_direct_chat' };
+    if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const orderId = String(body.order?.id || '').trim();
     if (!orderId) return { ok: false, status: 400, error: 'invalid_order_card' };
     const order = index.ordersById.get(orderId);
@@ -79,10 +77,13 @@ function createConversationMessage({
   if (body.type === 'card' && body.card?.cardType === '收款码') {
     if (conv.type !== 'direct') return { ok: false, status: 400, error: 'payment_code_only_for_direct_chat' };
     const codes = authUser.paymentCodes || {};
-    const allowed = [codes.wechat, codes.alipay, codes.cloudpay].filter(Boolean);
-    if (!allowed.length) return { ok: false, status: 400, error: 'payment_code_not_configured' };
+    const allowedSet = new Set();
+    if (codes.wechat) allowedSet.add(codes.wechat);
+    if (codes.alipay) allowedSet.add(codes.alipay);
+    if (codes.cloudpay) allowedSet.add(codes.cloudpay);
+    if (!allowedSet.size) return { ok: false, status: 400, error: 'payment_code_not_configured' };
     const imageUrl = String(body.card.imageUrl || '').trim();
-    if (!allowed.includes(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
+    if (!imageUrl || !allowedSet.has(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
   }
 
   if (body.clientMessageId) {
@@ -90,15 +91,17 @@ function createConversationMessage({
     if (found) return { ok: true, status: 200, payload: { message: found, deduplicated: true } };
   }
 
+  const MAX_TEXT_LEN = 5000;
+  const MAX_URL_LEN = 1024;
   const now = Date.now();
   const msg = {
     id: uid('m'),
     conversationId,
     senderId: authUser.id,
     type: body.type,
-    text: body.text,
-    imageUrl: body.imageUrl,
-    audioUrl: body.audioUrl,
+    text: body.text ? String(body.text).slice(0, MAX_TEXT_LEN) : body.text,
+    imageUrl: body.imageUrl ? String(body.imageUrl).slice(0, MAX_URL_LEN) : body.imageUrl,
+    audioUrl: body.audioUrl ? String(body.audioUrl).slice(0, MAX_URL_LEN) : body.audioUrl,
     card: body.card,
     order: body.order,
     broadcast: body.broadcast,

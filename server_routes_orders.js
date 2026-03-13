@@ -1,5 +1,7 @@
 /* server_routes_orders.js — Order route handlers */
 
+const RE_ORDER_ACTION = /^\/api\/orders\/([^/]+)\/(accept|price|price-request|price-confirm|status|delete)$/;
+
 module.exports = function createOrderRoutes(ctx) {
   const {
     matchRoute, sendJson, sendResult,
@@ -18,13 +20,13 @@ module.exports = function createOrderRoutes(ctx) {
     if (matchRoute(pathname, '/api/orders') && method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
-      const data = queryOrders({ db, authUser, searchParams, isAdmin });
-      (data.orders || []).forEach(o => {
-        const buyer = index.usersById.get(o.buyerId);
-        const seller = index.usersById.get(o.sellerId);
-        o.buyerName = buyer?.displayName || buyer?.nickname || '';
-        o.sellerName = seller?.displayName || seller?.nickname || '';
-      });
+      const data = queryOrders({ db, authUser, searchParams, isAdmin, index });
+      const orders = data.orders;
+      for (let i = 0; i < orders.length; i++) {
+        const o = orders[i];
+        if (!o.buyerName) o.buyerName = index.usersById.get(o.buyerId)?.displayName || '';
+        if (!o.sellerName) o.sellerName = index.usersById.get(o.sellerId)?.displayName || '';
+      }
       return sendJson(res, 200, data);
     }
 
@@ -43,112 +45,27 @@ module.exports = function createOrderRoutes(ctx) {
         rebuildMallIndex,
         broadcastAll,
         ordersById: index.ordersById,
+        ordersByBuyer: index.ordersByBuyer,
+        ordersBySeller: index.ordersBySeller,
       });
       return sendResult(res, result);
     }
 
-    const orderAcceptMatch = pathname.match(/^\/api\/orders\/([^/]+)\/accept$/);
-    if (orderAcceptMatch && method === 'POST') {
+    // Single regex for all /api/orders/:id/:action POST routes (avoids 6 separate regex matches)
+    const orderActionMatch = method === 'POST' && pathname.match(RE_ORDER_ACTION);
+    if (orderActionMatch) {
+      const orderId = orderActionMatch[1];
+      const action = orderActionMatch[2];
       const context = await getAuthedBody(req, res);
       if (!context) return true;
-      const result = acceptOrder({
-        authUser: context.authUser,
-        orderId: orderAcceptMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderPriceMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price$/);
-    if (orderPriceMatch && method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return true;
-      const result = updateOrderPrice({
-        authUser: context.authUser,
-        orderId: orderPriceMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderPriceRequestMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-request$/);
-    if (orderPriceRequestMatch && method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return true;
-      const result = requestOrderPriceChange({
-        authUser: context.authUser,
-        orderId: orderPriceRequestMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderPriceConfirmMatch = pathname.match(/^\/api\/orders\/([^/]+)\/price-confirm$/);
-    if (orderPriceConfirmMatch && method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return true;
-      const result = confirmOrderPriceChange({
-        authUser: context.authUser,
-        orderId: orderPriceConfirmMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderStatusMatch = pathname.match(/^\/api\/orders\/([^/]+)\/status$/);
-    if (orderStatusMatch && method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return true;
-      const result = updateOrderStatus({
-        authUser: context.authUser,
-        orderId: orderStatusMatch[1],
-        body: context.body,
-        db,
-        usersById: index.usersById,
-        getOrCreateDirectConversation,
-        addTradeMessage,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
-      return sendResult(res, result);
-    }
-
-    const orderDeleteMatch = pathname.match(/^\/api\/orders\/([^/]+)\/delete$/);
-    if (orderDeleteMatch && method === 'POST') {
-      const context = await getAuthedBody(req, res);
-      if (!context) return true;
-      const result = deleteOrder({
-        authUser: context.authUser,
-        orderId: orderDeleteMatch[1],
-        db,
-        usersById: index.usersById,
-        schedulePersist,
-        ordersById: index.ordersById,
-      });
+      const args = { authUser: context.authUser, orderId, body: context.body, db, usersById: index.usersById, schedulePersist, ordersById: index.ordersById, getOrCreateDirectConversation, addTradeMessage };
+      let result;
+      if (action === 'accept') result = acceptOrder(args);
+      else if (action === 'price') result = updateOrderPrice(args);
+      else if (action === 'price-request') result = requestOrderPriceChange(args);
+      else if (action === 'price-confirm') result = confirmOrderPriceChange(args);
+      else if (action === 'status') result = updateOrderStatus(args);
+      else result = deleteOrder(args);
       return sendResult(res, result);
     }
 

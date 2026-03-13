@@ -1,5 +1,10 @@
 const fs = require('fs');
 
+const MAX_WAL_BYTES = 5 * 1024 * 1024;
+const PERSIST_DEBOUNCE_MS = 150;
+const ERROR_WINDOW_MS = 5 * 60 * 1000;
+const WAL_FLUSH_INTERVAL_MS = 50;
+
 function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null }) {
   let persistTimer = null;
   let persistInFlight = false;
@@ -11,6 +16,10 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     errorCount: 0,
     lastFlushAt: 0,
   };
+
+  // WAL write buffer: batch multiple appendWal calls into a single I/O
+  let walBuffer = '';
+  let walFlushTimer = null;
 
   function reportError(stage, error) {
     stats.errorCount += 1;
@@ -34,21 +43,34 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     });
   }
 
-  function appendWal(event, payload = {}) {
-    const line = JSON.stringify({ ts: Date.now(), event, payload });
+  function drainWalBuffer() {
+    if (!walBuffer) return;
+    const batch = walBuffer;
+    walBuffer = '';
+    walFlushTimer = null;
     runWalTask(async () => {
-      await fs.promises.appendFile(msgWalFile, `${line}\n`);
+      await fs.promises.appendFile(msgWalFile, batch);
     }, 'append_wal');
   }
 
+  function appendWal(event, payload = {}) {
+    const line = JSON.stringify({ ts: Date.now(), event, payload });
+    walBuffer += line + '\n';
+    if (!walFlushTimer) {
+      walFlushTimer = setTimeout(drainWalBuffer, WAL_FLUSH_INTERVAL_MS);
+    }
+  }
+
   async function appendWalGuaranteed(event, payload = {}) {
+    // Flush any buffered writes first, then write guaranteed entry immediately
+    drainWalBuffer();
     const line = JSON.stringify({ ts: Date.now(), event, payload });
     await runWalTask(async () => {
       await fs.promises.appendFile(msgWalFile, `${line}\n`);
     }, 'append_wal_guaranteed', { propagate: true });
   }
 
-  function truncateWalIfLarge(maxBytes = 5 * 1024 * 1024) {
+  function truncateWalIfLarge(maxBytes = MAX_WAL_BYTES) {
     runWalTask(async () => {
       const st = await fs.promises.stat(msgWalFile);
       if (st.size <= maxBytes) return;
@@ -86,7 +108,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
       let persistOk = false;
       try {
         if (sqliteStore) {
-          sqliteStore.persist(db);
+          sqliteStore.save(db);
         } else {
           await fs.promises.writeFile(dbFile, JSON.stringify(db));
         }
@@ -110,7 +132,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
     persistTimer = setTimeout(() => {
       persistTimer = null;
       flushPersist();
-    }, 150);
+    }, PERSIST_DEBOUNCE_MS);
   }
 
   async function schedulePersistCritical(reason = 'critical_update', payload = {}) {
@@ -124,6 +146,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
   }
 
   async function flushNow() {
+    drainWalBuffer();
     await walQueue.catch(() => {});
     await flushPersist();
     await walQueue.catch(() => {});
@@ -131,8 +154,11 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
 
   function getStats() {
     return {
-      ...stats,
-      hasRecentError: stats.lastErrorAt > 0 && (Date.now() - stats.lastErrorAt) < 300000,
+      lastErrorAt: stats.lastErrorAt,
+      lastErrorStage: stats.lastErrorStage,
+      errorCount: stats.errorCount,
+      lastFlushAt: stats.lastFlushAt,
+      hasRecentError: stats.lastErrorAt > 0 && (Date.now() - stats.lastErrorAt) < ERROR_WINDOW_MS,
       persistInFlight,
       persistDirty,
     };

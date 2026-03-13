@@ -15,7 +15,6 @@ module.exports = function createSocialRoutes(ctx) {
     rebuildFriendViewsIndex, rebuildConversationBaseIndex,
     rebuildBlacklistViewsIndex, rebuildRequestViewsIndex,
     rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
-    rebuildIndexes,
     normalizeSingleGroupName, normalizeUserCustomGroups,
     DEFAULT_GROUP,
     schedulePersist, broadcastToUser,
@@ -23,14 +22,52 @@ module.exports = function createSocialRoutes(ctx) {
 
   return async function handleSocialRoutes(pathname, method, req, res, searchParams) {
 
-    if (matchRoute(pathname, '/api/blacklist') && method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return true;
-      const blacklist = index.blacklistViewsByUser.get(authUser.id) || [];
-      return sendJson(res, 200, { users: blacklist });
+    // --- GET routes (3 routes) ---
+    if (method === 'GET') {
+      if (matchRoute(pathname, '/api/blacklist')) {
+        const authUser = getAuthedUser(req, res, { searchParams });
+        if (!authUser) return true;
+        const blacklist = index.blacklistViewsByUser.get(authUser.id) || [];
+        return sendJson(res, 200, { users: blacklist });
+      }
+
+      if (matchRoute(pathname, '/api/users/search')) {
+        const authUser = getAuthedUser(req, res, { searchParams });
+        if (!authUser) return true;
+        const keyword = String(searchParams.get('keyword') || '').trim();
+        if (!keyword) return sendJson(res, 400, { error: '请输入搜索内容' });
+        const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || findUserByPhone(keyword);
+        if (!target || target.id === authUser.id) return sendJson(res, 404, { error: '未找到该用户' });
+        return sendJson(res, 200, { user: sanitizePublicUser(target) });
+      }
+
+      if (matchRoute(pathname, '/api/friends/requests')) {
+        const authUser = getAuthedUser(req, res, { searchParams });
+        if (!authUser) return true;
+        const data = listFriendRequests({
+          authUser,
+          requestViewsByTarget: index.requestViewsByTarget,
+        });
+        return sendJson(res, 200, data);
+      }
+
+      if (matchRoute(pathname, '/api/friends')) {
+        const authUser = getAuthedUser(req, res, { searchParams });
+        if (!authUser) return true;
+        const data = listFriends({
+          authUser,
+          friendViewsByUser: index.friendViewsByUser,
+        });
+        return sendJson(res, 200, data);
+      }
+
+      return false;
     }
 
-    if (matchRoute(pathname, '/api/blacklist') && method === 'POST') {
+    // --- POST routes only below ---
+    if (method !== 'POST') return false;
+
+    if (matchRoute(pathname, '/api/blacklist')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = updateBlacklist({
@@ -44,17 +81,10 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/users/search') && method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return true;
-      const keyword = String(searchParams.get('keyword') || '').trim();
-      if (!keyword) return sendJson(res, 400, { error: '请输入搜索内容' });
-      const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || findUserByPhone(keyword);
-      if (!target || target.id === authUser.id) return sendJson(res, 404, { error: '未找到该用户' });
-      return sendJson(res, 200, { user: sanitizePublicUser(target) });
-    }
-
-    const handleFriendRequestCreate = (context) => {
+    // Both /api/friends/request and /api/friends POST create a friend request
+    if (matchRoute(pathname, '/api/friends/request') || matchRoute(pathname, '/api/friends')) {
+      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
+      if (!context) return true;
       const result = createFriendRequest({
         reqBody: context.body,
         authUser: context.authUser,
@@ -69,31 +99,9 @@ module.exports = function createSocialRoutes(ctx) {
         getOrCreateDirectConversation,
       });
       return sendResult(res, result);
-    };
-
-    if (matchRoute(pathname, '/api/friends/request') && method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return true;
-      return handleFriendRequestCreate(context);
     }
 
-    if (matchRoute(pathname, '/api/friends') && method === 'POST') {
-      const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
-      if (!context) return true;
-      return handleFriendRequestCreate(context);
-    }
-
-    if (matchRoute(pathname, '/api/friends/requests') && method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return true;
-      const data = listFriendRequests({
-        authUser,
-        requestViewsByTarget: index.requestViewsByTarget,
-      });
-      return sendJson(res, 200, data);
-    }
-
-    if (matchRoute(pathname, '/api/friends/accept') && method === 'POST') {
+    if (matchRoute(pathname, '/api/friends/accept')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = acceptFriendRequest({
@@ -110,7 +118,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/friends/reject') && method === 'POST') {
+    if (matchRoute(pathname, '/api/friends/reject')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = rejectFriendRequest({
@@ -125,7 +133,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/friends/remark') && method === 'POST') {
+    if (matchRoute(pathname, '/api/friends/remark')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = updateFriendRemark({
@@ -143,7 +151,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/groups/create') && method === 'POST') {
+    if (matchRoute(pathname, '/api/groups/create')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = createGroup({
@@ -160,7 +168,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/groups/rename') && method === 'POST') {
+    if (matchRoute(pathname, '/api/groups/rename')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = renameGroup({
@@ -179,7 +187,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/groups/reorder') && method === 'POST') {
+    if (matchRoute(pathname, '/api/groups/reorder')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = reorderGroup({
@@ -195,7 +203,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/groups/delete') && method === 'POST') {
+    if (matchRoute(pathname, '/api/groups/delete')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = deleteGroup({
@@ -213,7 +221,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/friends/group') && method === 'POST') {
+    if (matchRoute(pathname, '/api/friends/group')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = updateFriendGroup({
@@ -231,7 +239,7 @@ module.exports = function createSocialRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/friends/delete') && method === 'POST') {
+    if (matchRoute(pathname, '/api/friends/delete')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = deleteFriendRelation({
@@ -239,22 +247,11 @@ module.exports = function createSocialRoutes(ctx) {
         friendId: context.body.friendId,
         usersById: index.usersById,
         removeFriendshipPair,
-        rebuildIndexes,
         getDirectConversation,
         schedulePersist,
         broadcastToUser,
       });
       return sendResult(res, result);
-    }
-
-    if (matchRoute(pathname, '/api/friends') && method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return true;
-      const data = listFriends({
-        authUser,
-        friendViewsByUser: index.friendViewsByUser,
-      });
-      return sendJson(res, 200, data);
     }
 
     return false; // not handled

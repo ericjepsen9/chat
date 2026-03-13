@@ -1,6 +1,4 @@
-function normalizeText(value, maxLen) {
-  return String(value || '').trim().slice(0, maxLen);
-}
+const { normalizeText } = require('./order_utils');
 
 function normalizeAvatarUrl(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -55,7 +53,7 @@ function updateUserProfile({ authUser, body, normalizeUserCustomGroups, normaliz
 
   schedulePersist('user_update', { userId: authUser.id });
   broadcastToUser(authUser.id, 'profile_updated', {});
-  broadcastAll('mall_updated', {});
+  if (viewFieldsChanged) broadcastAll('mall_updated', {});
 
   return { ok: true, status: 200, payload: { user: sanitizePublicUser(authUser, { includePhone: true }) } };
 }

@@ -2,16 +2,30 @@
 
 /**
  * Search messages across all conversations for a user.
+ * Messages within each conversation are already sorted by createdAt ASC,
+ * so iterating newest-first and collecting into a flat array then sorting once.
  */
 function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }) {
+  const maxNeeded = offset + limit;
+  // Cap total scan to prevent unbounded work on large message stores
+  const SCAN_CAP = maxNeeded * 10;
   const results = [];
   const userConvs = index.convByUser.get(authUser.id) || [];
-  for (const conv of userConvs) {
+  let scanned = 0;
+  outer:
+  for (let c = 0; c < userConvs.length; c++) {
+    const conv = userConvs[c];
     const members = conv.members || [];
-    const peerId = members[0] === authUser.id ? members[1] : members[0];
-    const peer = peerId ? index.usersById.get(peerId) : null;
-    const peerName = peer ? (peer.displayName || peer.username) : (conv.title || '');
-    const peerAvatarUrl = peer ? peer.avatarUrl : '';
+    const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
+    let peerName, peerAvatarUrl;
+    if (peerId) {
+      const peer = index.usersById.get(peerId);
+      peerName = peer ? (peer.displayName || peer.username) : '';
+      peerAvatarUrl = peer ? peer.avatarUrl : '';
+    } else {
+      peerName = conv.title || '';
+      peerAvatarUrl = '';
+    }
     const msgs = index.messagesByConv.get(conv.id) || [];
     for (let i = msgs.length - 1; i >= 0; i--) {
       const msg = msgs[i];
@@ -23,35 +37,36 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
           text: msg.text, createdAt: msg.createdAt,
           peerName, peerAvatarUrl, peerId: peerId || '',
         });
+        if (++scanned >= SCAN_CAP) break outer;
       }
     }
   }
   results.sort((a, b) => b.createdAt - a.createdAt);
-  const paged = results.slice(offset, offset + limit);
-  return { results: paged, total: results.length, hasMore: offset + limit < results.length };
+  const paged = results.slice(offset, maxNeeded);
+  return { results: paged, total: results.length, hasMore: maxNeeded < results.length };
 }
 
 /**
  * Search messages within a specific conversation.
+ * Iterates newest-first; skips offset results, collects limit results,
+ * then counts remaining for total.
  */
 function searchMessagesInConversation({ conv, keyword, limit, offset, authUserId, index, isMessageVisibleToUser }) {
   const msgs = index.messagesByConv.get(conv.id) || [];
   const results = [];
-  const maxNeeded = offset + limit;
   let total = 0;
   for (let i = msgs.length - 1; i >= 0; i--) {
     const msg = msgs[i];
     if (msg.type !== 'text' || !msg.text) continue;
     if (!isMessageVisibleToUser(msg, conv, authUserId)) continue;
     if (msg.text.toLowerCase().includes(keyword)) {
-      total++;
-      if (results.length < maxNeeded) {
+      if (total >= offset && results.length < limit) {
         results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
       }
+      total++;
     }
   }
-  const paged = results.slice(offset, offset + limit);
-  return { results: paged, total, hasMore: offset + limit < total };
+  return { results, total, hasMore: offset + limit < total };
 }
 
 module.exports = { searchMessagesGlobal, searchMessagesInConversation };

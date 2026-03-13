@@ -78,8 +78,13 @@ function initSchema(db) {
   `);
 }
 
+const ALLOWED_TABLES = new Set(['users', 'friendships', 'friend_requests', 'conversations']);
+
 function getSnapshot(db) {
-  const readAll = (table) => db.prepare(`SELECT json FROM ${table}`).all().map((r) => JSON.parse(r.json));
+  const readAll = (table) => {
+    if (!ALLOWED_TABLES.has(table)) throw new Error(`invalid table: ${table}`);
+    return db.prepare(`SELECT json FROM ${table}`).all().map((r) => JSON.parse(r.json));
+  };
   const readMessages = () => db.prepare('SELECT json FROM messages ORDER BY created_at ASC').all().map((r) => JSON.parse(r.json));
   const readOrders = () => db.prepare('SELECT json FROM orders ORDER BY created_at DESC').all().map((r) => JSON.parse(r.json));
   const readProducts = () => db.prepare('SELECT json FROM products ORDER BY created_at ASC').all().map((r) => JSON.parse(r.json));
@@ -121,7 +126,7 @@ function saveSnapshot(db, snapshot) {
       ? snap.products
       : (snap.users || []).flatMap((u) => (Array.isArray(u.products) ? u.products.map((p) => ({ ...p, sellerId: u.id })) : []));
 
-    for (const p of prods) insProd.run(p.id, p.sellerId, p.createdAt || Date.now(), JSON.stringify(p));
+    for (const p of prods) { if (p.id) insProd.run(p.id, p.sellerId, p.createdAt || Date.now(), JSON.stringify(p)); }
 
     db.prepare('INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)').run('snapshot_updated_at', String(Date.now()));
   });

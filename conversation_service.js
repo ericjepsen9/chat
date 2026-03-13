@@ -1,4 +1,4 @@
-function createDirectConversation({ authUser, peerId, usersById, getDirectConversation, uid, db, rebuildIndexes, schedulePersist, broadcastToUser }) {
+function createDirectConversation({ authUser, peerId, usersById, getDirectConversation, uid, db, indexNewConversation, schedulePersist, broadcastToUser }) {
   if (!peerId || !usersById.has(peerId) || peerId === authUser.id) {
     return { ok: false, status: 400, error: 'invalid_member' };
   }
@@ -21,7 +21,7 @@ function createDirectConversation({ authUser, peerId, usersById, getDirectConver
     lastMessageAt: Date.now(),
   };
   db.conversations.push(conv);
-  rebuildIndexes();
+  indexNewConversation(conv);
   schedulePersist('conversation_create', { conversationId: conv.id });
   broadcastToUser(authUser.id, 'conversation_updated', {});
   broadcastToUser(peerId, 'conversation_updated', {});

@@ -1,5 +1,13 @@
 /* server_routes_chat.js — Conversation & message route handlers */
 
+const SEARCH_LIMITS = { GLOBAL_DEFAULT: 20, GLOBAL_MAX: 50, CONV_DEFAULT: 30, CONV_MAX: 100 };
+
+// Pre-compiled route regexes — avoid re-compilation on every request
+const RE_CONV_SEARCH = /(?:\/api)?\/conversations\/([^/]+)\/messages\/search$/;
+const RE_CONV_MSG = /(?:\/api)?\/conversations\/([^/]+)\/messages$/;
+const RE_CONV_MSG_ACTION = /(?:\/api)?\/conversations\/([^/]+)\/messages\/([^/]+)\/(delete|recall)$/;
+const RE_CONV_ACTION = /(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/;
+
 module.exports = function createChatRoutes(ctx) {
   const {
     matchRoute, sendJson, sendResult,
@@ -13,7 +21,7 @@ module.exports = function createChatRoutes(ctx) {
     getDirectConversation, areFriends, addToMapArray, uid,
     index, db,
     schedulePersist, broadcastToUser, broadcastToConversation,
-    rebuildIndexes,
+    indexNewConversation,
     canAccessConversation,
   } = ctx;
 
@@ -43,7 +51,7 @@ module.exports = function createChatRoutes(ctx) {
         getDirectConversation,
         uid,
         db,
-        rebuildIndexes,
+        indexNewConversation,
         schedulePersist,
         broadcastToUser,
       });
@@ -55,12 +63,12 @@ module.exports = function createChatRoutes(ctx) {
       if (!authUser) return true;
       const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
-      const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 50);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
+      const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.GLOBAL_DEFAULT), 10) || SEARCH_LIMITS.GLOBAL_DEFAULT), SEARCH_LIMITS.GLOBAL_MAX);
+      const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
       return sendJson(res, 200, searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }));
     }
 
-    const convSearchMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/search$/);
+    const convSearchMatch = pathname.match(RE_CONV_SEARCH);
     if (convSearchMatch && method === 'GET') {
       const conversationId = convSearchMatch[1];
       const conv = index.convById.get(conversationId);
@@ -70,12 +78,12 @@ module.exports = function createChatRoutes(ctx) {
       if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
       const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
-      const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
+      const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.CONV_DEFAULT), 10) || SEARCH_LIMITS.CONV_DEFAULT), SEARCH_LIMITS.CONV_MAX);
+      const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
       return sendJson(res, 200, searchMessagesInConversation({ conv, keyword, limit, offset, authUserId: authUser.id, index, isMessageVisibleToUser }));
     }
 
-    const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
+    const convMsgMatch = pathname.match(RE_CONV_MSG);
     if (convMsgMatch) {
       const conversationId = convMsgMatch[1];
       const conv = index.convById.get(conversationId);
@@ -114,7 +122,7 @@ module.exports = function createChatRoutes(ctx) {
       }
     }
 
-    const convMsgActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/([^/]+)\/(delete|recall)$/);
+    const convMsgActionMatch = pathname.match(RE_CONV_MSG_ACTION);
     if (convMsgActionMatch && method === 'POST') {
       const [_, conversationId, messageId, action] = convMsgActionMatch;
       const conv = index.convById.get(conversationId);
@@ -146,7 +154,7 @@ module.exports = function createChatRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    const convActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/);
+    const convActionMatch = pathname.match(RE_CONV_ACTION);
     if (convActionMatch && method === 'POST') {
       const conversationId = convActionMatch[1];
       const action = convActionMatch[2];

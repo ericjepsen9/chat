@@ -1,8 +1,13 @@
 function updateFriendRemark({ authUser, friendId, group, remark, friendshipByPair, rebuildFriendViewsIndex, rebuildConversationBaseIndex, schedulePersist, broadcastToUser, defaultGroup }) {
   const rel = friendshipByPair.get(`${authUser.id}:${friendId}`);
   if (!rel) return { ok: false, status: 404, error: 'not_found' };
-  if (group !== undefined) rel.group = group || defaultGroup;
-  if (remark !== undefined) rel.remark = String(remark || '').trim();
+  if (group !== undefined) {
+    const nextGroup = String(group || '').trim() || defaultGroup;
+    if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
+    if (!authUser.customGroups.includes(nextGroup)) return { ok: false, status: 400, error: 'invalid_group' };
+    rel.group = nextGroup;
+  }
+  if (remark !== undefined) rel.remark = String(remark || '').trim().slice(0, 40);
   rebuildFriendViewsIndex();
   rebuildConversationBaseIndex();
   schedulePersist('friend_remark', { userId: authUser.id, friendId: rel.friendId });
@@ -25,10 +30,10 @@ function updateFriendGroup({ authUser, friendId, groupRaw, friendshipByPair, nor
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
-function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipPair, rebuildIndexes, getDirectConversation, schedulePersist, broadcastToUser }) {
+function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipPair, getDirectConversation, schedulePersist, broadcastToUser }) {
+  if (!friendId || friendId === authUser.id) return { ok: false, status: 400, error: 'invalid_target' };
   if (!usersById.has(friendId)) return { ok: false, status: 404, error: 'not_found' };
   removeFriendshipPair(authUser.id, friendId);
-  rebuildIndexes();
   const conv = getDirectConversation(authUser.id, friendId);
   if (conv) conv.clearedAt[authUser.id] = Date.now();
   schedulePersist('friend_delete', { userId: authUser.id, friendId });
