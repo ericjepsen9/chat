@@ -61,11 +61,11 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   if (category) {
     const existingCats = new Set(authUser.categoryPresets);
     const parts = category.split(/[\/,、]/);
-    for (let i = 0; i < parts.length; i++) { const c = parts[i].trim(); if (c && !existingCats.has(c)) { authUser.categoryPresets.push(c); existingCats.add(c); } }
+    for (let i = 0; i < parts.length; i++) { const c = parts[i].trim(); if (c && !existingCats.has(c) && authUser.categoryPresets.length < 50) { authUser.categoryPresets.push(c); existingCats.add(c); } }
   }
   if (specs.length) {
     const existingSpecs = new Set(authUser.specPresets);
-    for (let i = 0; i < specs.length; i++) { const s = specs[i]; if (s && !existingSpecs.has(s)) { authUser.specPresets.push(s); existingSpecs.add(s); } }
+    for (let i = 0; i < specs.length; i++) { const s = specs[i]; if (s && !existingSpecs.has(s) && authUser.specPresets.length < 50) { authUser.specPresets.push(s); existingSpecs.add(s); } }
   }
 
   rebuildMallIndex();
