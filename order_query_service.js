@@ -9,8 +9,8 @@ function queryOrders({ db, authUser, searchParams, isAdmin, index }) {
 
   // Use indexed lookup when available, fall back to linear scan
   let candidates;
-  if (index && sellerId && !adminUser) {
-    // Filter by specific seller — use seller index, then check buyer match
+  if (index && sellerId) {
+    // Filter by specific seller — use seller index for both admin and normal users
     candidates = index.ordersBySeller.get(sellerId) || [];
   } else if (index && !sellerId && userId) {
     // Merge buyer + seller orders for this user via indexes (Set dedup by id)

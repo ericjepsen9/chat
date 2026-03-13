@@ -80,7 +80,7 @@ function createConversationMessage({
     const allowed = [codes.wechat, codes.alipay, codes.cloudpay].filter(Boolean);
     if (!allowed.length) return { ok: false, status: 400, error: 'payment_code_not_configured' };
     const imageUrl = String(body.card.imageUrl || '').trim();
-    if (!allowed.includes(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
+    if (!imageUrl || !allowed.includes(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
   }
 
   if (body.clientMessageId) {

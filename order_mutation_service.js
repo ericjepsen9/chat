@@ -1,5 +1,12 @@
 const { formatOrderSummary, findOrderById } = require('./order_utils');
 
+const MAX_ORDER_TOTAL = 10_000_000; // 1000万 upper bound for order totals
+
+function clampOrderTotal(value) {
+  const num = Number(value ?? 0);
+  return Number.isFinite(num) ? Math.max(0, Math.min(num, MAX_ORDER_TOTAL)) : 0;
+}
+
 function parseProductPrice(value) {
   const cleaned = String(value ?? '').replace(/[^\d.]/g, '');
   const num = Number(cleaned);
@@ -144,7 +151,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     stockUpdates.push({ sellerProduct, nextStock: currentStock - neededQty });
   }
 
-  const total = normalized.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const total = clampOrderTotal(normalized.reduce((sum, item) => sum + item.price * item.quantity, 0));
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
   const order = {
@@ -224,7 +231,7 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
 
-  order.total = Math.max(0, Number(body.total ?? 0));
+  order.total = clampOrderTotal(body.total);
   order.updatedAt = Date.now();
 
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
@@ -302,7 +309,7 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   }
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
-  const requestedTotal = Math.max(0, Number(body.total ?? 0));
+  const requestedTotal = clampOrderTotal(body.total);
   order.pendingPrice = requestedTotal;
   order.pendingPriceRequestedBy = authUser.id;
   order.updatedAt = Date.now();
@@ -332,7 +339,7 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   if (order.pendingPriceRequestedBy === authUser.id) return { ok: false, status: 409, error: 'cannot_confirm_own_request' };
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
-  const confirmedTotal = Math.max(0, Number(order.pendingPrice ?? 0));
+  const confirmedTotal = clampOrderTotal(order.pendingPrice);
   order.total = confirmedTotal;
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;
