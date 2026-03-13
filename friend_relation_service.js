@@ -31,6 +31,7 @@ function updateFriendGroup({ authUser, friendId, groupRaw, friendshipByPair, nor
 }
 
 function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipPair, getDirectConversation, schedulePersist, broadcastToUser }) {
+  if (!friendId || friendId === authUser.id) return { ok: false, status: 400, error: 'invalid_target' };
   if (!usersById.has(friendId)) return { ok: false, status: 404, error: 'not_found' };
   removeFriendshipPair(authUser.id, friendId);
   const conv = getDirectConversation(authUser.id, friendId);

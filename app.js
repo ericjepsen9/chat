@@ -2228,7 +2228,7 @@ function applyIncomingConversationMeta(conversationId, message) {
   if (!conv) return;
   conv.preview = summarizeMessagePreview(message);
   conv.lastMessageAt = message?.createdAt || Date.now();
-  const fromOther = message && message.senderId && message.senderId !== state.currentUser.id;
+  const fromOther = message && message.senderId && message.senderId !== state.currentUser?.id;
   if (state.activeConversation && state.activeConversation.id === conversationId) conv.unread = 0;
   else if (fromOther) conv.unread = (conv.unread || 0) + 1;
   sortConversationsInPlace();
