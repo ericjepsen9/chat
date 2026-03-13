@@ -1463,7 +1463,7 @@ function renderProfileOrders(){
       }));
     }
 
-    card.append(title, sub, status);
+    card.appendChild(status);
     if (actions.childElementCount) card.appendChild(actions);
     const detailRole = (state.currentUser?.id && state.currentUser.id === order.buyerId) ? 'buyer' : 'seller';
     card.addEventListener('click', () => openOrderDetail(order, detailRole));
@@ -2093,19 +2093,14 @@ function buildOrderCardMessage(msg){
     wrap.appendChild(cover);
   }
 
-  const title = document.createElement('div');
-  title.className = 'trade-card-title';
-  title.textContent = order.title || `订单 #${String(order.id || '').slice(-6) || '-'}`;
-  const sub = document.createElement('div');
-  sub.className = 'trade-card-sub';
-  sub.textContent = order.summary || '订单通知';
+  appendTradeCardHeader(wrap, order.title || `订单 #${String(order.id || '').slice(-6) || '-'}`, order.summary || '订单通知');
   const price = document.createElement('div');
   price.className = 'trade-card-price';
   price.textContent = formatMoney(order.total || 0);
   const status = document.createElement('div');
   status.className = 'trade-card-status' + (order.status === 'completed' ? ' done' : order.status === 'accepted' ? ' active' : '');
   status.textContent = formatOrderStatusLabel(order.status);
-  wrap.append(title, sub, price, status);
+  wrap.append(price, status);
 
   const openDetail = (e) => {
     if (e) e.stopPropagation();
@@ -2163,16 +2158,20 @@ function buildOrderCardMessage(msg){
   return wrap;
 }
 
+function appendTradeCardHeader(container, titleText, subText) {
+  const title = document.createElement('div');
+  title.className = 'trade-card-title';
+  title.textContent = titleText;
+  const sub = document.createElement('div');
+  sub.className = 'trade-card-sub';
+  sub.textContent = subText;
+  container.append(title, sub);
+}
+
 function buildBroadcastCardMessage(msg){
   const card = document.createElement('div');
   card.className = 'trade-card';
-  const title = document.createElement('div');
-  title.className = 'trade-card-title';
-  title.textContent = (msg.broadcast && msg.broadcast.title) || '图文通知';
-  const sub = document.createElement('div');
-  sub.className = 'trade-card-sub';
-  sub.textContent = (msg.broadcast && msg.broadcast.summary) || '点击查看详情';
-  card.append(title, sub);
+  appendTradeCardHeader(card, (msg.broadcast && msg.broadcast.title) || '图文通知', (msg.broadcast && msg.broadcast.summary) || '点击查看详情');
   if(msg.broadcast && msg.broadcast.cover){
     const img = document.createElement('img');
     img.className = 'trade-card-cover';
@@ -6297,7 +6296,7 @@ function renderSystemMessagesList(){
     time.className = 'order-card-time';
     time.style.marginTop = '6px';
     time.textContent = msg.createdAt ? formatTime(msg.createdAt) : '';
-    card.append(title, sub, time);
+    card.appendChild(time);
     card.addEventListener('click', () => openBroadcastDetail(msg.title || '系统消息', msg.summary || msg.text || ''));
     frag.appendChild(card);
   });
