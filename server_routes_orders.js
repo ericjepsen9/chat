@@ -18,7 +18,7 @@ module.exports = function createOrderRoutes(ctx) {
     if (matchRoute(pathname, '/api/orders') && method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
-      const data = queryOrders({ db, authUser, searchParams, isAdmin });
+      const data = queryOrders({ db, authUser, searchParams, isAdmin, index });
       (data.orders || []).forEach(o => {
         const buyer = index.usersById.get(o.buyerId);
         const seller = index.usersById.get(o.sellerId);
@@ -43,6 +43,8 @@ module.exports = function createOrderRoutes(ctx) {
         rebuildMallIndex,
         broadcastAll,
         ordersById: index.ordersById,
+        ordersByBuyer: index.ordersByBuyer,
+        ordersBySeller: index.ordersBySeller,
       });
       return sendResult(res, result);
     }

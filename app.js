@@ -10,6 +10,13 @@ const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', COMPLETED: 'com
 const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
 const DEFAULT_GROUP = '我的好友';
 
+// Safe render wrapper — prevents a single render error from crashing the entire page
+function safeRender(fn) {
+  return function (...args) {
+    try { return fn.apply(this, args); } catch (e) { console.error('[Render error in ' + fn.name + ']', e); }
+  };
+}
+
 const state = {
   currentUser: null, sessionToken: null, conversations: [], conversationsById: new Map(), activeConversation: null, messages: [], messagesById: new Map(),
   friends: [], friendsById: new Map(), friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
@@ -128,7 +135,8 @@ const loadBuyerOrders = singleFlight(async function _loadBuyerOrdersImpl(){
   try{
     const data = await api('/api/orders');
     state.buyerOrders = data.orders || [];
-  }catch(_){
+  }catch(e){
+    console.warn('[loadBuyerOrders]', e);
     state.buyerOrders = [];
   }
   rebuildOrdersById();
@@ -141,7 +149,8 @@ const loadSellerOrders = singleFlight(async function _loadSellerOrdersImpl(){
   try{
     const data = await api(`/api/orders?sellerId=${encodeURIComponent(state.currentUser.id)}`);
     state.sellerOrders = data.orders || [];
-  }catch(_){
+  }catch(e){
+    console.warn('[loadSellerOrders]', e);
     state.sellerOrders = [];
   }
   rebuildOrdersById();
@@ -201,14 +210,15 @@ const loadSellerProductsManage = singleFlight(async function _loadSellerProducts
     state.sellerProducts = Array.isArray(data.items) ? data.items : [];
     state.currentUser.products = [...state.sellerProducts];
     writeSession(state.currentUser);
-  } catch (_) {
+  } catch (e) {
+    console.warn('[loadSellerProductsManage]', e);
     syncSellerProducts();
   }
   // Load category presets for filter
   try {
     const presets = await api('/api/product-presets');
     state._sellerCategoryPresets = presets.categoryPresets || [];
-  } catch (_) {}
+  } catch (e) { console.warn('[loadProductPresets]', e); }
   populateSellerCategoryFilter();
   renderSellerProductsManage();
 });
@@ -382,8 +392,8 @@ function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
   rows.forEach(order => frag.appendChild(buildOrderCard(order, role)));
   list.replaceChildren(frag);
 }
-function renderBuyerOrdersManage() { renderOrdersManage('buyer', 'buyerOrdersManageList', 'buyerOrders', '🧾 暂无购买订单'); }
-function renderSellerOrdersManage() { renderOrdersManage('seller', 'sellerOrdersList', 'sellerOrders', '📋 暂无卖家订单'); }
+const renderBuyerOrdersManage = safeRender(function renderBuyerOrdersManage() { renderOrdersManage('buyer', 'buyerOrdersManageList', 'buyerOrders', '🧾 暂无购买订单'); });
+const renderSellerOrdersManage = safeRender(function renderSellerOrdersManage() { renderOrdersManage('seller', 'sellerOrdersList', 'sellerOrders', '📋 暂无卖家订单'); });
 
 
 function updateSellerProductsFilterUI(){
@@ -452,7 +462,7 @@ function getFilteredSellerProducts(){
   return visible;
 }
 
-function renderSellerProductsManage(){
+const renderSellerProductsManage = safeRender(function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
   populateSellerCategoryFilter();
@@ -503,7 +513,7 @@ function renderSellerProductsManage(){
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
-}
+});
 
 
 function openProductDetail(item, fromSeller = false){
@@ -778,7 +788,7 @@ function adjustProfileStoreItemQuantity(item, delta){
   renderProfileStore();
 }
 
-function renderProfileStore(){
+const renderProfileStore = safeRender(function renderProfileStore(){
   const list = $("profileStoreList");
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
@@ -894,7 +904,7 @@ function renderProfileStore(){
   });
   list.replaceChildren(frag);
   updateProfileCartBar();
-}
+});
 
 function openProductSpecSheet(item, mode = 'cart'){
   if(!item) return;
@@ -2028,7 +2038,7 @@ async function openChatOrderDetail(order){
   let fullOrder = state.ordersById?.get(order.id);
   if(!fullOrder){
     // Reload orders and try again
-    try{ await Promise.all([loadBuyerOrders(), loadSellerOrders()]); }catch(_){}
+    try{ await Promise.all([loadBuyerOrders(), loadSellerOrders()]); }catch(e){ console.warn('[loadOrders]', e); }
     fullOrder = state.ordersById?.get(order.id) || order;
   }
   const currentUserId = state.currentUser?.id || '';
@@ -5521,7 +5531,7 @@ function markConversationRead(convId) {
   api(`/api/conversations/${convId}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }) }).catch(() => {});
 }
 
-function renderMessages(preserveScroll = false) {
+const renderMessages = safeRender(function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
   // Build lightweight signature: id|type|recalled for each message
   const sigParts = new Array(state.messages.length + 1);
@@ -5545,7 +5555,7 @@ function renderMessages(preserveScroll = false) {
   chatView.appendChild(fragment);
   if (preserveScroll) { chatView.scrollTop = chatView.scrollHeight - oldScrollHeight; } else { setTimeout(() => chatView.scrollTo({ top: chatView.scrollHeight, behavior: 'smooth' }), 10); }
   refreshMessageReadReceipts();
-}
+});
 
 async function fetchMessages(before = 0) {
   if (state.isLoadingMessages || !state.activeConversation) return;
@@ -5850,7 +5860,7 @@ function ensureSidebarDelegation() {
     if (convId) window.openConversation(convId);
   });
 }
-function renderSidebar() {
+const renderSidebar = safeRender(function renderSidebar() {
   const panel = $('sidebarPanel');
   const list = $('sidebarList');
   if (!panel || !list) return;
@@ -5901,7 +5911,7 @@ function renderSidebar() {
     frag.appendChild(item);
   }
   list.replaceChildren(frag);
-}
+});
 
 function applySidebarMode() {
   const panel = $('sidebarPanel');
@@ -5950,7 +5960,7 @@ function scheduleRenderConversationList() {
   if (_renderConvListTimer) return;
   _renderConvListTimer = requestAnimationFrame(() => { _renderConvListTimer = null; renderConversationListFromState(); });
 }
-function renderConversationListFromState() {
+const renderConversationListFromState = safeRender(function renderConversationListFromState() {
   bindConversationSwipeDismiss();
   let filteredConvs = state.conversations || [];
 
@@ -6028,14 +6038,15 @@ function renderConversationListFromState() {
   }
   updateMessagesTabBadge(totalUnread);
   renderSidebar();
-}
+});
 
 const loadSystemMessages = singleFlight(async function _loadSystemMessagesImpl(){
   if(!state.currentUser) return;
   try{
     const data = await api('/api/system/messages');
     state.systemMessages = data.items || [];
-  }catch(_){
+  }catch(e){
+    console.warn('[loadSystemMessages]', e);
     state.systemMessages = [];
   }
   scheduleRenderConversationList();

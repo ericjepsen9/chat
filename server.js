@@ -196,6 +196,8 @@ const index = {
   requestViewsByTarget: new Map(),
   blacklistViewsByUser: new Map(),
   messageByClientKey: new Map(),
+  ordersByBuyer: new Map(),
+  ordersBySeller: new Map(),
   mallItems: [],
 };
 
@@ -208,7 +210,7 @@ const {
   rebuildIndexes, indexNewUser, indexNewConversation,
   rebuildFriendshipIndexes, rebuildFriendRequestMaps,
   rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
-  rebuildMessageIndexes,
+  rebuildMessageIndexes, trimMessageIndexes,
 } = createIndexManager({ db, index, normalizeUserRole, normalizePhone, generateUniqueAppNumberId });
 
 
@@ -918,6 +920,9 @@ function cleanupExpiredMessages() {
 }
 setInterval(cleanupExpiredMessages, CLEANUP_INTERVAL_MS).unref();
 setTimeout(cleanupExpiredMessages, CLEANUP_STARTUP_DELAY_MS); // run once shortly after startup
+
+// Periodically trim per-conversation message indexes to cap memory usage
+setInterval(trimMessageIndexes, 10 * 60 * 1000).unref();
 
 process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });

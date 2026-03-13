@@ -74,7 +74,13 @@ function buildOrderCardPayload(order, extras = {}) {
   };
 }
 
-function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll, ordersById }) {
+function addToMapArray(map, key, value) {
+  if (!map) return;
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(value);
+}
+
+function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll, ordersById, ordersByBuyer, ordersBySeller }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
   if (seller.id === authUser.id) return { ok: false, status: 400, error: 'cannot_buy_own_product' };
@@ -161,6 +167,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   });
   db.orders.unshift(order);
   if (ordersById) ordersById.set(order.id, order);
+  if (order.buyerId) addToMapArray(ordersByBuyer, order.buyerId, order);
+  if (order.sellerId) addToMapArray(ordersBySeller, order.sellerId, order);
 
   const conv = getOrCreateDirectConversation(authUser.id, seller.id);
   addTradeMessage(conv.id, {
@@ -266,6 +274,8 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
 }
 
 
+const PRICE_REQUEST_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between price change requests per order
+
 function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
   const order = findOrderById(orderId, { ordersById, db });
   if (!order) return { ok: false, status: 404, error: 'not_found' };
@@ -275,12 +285,17 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
   if (order.priceAdjustmentLocked) return { ok: false, status: 409, error: 'price_adjustment_locked' };
   if (order.pendingPriceRequestedBy) return { ok: false, status: 409, error: 'pending_price_request_exists' };
+  // Rate limit: prevent spamming price change requests
+  if (order._lastPriceRequestAt && (Date.now() - order._lastPriceRequestAt) < PRICE_REQUEST_COOLDOWN_MS) {
+    return { ok: false, status: 429, error: 'price_request_too_frequent' };
+  }
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
   const requestedTotal = Math.max(0, Number(body.total ?? 0));
   order.pendingPrice = requestedTotal;
   order.pendingPriceRequestedBy = authUser.id;
   order.updatedAt = Date.now();
+  order._lastPriceRequestAt = Date.now();
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
   addTradeMessage(conv.id, {
     senderId: authUser.id,

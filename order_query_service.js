@@ -1,4 +1,4 @@
-function queryOrders({ db, authUser, searchParams, isAdmin }) {
+function queryOrders({ db, authUser, searchParams, isAdmin, index }) {
   const sellerId = String(searchParams.get('sellerId') || '');
   const requestedUserId = String(searchParams.get('userId') || '').trim();
   const adminUser = isAdmin(authUser);
@@ -7,14 +7,32 @@ function queryOrders({ db, authUser, searchParams, isAdmin }) {
   const limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 50, 1), 200);
   const offset = Math.max(parseInt(searchParams.get('offset')) || 0, 0);
 
-  // Single-pass: collect matching orders into a pre-sorted result
-  // Orders are stored newest-first (unshift on create), so iterate in order
-  const orders = db.orders || [];
+  // Use indexed lookup when available, fall back to linear scan
+  let candidates;
+  if (index && sellerId && !adminUser) {
+    // Filter by specific seller — use seller index, then check buyer match
+    candidates = index.ordersBySeller.get(sellerId) || [];
+  } else if (index && !sellerId && userId) {
+    // Merge buyer + seller orders for this user via indexes (Set dedup by id)
+    const buyerOrders = index.ordersByBuyer.get(userId) || [];
+    const sellerOrders = index.ordersBySeller.get(userId) || [];
+    if (!buyerOrders.length) candidates = sellerOrders;
+    else if (!sellerOrders.length) candidates = buyerOrders;
+    else {
+      const seen = new Set();
+      candidates = [];
+      for (const o of buyerOrders) { seen.add(o.id); candidates.push(o); }
+      for (const o of sellerOrders) { if (!seen.has(o.id)) candidates.push(o); }
+    }
+  } else {
+    candidates = db.orders || [];
+  }
+
   const matched = [];
   let total = 0;
   const end = offset + limit;
-  for (let i = 0; i < orders.length; i++) {
-    const o = orders[i];
+  for (let i = 0; i < candidates.length; i++) {
+    const o = candidates[i];
     const deletedBy = Array.isArray(o.deletedBy) ? o.deletedBy : [];
     if (!adminUser && deletedBy.includes(authUser.id)) continue;
     if (adminUser && userId && deletedBy.includes(userId)) continue;

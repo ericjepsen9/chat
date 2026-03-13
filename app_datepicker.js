@@ -75,9 +75,16 @@ function dpRebuildDays() {
   dpBuildItems(_dp.cols.day, days, _dp.selected.day);
 }
 
+// Store scroll handler references for cleanup
+const _dpScrollHandlers = {};
+
 function dpSetupScroll(col, key, items, onChange) {
+  // Remove previous handler if exists
+  if (_dpScrollHandlers[key]) {
+    col.removeEventListener('scroll', _dpScrollHandlers[key]);
+  }
   let timer = null;
-  col.addEventListener('scroll', () => {
+  const handler = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const val = dpHighlight(col, items());
@@ -86,7 +93,9 @@ function dpSetupScroll(col, key, items, onChange) {
         if (onChange) onChange();
       }
     }, 80);
-  }, { passive: true });
+  };
+  _dpScrollHandlers[key] = handler;
+  col.addEventListener('scroll', handler, { passive: true });
 }
 
 function openDatePicker(role, which, currentVal) {
@@ -131,18 +140,14 @@ function openDatePicker(role, which, currentVal) {
   dpBuildItems(_dp.cols.hour, hours, _dp.selected.hour);
   dpBuildItems(_dp.cols.minute, minutes, _dp.selected.minute);
 
-  // Re-attach scroll listeners (remove old by cloning)
+  // Re-attach scroll listeners (reuse elements, no cloning)
   ['year', 'month', 'day', 'hour', 'minute'].forEach(key => {
-    const oldCol = _dp.cols[key];
-    const newCol = oldCol.cloneNode(true);
-    oldCol.parentNode.replaceChild(newCol, oldCol);
-    _dp.cols[key] = newCol;
+    const col = _dp.cols[key];
     const getItems = () => _dp.ranges[key];
     const onChange = (key === 'year' || key === 'month') ? dpRebuildDays : null;
-    dpSetupScroll(newCol, key, getItems, onChange);
-    // Re-scroll after clone
+    dpSetupScroll(col, key, getItems, onChange);
     const idx = _dp.ranges[key].findIndex(i => i.value === _dp.selected[key]);
-    if (idx >= 0) newCol.scrollTop = idx * 44;
+    if (idx >= 0) col.scrollTop = idx * 44;
   });
 
   _dp.overlay.classList.remove('hidden');

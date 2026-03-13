@@ -228,6 +228,8 @@ function rebuildIndexes() {
     index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
   }
+  index.ordersByBuyer.clear();
+  index.ordersBySeller.clear();
   for (const order of db.orders || []) {
     if (!Array.isArray(order.items)) order.items = [];
     if (!order.status) order.status = 'accepted';
@@ -236,6 +238,8 @@ function rebuildIndexes() {
     if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
     if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
     index.ordersById.set(order.id, order);
+    if (order.buyerId) addToMapArray(index.ordersByBuyer, order.buyerId, order);
+    if (order.sellerId) addToMapArray(index.ordersBySeller, order.sellerId, order);
   }
 
   for (const rel of db.friendships) {
@@ -328,6 +332,22 @@ function rebuildMessageIndexes() {
   }
 }
 
+// Trim per-conversation message arrays that exceed the cap, removing oldest entries from indexes
+const MAX_MESSAGES_PER_CONV = 2000;
+function trimMessageIndexes() {
+  for (const [convId, msgs] of index.messagesByConv.entries()) {
+    if (msgs.length <= MAX_MESSAGES_PER_CONV) continue;
+    const overflow = msgs.length - MAX_MESSAGES_PER_CONV;
+    const removed = msgs.splice(0, overflow);
+    for (const msg of removed) {
+      index.messagesById.delete(msg.id);
+      if (msg.clientMessageId && msg.senderId) {
+        index.messageByClientKey.delete(`${convId}:${msg.senderId}:${msg.clientMessageId}`);
+      }
+    }
+  }
+}
+
   return {
     addToMapArray, DEFAULT_GROUP, MAX_GROUPS, MAX_GROUP_NAME_LEN,
     normalizeUserCustomGroups, normalizeSingleGroupName,
@@ -336,6 +356,6 @@ function rebuildMessageIndexes() {
     rebuildIndexes, indexNewUser, indexNewConversation,
     rebuildFriendshipIndexes, rebuildFriendRequestMaps,
     rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
-    rebuildMessageIndexes,
+    rebuildMessageIndexes, trimMessageIndexes,
   };
 };
