@@ -19,6 +19,7 @@ const state = {
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 const CATEGORY_SPLIT_RE = /[\/,、]/;
 const formatOrderId = (id) => String(id || '').slice(-6);
+const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
 
 const isFriendUser = (userId) => !!(userId && (state.friendsById ? state.friendsById.has(userId) : (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId)));
 
@@ -202,7 +203,7 @@ const loadSellerProductsManage = singleFlight(async function _loadSellerProducts
 
 
 function orderMatchesFilters(order, role = 'buyer'){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const keyword = String(state[`${prefix}OrderSearch`] || '').trim().toLowerCase();
   const fromVal = state[`${prefix}OrderFrom`] || '';
   const toVal = state[`${prefix}OrderTo`] || '';
@@ -224,7 +225,7 @@ function orderMatchesFilters(order, role = 'buyer'){
 }
 
 function syncOrderFilterInputs(role = 'buyer'){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const searchEl = $(`${prefix}OrdersSearchInput`);
   const fromEl = $(`${prefix}OrdersFromInput`);
   const toEl = $(`${prefix}OrdersToInput`);
@@ -236,7 +237,7 @@ function syncOrderFilterInputs(role = 'buyer'){
 }
 
 function updateOrderPresetUI(role = 'buyer'){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const root = $(`${prefix}OrdersRangePresets`);
   if (!root) return;
   const fromVal = state[`${prefix}OrderFrom`] || '';
@@ -256,7 +257,7 @@ function updateOrderPresetUI(role = 'buyer'){
 }
 
 function applyOrderQuickRange(role = 'buyer', days = 0){
-  const prefix = role === 'seller' ? 'seller' : 'buyer';
+  const prefix = orderPrefix(role);
   const now = new Date();
   const from = new Date(now.getTime() - Math.max(1, days) * 24 * 60 * 60 * 1000);
   const fmt = (d) => {
@@ -305,42 +306,23 @@ async function doCompleteOrder(orderId) {
 }
 
 function buildOrderCard(order, role){
-  const card = document.createElement('button');
+  const card = createEl('button', 'profile-order-card');
   card.type = 'button';
-  card.className = 'profile-order-card';
 
-  const header = document.createElement('div');
-  header.className = 'order-card-header';
-  const idSpan = document.createElement('span');
-  idSpan.className = 'order-card-id';
-  idSpan.textContent = `#${formatOrderId(order.id)}`;
-  const statusSpan = document.createElement('span');
   const st = String(order.status || '').toLowerCase();
-  statusSpan.className = 'order-card-status' + (st === 'completed' ? ' s-done' : (st === 'accepted' || st === 'processing' || st === 'in_progress') ? ' s-active' : ' s-pending');
-  statusSpan.textContent = orderStatusText(order.status);
-  header.append(idSpan, statusSpan);
+  const statusCls = 'order-card-status' + (st === 'completed' ? ' s-done' : (st === 'accepted' || st === 'processing' || st === 'in_progress') ? ' s-active' : ' s-pending');
+  const header = createEl('div', 'order-card-header');
+  header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id)}`), createEl('span', statusCls, orderStatusText(order.status)));
 
-  const body = document.createElement('div');
-  body.className = 'order-card-body';
-  const itemsText = document.createElement('div');
-  itemsText.className = 'order-card-items';
-  itemsText.textContent = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容';
-  body.appendChild(itemsText);
+  const body = createEl('div', 'order-card-body');
+  body.appendChild(createEl('div', 'order-card-items', (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容'));
 
-  const footer = document.createElement('div');
-  footer.className = 'order-card-footer';
-  const price = document.createElement('span');
-  price.className = 'order-card-price';
-  price.textContent = formatMoney(order.total);
-  const time = document.createElement('span');
-  time.className = 'order-card-time';
-  time.textContent = order.createdAt ? formatTime(order.createdAt) : '';
-  footer.append(price, time);
+  const footer = createEl('div', 'order-card-footer');
+  footer.append(createEl('span', 'order-card-price', formatMoney(order.total)), createEl('span', 'order-card-time', order.createdAt ? formatTime(order.createdAt) : ''));
 
   card.append(header, body, footer);
 
-  const actions = document.createElement('div');
-  actions.className = 'order-card-actions';
+  const actions = createEl('div', 'order-card-actions');
   if(role === 'seller' && order.status === 'pending'){
     const editPriceBtn = createStopBtn('secondary-btn', '修改价格', (e, btn) => {
       if(!order.id) return;
@@ -469,50 +451,32 @@ function renderSellerProductsManage(){
   if(!products.length){ showEmptyState(list, '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布'), 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   products.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'sp-card';
+    const card = createEl('div', 'sp-card');
     card.addEventListener('click', () => openProductDetail(item, true));
 
     const imgUrl = normalizeMediaUrl(item.image || item.imageUrl) || '';
     if (imgUrl) {
-      const img = document.createElement('img');
-      img.className = 'sp-card-img';
+      const img = createEl('img', 'sp-card-img');
       img.src = imgUrl;
       img.alt = item.title || '商品';
       img.onerror = function() { this.style.display = 'none'; };
       card.appendChild(img);
     }
 
-    const body = document.createElement('div');
-    body.className = 'sp-card-body';
+    const body = createEl('div', 'sp-card-body');
 
-    const topRow = document.createElement('div');
-    topRow.className = 'sp-card-top';
-    const title = document.createElement('div');
-    title.className = 'sp-card-title';
-    title.textContent = item.title || '未命名商品';
-    topRow.appendChild(title);
+    const topRow = createEl('div', 'sp-card-top');
+    topRow.appendChild(createEl('div', 'sp-card-title', item.title || '未命名商品'));
     body.appendChild(topRow);
 
-    const desc = document.createElement('div');
-    desc.className = 'sp-card-desc';
-    desc.textContent = item.desc || '可在商品详情页继续编辑文案与规格';
-    body.appendChild(desc);
+    body.appendChild(createEl('div', 'sp-card-desc', item.desc || '可在商品详情页继续编辑文案与规格'));
 
-    const meta = document.createElement('div');
-    meta.className = 'sp-card-meta';
-    const price = document.createElement('span');
-    price.className = 'sp-card-price';
-    price.textContent = formatMoney(item.price);
+    const meta = createEl('div', 'sp-card-meta');
     const stockNum = Math.max(0, Math.floor(Number(item.stock || 0)));
-    const stockSpan = document.createElement('span');
-    stockSpan.className = 'sp-card-stock' + (stockNum === 0 ? ' low' : '');
-    stockSpan.textContent = `库存 ${stockNum}`;
-    meta.append(price, stockSpan);
+    meta.append(createEl('span', 'sp-card-price', formatMoney(item.price)), createEl('span', 'sp-card-stock' + (stockNum === 0 ? ' low' : ''), `库存 ${stockNum}`));
     body.appendChild(meta);
 
-    const actions = document.createElement('div');
-    actions.className = 'sp-card-actions';
+    const actions = createEl('div', 'sp-card-actions');
 
     const editBtn = createStopBtn('sp-action-btn', '编辑', () => openPublishProductPage('sellerProductsPage', item));
     const stockBtn = createStopBtn('sp-action-btn', '改库存', () => window.updateSellerProductStock(item.id, item.stock || 0));
@@ -961,11 +925,11 @@ function openProductSpecSheet(item, mode = 'cart'){
   // Toggle cart vs buy-now buttons
   toggleEl("confirmAddToCartBtn", 'hidden', mode === 'buyNow');
   toggleEl("confirmBuyNowBtn", 'hidden', mode !== 'buyNow');
-  $("productSpecSheet")?.classList.remove('hidden');
+  showEl("productSpecSheet");
 }
 
 function closeProductSpecSheet(){
-  $("productSpecSheet")?.classList.add('hidden');
+  hideEl("productSpecSheet");
 }
 
 function addSelectedProductToCart(){
@@ -1542,7 +1506,7 @@ async function sendContactCardInChat(){
   await loadFriends(true);
   state._ccpSelectedFriend = null;
   if ($("ccpSearchInput")) $("ccpSearchInput").value = '';
-  if ($("ccpConfirmBar")) $("ccpConfirmBar").classList.add('hidden');
+  hideEl("ccpConfirmBar");
   renderContactCardPicker();
   window.openSecondaryPage('contactCardPickerPage', 'chat');
   if ($("chatTitle")) $("chatTitle").textContent = '选择名片';
@@ -1867,16 +1831,12 @@ function upsertMessage(msg) {
 function buildMessageChunk(msg, prevCreatedAt = 0) {
   const fragment = document.createDocumentFragment();
   if ((msg.createdAt || 0) - prevCreatedAt > 180000) {
-    const t = document.createElement('div');
-    t.className = 'time-stamp';
-    const span = document.createElement('span');
-    span.textContent = formatTime(msg.createdAt);
-    t.appendChild(span);
+    const t = createEl('div', 'time-stamp');
+    t.appendChild(createEl('span', null, formatTime(msg.createdAt)));
     fragment.appendChild(t);
   }
 
-  const node = document.createElement('article');
-  node.className = `message-row ${msg.senderId === state.currentUser?.id ? 'me' : ''}`;
+  const node = createEl('article', `message-row ${msg.senderId === state.currentUser?.id ? 'me' : ''}`);
   node.dataset.id = msg.id;
   if (msg.clientMessageId) node.dataset.clientMessageId = msg.clientMessageId;
   let userObj = state.currentUser; let finalName = '我';
@@ -2065,14 +2025,12 @@ function formatOrderStatusLabel(status){
 
 function buildOrderCardMessage(msg){
   const order = msg.order || {};
-  const wrap = document.createElement('div');
-  wrap.className = 'trade-card clickable-card';
+  const wrap = createEl('div', 'trade-card clickable-card');
   wrap.dataset.orderId = order.id || '';
 
   const safeOrderImage = normalizeMediaUrl(order.imageUrl || (order.items || []).find((item) => item && item.imageUrl)?.imageUrl || '');
   if (safeOrderImage) {
-    const cover = document.createElement('img');
-    cover.className = 'trade-card-cover';
+    const cover = createEl('img', 'trade-card-cover');
     cover.src = safeOrderImage;
     cover.alt = order.title || '订单商品';
     cover.addEventListener('click', (e) => {
@@ -2083,13 +2041,8 @@ function buildOrderCardMessage(msg){
   }
 
   appendTradeCardHeader(wrap, order.title || `订单 #${formatOrderId(order.id) || '-'}`, order.summary || '订单通知');
-  const price = document.createElement('div');
-  price.className = 'trade-card-price';
-  price.textContent = formatMoney(order.total || 0);
-  const status = document.createElement('div');
-  status.className = 'trade-card-status' + (order.status === 'completed' ? ' done' : order.status === 'accepted' ? ' active' : '');
-  status.textContent = formatOrderStatusLabel(order.status);
-  wrap.append(price, status);
+  const statusCls = 'trade-card-status' + (order.status === 'completed' ? ' done' : order.status === 'accepted' ? ' active' : '');
+  wrap.append(createEl('div', 'trade-card-price', formatMoney(order.total || 0)), createEl('div', statusCls, formatOrderStatusLabel(order.status)));
 
   const openDetail = (e) => {
     if (e) e.stopPropagation();
@@ -2148,22 +2101,14 @@ function buildOrderCardMessage(msg){
 }
 
 function appendTradeCardHeader(container, titleText, subText) {
-  const title = document.createElement('div');
-  title.className = 'trade-card-title';
-  title.textContent = titleText;
-  const sub = document.createElement('div');
-  sub.className = 'trade-card-sub';
-  sub.textContent = subText;
-  container.append(title, sub);
+  container.append(createEl('div', 'trade-card-title', titleText), createEl('div', 'trade-card-sub', subText));
 }
 
 function buildBroadcastCardMessage(msg){
-  const card = document.createElement('div');
-  card.className = 'trade-card';
+  const card = createEl('div', 'trade-card');
   appendTradeCardHeader(card, (msg.broadcast && msg.broadcast.title) || '图文通知', (msg.broadcast && msg.broadcast.summary) || '点击查看详情');
   if(msg.broadcast && msg.broadcast.cover){
-    const img = document.createElement('img');
-    img.className = 'trade-card-cover';
+    const img = createEl('img', 'trade-card-cover');
     img.src = normalizeMediaUrl(msg.broadcast.cover) || '';
     img.alt = 'broadcast';
     card.appendChild(img);
@@ -2271,11 +2216,8 @@ function removeMessageFromView(messageId) {
     const nextIdx = state.messagesById.get(nextId);
     const nextMsg = nextIdx !== undefined ? state.messages[nextIdx] : null;
     if (nextMsg) {
-      const stamp = document.createElement('div');
-      stamp.className = 'time-stamp';
-      const span = document.createElement('span');
-      span.textContent = formatTime(nextMsg.createdAt);
-      stamp.appendChild(span);
+      const stamp = createEl('div', 'time-stamp');
+      stamp.appendChild(createEl('span', null, formatTime(nextMsg.createdAt)));
       next.before(stamp);
     }
   }
@@ -2339,15 +2281,8 @@ function refreshMessageReadReceipts() {
   const wrap = row.querySelector('.content-wrap');
   if (!wrap) return;
   const isRead = peerLastReadAt >= Number(target.createdAt || 0);
-  const receipt = document.createElement('div');
-  receipt.className = `message-read-receipt ${isRead ? 'is-read' : 'is-unread'}`;
-  const dot = document.createElement('span');
-  dot.className = 'receipt-dot';
-  const text = document.createElement('span');
-  text.className = 'receipt-text';
-  text.textContent = isRead ? '已读' : '未读';
-  receipt.appendChild(dot);
-  receipt.appendChild(text);
+  const receipt = createEl('div', `message-read-receipt ${isRead ? 'is-read' : 'is-unread'}`);
+  receipt.append(createEl('span', 'receipt-dot'), createEl('span', 'receipt-text', isRead ? '已读' : '未读'));
   wrap.appendChild(receipt);
   _lastReceiptEl = receipt;
 }
@@ -2441,14 +2376,8 @@ function buildConversationItemSignature(conv) {
     + '|' + (state.activeConversation && state.activeConversation.id === conv.id ? 1 : 0);
 }
 function createEmptyChatListNode() {
-  const empty = document.createElement('div');
-  empty.className = 'chat-list-empty';
-  const title = document.createElement('div');
-  title.textContent = '暂无消息';
-  const tip = document.createElement('div');
-  tip.className = 'chat-list-empty-tip';
-  tip.textContent = '点击右上角 ⊕ 添加好友';
-  empty.append(title, tip);
+  const empty = createEl('div', 'chat-list-empty');
+  empty.append(createEl('div', null, '暂无消息'), createEl('div', 'chat-list-empty-tip', '点击右上角 ⊕ 添加好友'));
   return empty;
 }
 
@@ -2904,6 +2833,10 @@ const SECONDARY_PAGE_IDS = [
   'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage',
   'msgSearchPage','mallSearchPage','systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
 ];
+const TAB_VIEW_IDS = ["chatListView","friendListView","mallView","profileView"];
+const ALL_VIEW_IDS = [...TAB_VIEW_IDS,"chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS];
+function hideAllViews() { ALL_VIEW_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); }); }
+function hideTabViews() { TAB_VIEW_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); }); }
 
 window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   // Push current secondary page onto stack for proper back navigation
@@ -2917,8 +2850,8 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
     if (!backTo || backTo === 'home') backTo = prevEntry.backTo;
   }
   state.secondaryPage = page; state.secondaryReturn = backTo;
-  ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-  if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); }
+  hideAllViews();
+  hideEl("chatSearchBar");
   if($(page)) $(page).classList.remove('hidden');
   showEl("backBtn");
   hideEl("homeMoreBtn");
@@ -3134,7 +3067,7 @@ window.showContextMenu = function(event, msg) {
   menu.style.visibility = 'hidden';
   menu.classList.remove('hidden');
   const rect = menu.getBoundingClientRect();
-  const anchor = event?.touches ? getTouchAnchor(event) : getTouchAnchor(event);
+  const anchor = getTouchAnchor(event);
   let x = anchor.clientX; let y = anchor.clientY;
   if (x + rect.width > window.innerWidth - 10) x = window.innerWidth - rect.width - 10; if (x < 10) x = 10;
   if (y < rect.height + 20) { y = y + 20; } else { y = y - rect.height - 15; }
@@ -3265,7 +3198,7 @@ window.openGroupSelect = (targetUserId) => {
 };
 
 window.confirmMoveGroup = async (groupName) => {
-    if ($("groupSelectSheet")) $("groupSelectSheet").classList.add('hidden');
+    hideEl("groupSelectSheet");
     try {
         await api('/api/friends/group', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, friendId: state.targetForGroupMove, group: groupName }) });
         showModal("已成功移至分组：" + groupName);
@@ -3289,7 +3222,7 @@ async function decodeScanFromImageFile(file){
       const value = (mm ? mm[1] : raw).trim();
       if (value && $('scanIdInput')) {
         $('scanIdInput').value = value;
-        $('scanManualPanel')?.classList.remove('hidden');
+        showEl('scanManualPanel');
         setTimeout(() => { $('scanSubmitBtn')?.click(); }, 100);
         return true;
       }
@@ -3319,7 +3252,7 @@ async function startScanCamera(){
       await new Promise(r => setTimeout(r, 1500));
       if (!window.NativeBridge.hasCameraPermission()) {
         if ($('scanHintText')) $('scanHintText').textContent = '需要相机权限才能扫码，请在设置中开启';
-        $('scanFallbackBox')?.classList.remove('hidden');
+        showEl('scanFallbackBox');
         return;
       }
     }
@@ -3328,7 +3261,7 @@ async function startScanCamera(){
     state.scanStream = stream;
     video.srcObject = stream;
     video.classList.remove('hidden');
-    $('scanFallbackBox')?.classList.add('hidden');
+    hideEl('scanFallbackBox');
     if ($('scanHintText')) $('scanHintText').textContent = '将二维码放入框内，即可自动扫描';
 
     let detector = null;
@@ -3350,7 +3283,7 @@ async function startScanCamera(){
             const value = (mm ? mm[1] : raw).trim();
             if (value && $('scanIdInput')) {
               $('scanIdInput').value = value;
-              $('scanManualPanel')?.classList.remove('hidden');
+              showEl('scanManualPanel');
               if ($('scanHintText')) $('scanHintText').textContent = '已识别到二维码';
               stopScanCamera(true);
               setTimeout(() => { $('scanSubmitBtn')?.click(); }, 100);
@@ -3376,7 +3309,7 @@ function stopScanCamera(keepVideoHidden = false){
     video.srcObject = null;
     if (!keepVideoHidden) video.classList.add('hidden');
   }
-  $('scanFallbackBox')?.classList.remove('hidden');
+  showEl('scanFallbackBox');
 }
 
 window.openConversation = async (id, options = {}) => {
@@ -3390,7 +3323,7 @@ window.openConversation = async (id, options = {}) => {
   }
   // Clear secondary page navigation state when entering a conversation
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
-  SECONDARY_PAGE_IDS.forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
+  SECONDARY_PAGE_IDS.forEach(id => hideEl(id));
   setText("chatTitle", conv?.title || '会话');
   hideEl("chatListView");
   hideEl("friendListView");
@@ -3997,7 +3930,7 @@ function bindProductEvents() {
     if ($('presetManageTitle')) $('presetManageTitle').textContent = type === 'category' ? '管理分类' : '管理规格';
     if ($('presetManageInput')) { $('presetManageInput').value = ''; $('presetManageInput').placeholder = type === 'category' ? '输入新分类' : '输入新规格'; }
     renderPresetManageList();
-    $('presetManagePanel')?.classList.remove('hidden');
+    showEl('presetManagePanel');
   }
 
   // ---- Drag-to-reorder state ----
@@ -4142,9 +4075,9 @@ function bindProductEvents() {
 
   on('manageCategoryBtn', 'click', () => openPresetManagePanel('category'));
   on('manageSpecBtn', 'click', () => openPresetManagePanel('spec'));
-  on('presetManageCloseBtn', 'click', () => $('presetManagePanel')?.classList.add('hidden'));
+  on('presetManageCloseBtn', 'click', () => hideEl('presetManagePanel'));
   if ($('presetManagePanel')) {
-    $('presetManagePanel').querySelector('.preset-manage-mask')?.addEventListener('click', () => $('presetManagePanel').classList.add('hidden'));
+    $('presetManagePanel').querySelector('.preset-manage-mask')?.addEventListener('click', () => hideEl('presetManagePanel'));
   }
   on('presetManageAddBtn', 'click', () => {
     const input = $('presetManageInput');
@@ -4349,12 +4282,12 @@ function bindProfileEvents() {
     try { stopScanCamera(); } catch(_) {}
       const backTo = state.secondaryReturn;
       state.secondaryPage = null; state.secondaryReturn = null;
-      SECONDARY_PAGE_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+      SECONDARY_PAGE_IDS.forEach(id => hideEl(id));
       // Pop from navigation stack to restore previous secondary page with its original backTo
       if (state.secondaryStack.length > 0) {
           const prev = state.secondaryStack.pop();
           state.secondaryPage = prev.page; state.secondaryReturn = prev.backTo;
-          ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+          hideAllViews();
           if($(prev.page)) $(prev.page).classList.remove('hidden');
           showEl("backBtn");
           hideEl("homeMoreBtn");
@@ -4786,7 +4719,7 @@ function bindSocialEvents() {
     if (!file) return;
     const ok = await decodeScanFromImageFile(file);
     if (!ok) {
-      $("scanManualPanel")?.classList.remove('hidden');
+      showEl("scanManualPanel");
       if($("scanIdInput")) $("scanIdInput").focus();
       showModal('未能识别二维码，请手动输入 ChatTrade ID');
     }
@@ -5157,7 +5090,7 @@ function bindChatEvents() {
   let _callFloatingTimer = null;
   function minimizeCall() {
     if (!hasActiveCallSession()) return;
-    if ($("callPanel")) $("callPanel").classList.add('hidden');
+    hideEl("callPanel");
     const bubble = $("callFloatingBubble");
     if (bubble) {
       bubble.classList.remove('hidden');
@@ -5167,10 +5100,9 @@ function bindChatEvents() {
     }
   }
   function restoreCall() {
-    const bubble = $("callFloatingBubble");
-    if (bubble) bubble.classList.add('hidden');
+    hideEl("callFloatingBubble");
     clearInterval(_callFloatingTimer);
-    if (hasActiveCallSession() && $("callPanel")) $("callPanel").classList.remove('hidden');
+    if (hasActiveCallSession()) showEl("callPanel");
   }
   function updateFloatingDuration() {
     if (!callStartTime) return;
@@ -5224,7 +5156,7 @@ function bindChatEvents() {
   // Hide floating bubble when call ends (use lazy reference since window.stopCall is defined later)
   window._stopCallWithBubble = () => {
     clearInterval(_callFloatingTimer);
-    if ($("callFloatingBubble")) $("callFloatingBubble").classList.add('hidden');
+    hideEl("callFloatingBubble");
   };
 
 }
@@ -5440,7 +5372,7 @@ function setMainTab(tab) {
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
   ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) { $(t+'Tab').classList.remove('active'); } });
   if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
-  ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) { $(id).classList.add('hidden'); } });
+  hideTabViews();
 
   if (tab === 'messages') { showEl("chatListView"); setText("chatTitle", "微信"); tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
   else if (tab === 'friends') { showEl("friendListView"); setText("chatTitle", "通讯录"); tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
@@ -6374,7 +6306,7 @@ async function bootstrap() {
 
     ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) $(t+'Tab').classList.remove('active'); });
     if($('messagesTab')) $('messagesTab').classList.add('active');
-    ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
+    hideTabViews();
     showEl("chatListView");
     setText("chatTitle", "微信"); 
     
