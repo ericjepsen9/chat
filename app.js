@@ -126,9 +126,11 @@ function getSecondaryBackTarget(defaultTarget = 'home'){
 
 function rebuildOrdersById() {
   const map = new Map();
-  for (const o of (state.buyerOrders || [])) map.set(o.id, o);
-  for (const o of (state.sellerOrders || [])) if (!map.has(o.id)) map.set(o.id, o);
+  const sellerNames = new Map();
+  for (const o of (state.buyerOrders || [])) { map.set(o.id, o); if (o.sellerId && o.sellerName) sellerNames.set(o.sellerId, o.sellerName); }
+  for (const o of (state.sellerOrders || [])) { if (!map.has(o.id)) map.set(o.id, o); if (o.sellerId && o.sellerName && !sellerNames.has(o.sellerId)) sellerNames.set(o.sellerId, o.sellerName); }
   state.ordersById = map;
+  state.sellerNameCache = sellerNames;
 }
 const loadBuyerOrders = singleFlight(async function _loadBuyerOrdersImpl(){
   if(!state.currentUser) return;
@@ -335,6 +337,8 @@ async function doCompleteOrder(orderId) {
 function buildOrderCard(order, role){
   const card = createEl('button', 'profile-order-card');
   card.type = 'button';
+  card.dataset.orderId = order.id;
+  card.dataset.orderRole = role;
 
   const statusCls = orderStatusCls('order-card-status', order.status);
   const header = createEl('div', 'order-card-header');
@@ -382,14 +386,25 @@ function buildOrderCard(order, role){
     actions.appendChild(delBtn);
   }
   if(actions.childElementCount) card.appendChild(actions);
-
-  card.addEventListener('click', () => openOrderDetail(order, role));
+  // Card-level click handled via delegation on order list container
   return card;
 }
 
+function bindOrderListDelegation(list) {
+  if (list.dataset.orderClickBound === '1') return;
+  list.dataset.orderClickBound = '1';
+  list.addEventListener('click', (e) => {
+    if (e.target.closest('.order-card-actions')) return;
+    const card = e.target.closest('.profile-order-card[data-order-id]');
+    if (!card) return;
+    const order = state.ordersById?.get(card.dataset.orderId);
+    if (order) openOrderDetail(order, card.dataset.orderRole || 'buyer');
+  });
+}
 function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
   const list = $(listId);
   if(!list) return;
+  bindOrderListDelegation(list);
   syncOrderFilterInputs(role);
   const rows = (state[ordersKey] || []).filter((o) => orderMatchesFilters(o, role));
   const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
@@ -861,10 +876,27 @@ const renderProfileStore = safeRender(function renderProfileStore(){
       moreBtn.classList.add('hidden');
     }
   }
+  // Build product lookup for delegated click handlers
+  const _storeItemsById = new Map();
+  for (const p of items) if (p.id) _storeItemsById.set(String(p.id), p);
+  if (list.dataset.storeClickBound !== '1') {
+    list.dataset.storeClickBound = '1';
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('.profile-store-item[data-product-id]');
+      if (!card) return;
+      const item = (state._storeItemsById || _storeItemsById)?.get(card.dataset.productId);
+      if (!item) return;
+      // Check if a stepper/spec button was clicked (these stop propagation, but just in case)
+      if (e.target.closest('.profile-qty-stepper') || e.target.closest('.secondary-btn')) return;
+      openProductDetail(item, false);
+    });
+  }
+  state._storeItemsById = _storeItemsById;
   const frag = document.createDocumentFragment();
   items.forEach(item => {
     const card = createEl('div', 'profile-store-item');
-    card.addEventListener('click', () => openProductDetail(item, false));
+    card.dataset.productId = String(item.id || '');
+    // Card click handled via delegation on profileStoreList
 
     const img = createEl('img', '');
     img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
@@ -1059,8 +1091,7 @@ function renderProfileCartPage(){
   const sellerInfo = $("profileCartSellerInfo");
   if(sellerInfo){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
-    let _sName = '';
-    if (!profile && state.ordersById) { for (const o of state.ordersById.values()) { if (o.sellerId === sellerId && o.sellerName) { _sName = o.sellerName; break; } } }
+    const _sName = (!profile && state.sellerNameCache) ? (state.sellerNameCache.get(sellerId) || '') : '';
     const sellerName = profile?.displayName || profile?.nickname || _sName || `商家 ${sellerId.slice(-6)}`;
     sellerInfo.textContent = sellerName;
     sellerInfo.classList.toggle('hidden', !sellerId);
@@ -1344,9 +1375,21 @@ function openBroadcastDetail(title, summary){
   window.openSecondaryPage('broadcastDetailPage', state.secondaryReturn || 'home');
 }
 
+function bindProfileOrdersDelegation(list) {
+  if (list.dataset.profOrderBound === '1') return;
+  list.dataset.profOrderBound = '1';
+  list.addEventListener('click', (e) => {
+    if (e.target.closest('.profile-order-actions')) return;
+    const card = e.target.closest('[data-order-id]');
+    if (!card) return;
+    const order = state.ordersById?.get(card.dataset.orderId);
+    if (order) openOrderDetail(order, card.dataset.orderRole || 'buyer');
+  });
+}
 function renderProfileOrders(){
   const list = $("profileOrdersList");
   if(!list) return;
+  bindProfileOrdersDelegation(list);
   const sig = state.profileOrders.map(o => o.id + '|' + o.status + '|' + (o.total||0)).join(';');
   if (!sigChanged('profileOrders', sig)) return;
   if(!state.profileOrders.length){
@@ -1397,8 +1440,9 @@ function renderProfileOrders(){
 
     card.appendChild(status);
     if (actions.childElementCount) card.appendChild(actions);
-    const detailRole = (state.currentUser?.id && state.currentUser.id === order.buyerId) ? 'buyer' : 'seller';
-    card.addEventListener('click', () => openOrderDetail(order, detailRole));
+    card.dataset.orderId = order.id;
+    card.dataset.orderRole = (state.currentUser?.id && state.currentUser.id === order.buyerId) ? 'buyer' : 'seller';
+    // Click handled via delegation on profileOrdersList
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
@@ -2344,6 +2388,32 @@ function bindConversationSwipeDismiss(){
   }, true);
 }
 
+function bindFriendListDelegation() {
+  const list = $("friendList");
+  if (!list || list.dataset.friendClickBound === '1') return;
+  list.dataset.friendClickBound = '1';
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chat-item[data-friend-id]');
+    if (!btn || e.target.closest('.friend-req-actions')) return;
+    const fid = btn.dataset.friendId;
+    if (fid) window.openUserProfile(fid, btn.dataset.friendName || '');
+  });
+}
+
+function bindRequestsListDelegation() {
+  const list = $("requestsList");
+  if (!list || list.dataset.reqClickBound === '1') return;
+  list.dataset.reqClickBound = '1';
+  list.addEventListener('click', (e) => {
+    const acceptBtn = e.target.closest('.friend-req-accept-btn');
+    if (acceptBtn) { e.stopPropagation(); const rid = acceptBtn.dataset.requestId; if (rid) window.acceptRequest(rid); return; }
+    const rejectBtn = e.target.closest('.secondary-btn[data-reject-id]');
+    if (rejectBtn) { e.stopPropagation(); const rid = rejectBtn.dataset.rejectId; if (rid) window.rejectRequest(rid); return; }
+    const row = e.target.closest('.chat-item[data-sender-id]');
+    if (row) { const sid = row.dataset.senderId; if (sid) window.openUserProfile(sid, row.dataset.senderName || ''); }
+  });
+}
+
 function attachConversationSwipeDelete(wrap, onDelete) {
   let startX = 0;
   let startY = 0;
@@ -2584,7 +2654,8 @@ function buildFriendRow(item, groupName = '') {
   btn.type = 'button';
   btn.dataset.friendId = item.friend.id;
   btn.dataset.friendKey = `${groupName}::${item.friend.id}`;
-  btn.addEventListener('click', () => window.openUserProfile(item.friend.id, item.friend.displayName));
+  btn.dataset.friendName = item.friend.displayName || '';
+  // Click handled via delegation on friendList container
   appendUserInfo(btn, item.friend, item.friend.remark || item.friend.displayName || '');
   return btn;
 }
@@ -2652,7 +2723,7 @@ function patchMallCard(card, product) {
   const replacement = card.cloneNode(false);
   replacement.className = 'product-card';
   replacement.dataset.productId = product.id;
-  replacement.addEventListener('click', () => openProductDetail(product, false));
+  // Click handled via delegation on mall-grid container
   const safeImage = normalizeMediaUrl(product.image);
   if (safeImage) {
     const img = createEl('img', '');
@@ -2707,8 +2778,16 @@ const SECONDARY_PAGE_IDS = [
 ];
 const TAB_VIEW_IDS = ["chatListView","friendListView","mallView","profileView"];
 const ALL_VIEW_IDS = [...TAB_VIEW_IDS,"chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS];
-function hideAllViews() { ALL_VIEW_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); }); }
-function hideTabViews() { TAB_VIEW_IDS.forEach(id => { if($(id)) $(id).classList.add('hidden'); }); }
+let _cachedAllViewEls = null;
+let _cachedTabViewEls = null;
+function hideAllViews() {
+  if (!_cachedAllViewEls) _cachedAllViewEls = ALL_VIEW_IDS.map(id => $(id)).filter(Boolean);
+  for (let i = 0; i < _cachedAllViewEls.length; i++) _cachedAllViewEls[i].classList.add('hidden');
+}
+function hideTabViews() {
+  if (!_cachedTabViewEls) _cachedTabViewEls = TAB_VIEW_IDS.map(id => $(id)).filter(Boolean);
+  for (let i = 0; i < _cachedTabViewEls.length; i++) _cachedTabViewEls[i].classList.add('hidden');
+}
 
 window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   // Push current secondary page onto stack for proper back navigation
@@ -4513,7 +4592,7 @@ function bindSocialEvents() {
       const user = res.user;
       if (!user || !resultEl) return;
       // Check if already friends
-      const isFriend = (state.friends || []).some(f => f.friendId === user.id || f.userId === user.id);
+      const isFriend = isFriendUser(user.id);
       const card = createEl('div', 'add-friend-card');
       const cardTop = createEl('div', 'add-friend-card-top');
       const avatarDiv = createEl('div', 'add-friend-avatar');
@@ -5374,6 +5453,10 @@ const loadMall = singleFlight(async function _loadMallImpl() {
     else qs += '&sort=nearby';
     const data = await api('/api/mall?' + qs);
     const products = data.items || data.products || [];
+    // Build product lookup for O(1) access by delegated click handlers
+    const prodMap = new Map();
+    for (const p of products) if (p.id) prodMap.set(String(p.id), p);
+    state.mallProductsById = prodMap;
     const list = $("mallList"); if (!list) return;
     const nextSignature = buildMallSignature(products);
     let grid = list.querySelector('.mall-grid');
@@ -5387,6 +5470,15 @@ const loadMall = singleFlight(async function _loadMallImpl() {
     if (!grid || list.children.length !== 1 || list.firstElementChild !== grid) {
       grid = createEl('div', 'mall-grid');
       list.replaceChildren(grid);
+    }
+    if (grid.dataset.mallClickBound !== '1') {
+      grid.dataset.mallClickBound = '1';
+      grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.product-card[data-product-id]');
+        if (!card) return;
+        const product = state.mallProductsById?.get(card.dataset.productId);
+        if (product) openProductDetail(product, false);
+      });
     }
     state.mallItemSignatures = reconcileList(grid, products, {
       selector: '.product-card[data-product-id]',
@@ -5440,6 +5532,7 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
     }
     if($("requestsList")) {
       const container = $("requestsList");
+      bindRequestsListDelegation();
       container.replaceChildren();
       if (!state.friendRequests.length) {
         showEmptyState(container, '暂无新的朋友');
@@ -5450,20 +5543,21 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
         const senderName = sender.displayName || sender.username || sender.id || '未知用户';
         const row = createEl('div', 'chat-item');
         row.style.cursor = 'pointer';
+        row.dataset.senderId = sender.id || '';
+        row.dataset.senderName = senderName;
         const avatarWrap = createEl('div', 'avatar-click-wrap');
         setAvatarContainer(avatarWrap, sender, senderName);
         row.appendChild(avatarWrap);
         const info = createEl('div', 'friend-req-info');
         info.append(createEl('strong', '', senderName), createEl('div', 'preview', r.greeting || ''));
         row.appendChild(info);
-        row.addEventListener('click', () => { if(sender.id) window.openUserProfile(sender.id, senderName); });
+        // Click handled via delegation on requestsList container
         if (r.status === 'pending') {
           const actions = createEl('div', 'friend-req-actions');
-          const acceptBtn = createEl('button', 'primary-btn', '同意');
-          acceptBtn.classList.add('friend-req-accept-btn');
-          acceptBtn.addEventListener('click', (e) => { e.stopPropagation(); window.acceptRequest(r.id); });
+          const acceptBtn = createEl('button', 'primary-btn friend-req-accept-btn', '同意');
+          acceptBtn.dataset.requestId = r.id;
           const rejectBtn = createEl('button', 'secondary-btn', '拒绝');
-          rejectBtn.addEventListener('click', (e) => { e.stopPropagation(); window.rejectRequest(r.id); });
+          rejectBtn.dataset.rejectId = r.id;
           actions.append(rejectBtn, acceptBtn);
           row.appendChild(actions);
         } else {
@@ -5508,6 +5602,7 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     const nextSignature = buildFriendListSignature(customGroups, grouped);
     const container = $("friendList");
     if (!container) return;
+    bindFriendListDelegation();
     if (nextSignature === state.friendListSignature && container.childElementCount) return;
     const groupItems = customGroups.map(name => ({ name, members: grouped.get(name) || [] }));
     state.friendGroupSignatures = reconcileList(container, groupItems, {
@@ -6078,6 +6173,13 @@ const loadSystemMessages = singleFlight(async function _loadSystemMessagesImpl()
 function renderSystemMessagesList(){
   const list = $("systemMessagesList");
   if(!list) return;
+  if (list.dataset.sysMsgBound !== '1') {
+    list.dataset.sysMsgBound = '1';
+    list.addEventListener('click', (e) => {
+      const card = e.target.closest('[data-sys-title]');
+      if (card) openBroadcastDetail(card.dataset.sysTitle, card.dataset.sysText);
+    });
+  }
   const msgs = state.systemMessages || [];
   if(!msgs.length){
     showEmptyState(list, '📢 暂无系统消息', 'order-empty-state');
@@ -6085,11 +6187,14 @@ function renderSystemMessagesList(){
   }
   const frag = document.createDocumentFragment();
   msgs.forEach(msg => {
-    const card = buildProfileCard(msg.title || '系统通知', msg.summary || msg.text || '', 'button');
+    const title = msg.title || '系统通知';
+    const text = msg.summary || msg.text || '';
+    const card = buildProfileCard(title, text, 'button');
+    card.dataset.sysTitle = title;
+    card.dataset.sysText = text;
     const time = createEl('div', 'order-card-time', msg.createdAt ? formatTime(msg.createdAt) : '');
     time.style.marginTop = '6px';
     card.appendChild(time);
-    card.addEventListener('click', () => openBroadcastDetail(msg.title || '系统消息', msg.summary || msg.text || ''));
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
