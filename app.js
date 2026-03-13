@@ -33,10 +33,10 @@ const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
 const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'processing' || s === 'in_progress') ? ' s-active' : ' s-pending'); };
 const tradeStatusCls = (st) => 'trade-card-status' + (st === 'completed' ? ' done' : st === 'accepted' ? ' active' : '');
 
-const isFriendUser = (userId) => !!(userId && (state.friendsById ? state.friendsById.has(userId) : (state.friends || []).some(f => (f.friend?.id || f.friendId) === userId)));
+const isFriendUser = (userId) => !!(userId && state.friendsById.has(userId));
 
 function findFriendEntry(userId) {
-  return state.friendsById ? state.friendsById.get(userId) : (state.friends || []).find(f => f.friend?.id === userId);
+  return state.friendsById.get(userId);
 }
 
 function getPendingFriendRequest(userId) {
@@ -1475,14 +1475,14 @@ async function sendProductCardInChat(){
 }
 
 function getOrdersBetweenUsers(peerId){
-  const all = [...(state.buyerOrders || []), ...(state.sellerOrders || [])];
-  const seen = new Set();
-  return all.filter((o) => {
-    if(!o || seen.has(o.id)) return false;
-    const match = (o.buyerId === state.currentUser?.id && o.sellerId === peerId) || (o.sellerId === state.currentUser?.id && o.buyerId === peerId);
-    if(match) seen.add(o.id);
-    return match;
-  });
+  const uid = state.currentUser?.id;
+  const results = [];
+  for (const o of state.ordersById.values()) {
+    if ((o.buyerId === uid && o.sellerId === peerId) || (o.sellerId === uid && o.buyerId === peerId)) {
+      results.push(o);
+    }
+  }
+  return results;
 }
 
 async function sendOrderCardInChat(){
@@ -1770,8 +1770,10 @@ function upsertMessage(msg) {
   let lo = 0, hi = state.messages.length;
   while (lo < hi) { const mid = (lo + hi) >>> 1; if ((state.messages[mid].createdAt || 0) <= ts) lo = mid + 1; else hi = mid; }
   state.messages.splice(lo, 0, msg);
-  // Rebuild index after splice shifts indices
-  rebuildMessagesById();
+  // Incremental index update: shift entries after insertion point
+  for (let i = lo + 1; i < state.messages.length; i++) state.messagesById.set(state.messages[i].id, i);
+  state.messagesById.set(msg.id, lo);
+  _messagesSig = '';
   // Only return 'append' if inserted at the end; otherwise 'insert' triggers full re-render
   return { action: lo === state.messages.length - 1 ? 'append' : 'insert', index: lo };
 }
@@ -5960,11 +5962,9 @@ function renderConversationListFromState() {
   let totalUnread = 0;
   const visible = filteredConvs.filter((conv) => {
     const clearedAt = getConversationClearedAt(conv);
-    return !(clearedAt && (conv.lastMessageAt || 0) <= clearedAt && !(conv.unread > 0));
-  });
-  visible.forEach((conv) => {
-    const isMuted = isConversationMuted(conv);
-    if (conv.unread && !isMuted) totalUnread += conv.unread;
+    if (clearedAt && (conv.lastMessageAt || 0) <= clearedAt && !(conv.unread > 0)) return false;
+    if (conv.unread && !isConversationMuted(conv)) totalUnread += conv.unread;
+    return true;
   });
   if (tradeConv) visible.unshift(tradeConv);
   if (systemConv) visible.unshift(systemConv);
