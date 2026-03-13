@@ -3215,7 +3215,8 @@ window.openConversation = async (id, options = {}) => {
     });
   }
   refreshConversations();
-  if ($("chatView")) setTimeout(() => $("chatView").scrollTop = $("chatView").scrollHeight, 100);
+  const _cv = $("chatView");
+  if (_cv) setTimeout(() => { _cv.scrollTop = _cv.scrollHeight; }, 100);
 };
 
 window.openPrivateChat = async (targetUserId) => {
@@ -3646,17 +3647,17 @@ function bindAuthEvents() {
     ([src,tgt]) => on(src, "keydown", (e) => { if(e.key==='Enter') $(tgt)?.click(); })
   );
 
-  on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); if ($("chatView")) $("chatView").scrollTop = $("chatView").scrollHeight; }, 300); });
+  on("messageInput", "focus", () => { setTimeout(() => { window.scrollTo(0, document.body.scrollHeight); const cv = $("chatView"); if (cv) cv.scrollTop = cv.scrollHeight; }, 300); });
 
   // Load older messages when scrolling near top (throttled)
-  if ($("chatView")) {
+  const _chatViewEl = $("chatView");
+  if (_chatViewEl) {
     let _scrollThrottled = false;
-    $("chatView").addEventListener("scroll", () => {
+    _chatViewEl.addEventListener("scroll", () => {
       if (_scrollThrottled) return;
       _scrollThrottled = true;
       setTimeout(() => { _scrollThrottled = false; }, 200);
-      const cv = $("chatView");
-      if (!cv || cv.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
+      if (_chatViewEl.scrollTop > 80 || !state.hasMoreMessages || state.isLoadingMessages) return;
       fetchMessages(state.oldestMessageTime);
     }, { passive: true });
   }
@@ -3980,7 +3981,7 @@ function bindProductEvents() {
   if ($("mallTabs")) $("mallTabs").addEventListener("click", (e) => {
     const tab = e.target.closest('.mall-tab');
     if (!tab || !tab.dataset.mallTab) return;
-    $("mallTabs").querySelectorAll('.mall-tab').forEach(t => t.classList.remove('active'));
+    e.currentTarget.querySelectorAll('.mall-tab.active').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     state.mallTab = tab.dataset.mallTab;
     state.mallListSignature = '';
@@ -5231,8 +5232,12 @@ function tabLoad(key, loadFn) {
 function setMainTab(tab) {
   // Clear secondary navigation state when switching to a main tab
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
-  ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) { $(t+'Tab').classList.remove('active'); } });
-  if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
+  const tabEl = $(tab+'Tab');
+  if (tabEl) {
+    const parent = tabEl.parentElement;
+    if (parent) parent.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
+    tabEl.classList.add('active');
+  }
   hideTabViews();
 
   if (tab === 'messages') { showEl("chatListView"); setText("chatTitle", "微信"); tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
@@ -5546,7 +5551,7 @@ async function fetchMessages(before = 0) {
       applyLastOutgoingReadState();
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
-      state.messages.unshift(...data.messages);
+      state.messages = data.messages.concat(state.messages);
       rebuildMessagesById();
       prependMessagesToView(data.messages, oldFirst);
     }
