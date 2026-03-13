@@ -350,8 +350,10 @@ module.exports = function createAdminRoutes(ctx) {
       if (!authUser) return true;
       const { limit, offset } = paginate(searchParams);
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
+      const typeFilter = searchParams.get('type') || '';
       let convs = db.conversations || [];
       convs = convs.slice().sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
+      if (typeFilter) convs = convs.filter(c => c.type === typeFilter);
       if (q) {
         convs = convs.filter(c => {
           const memberNames = (c.members || []).map(mid => {

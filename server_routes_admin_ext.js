@@ -1,6 +1,18 @@
 /* server_routes_admin_ext.js — Extended admin routes: friends, sessions, user-create, order-delete, blacklist, export, online */
 
 const ADMIN_PAGE_LIMIT = 50;
+const AUDIT_LOG_MAX = 200;
+const adminAuditLog = []; // in-memory ring buffer
+
+function logAudit(adminUser, action, detail) {
+  adminAuditLog.unshift({
+    adminId: adminUser.id,
+    adminName: adminUser.displayName || adminUser.username,
+    action, detail: String(detail || '').slice(0, 200),
+    createdAt: Date.now(),
+  });
+  if (adminAuditLog.length > AUDIT_LOG_MAX) adminAuditLog.length = AUDIT_LOG_MAX;
+}
 
 module.exports = function createAdminExtRoutes(ctx) {
   const {
@@ -76,6 +88,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       };
       db.users.push(user);
       indexNewUser(user);
+      logAudit(context.authUser, '创建用户', `${username} (${displayName})`);
       await schedulePersistCritical('admin_user_create', { userId: user.id });
       return sendJson(res, 201, { ok: true, user: { id: user.id, username: user.username, displayName: user.displayName } });
     }
@@ -106,6 +119,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       revokeSessionsForUser(userId);
       // Rebuild all indexes
       rebuildIndexes();
+      logAudit(context.authUser, '删除用户', `${user.username} (${user.displayName})`);
       await schedulePersistCritical('admin_user_delete', { userId });
       return sendJson(res, 200, { ok: true });
     }
@@ -153,6 +167,7 @@ module.exports = function createAdminExtRoutes(ctx) {
         const si = sellerOrders.indexOf(order);
         if (si !== -1) sellerOrders.splice(si, 1);
       }
+      logAudit(context.authUser, '删除订单', orderId);
       await schedulePersistCritical('admin_order_delete', { orderId });
       return sendJson(res, 200, { ok: true });
     }
@@ -203,6 +218,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       removeFriendshipPair(userId, friendId);
       rebuildFriendViewsIndex();
       rebuildConversationBaseIndex();
+      logAudit(context.authUser, '解除好友', `${userId} ↔ ${friendId}`);
       schedulePersist('admin_friend_remove', { userId, friendId });
       return sendJson(res, 200, { ok: true });
     }
@@ -286,6 +302,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
       const userId = sessionRevokeMatch[1];
       revokeSessionsForUser(userId);
+      logAudit(context.authUser, '强制下线', userId);
       return sendJson(res, 200, { ok: true });
     }
 
@@ -359,6 +376,106 @@ module.exports = function createAdminExtRoutes(ctx) {
       });
       res.end('\uFEFF' + csv);
       return true;
+    }
+
+    // ══════════════════════════════════════════
+    //  CONVERSATION DELETE
+    // ══════════════════════════════════════════
+    const convDeleteMatch = pathname.match(/^\/api\/admin\/conversations\/([^/]+)\/delete$/);
+    if (convDeleteMatch && method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
+      const convId = convDeleteMatch[1];
+      const conv = index.convById.get(convId);
+      if (!conv) return sendJson(res, 404, { error: 'not_found' });
+      // Remove messages
+      const msgs = index.messagesByConv.get(convId) || [];
+      for (const m of msgs) index.messagesById.delete(m.id);
+      index.messagesByConv.delete(convId);
+      if (Array.isArray(db.messages)) {
+        db.messages = db.messages.filter(m => m.conversationId !== convId);
+      }
+      // Remove conversation
+      const ci = (db.conversations || []).indexOf(conv);
+      if (ci !== -1) db.conversations.splice(ci, 1);
+      index.convById.delete(convId);
+      rebuildConversationBaseIndex();
+      logAudit(context.authUser, '删除会话', convId);
+      await schedulePersistCritical('admin_conv_delete', { convId });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // ══════════════════════════════════════════
+    //  GLOBAL MESSAGE SEARCH
+    // ══════════════════════════════════════════
+    if (matchRoute(pathname, '/api/admin/messages/search') && method === 'GET') {
+      const authUser = adminGuard(req, res, searchParams);
+      if (!authUser) return true;
+      const q = String(searchParams.get('q') || '').trim().toLowerCase();
+      if (!q || q.length < 2) return sendJson(res, 200, { items: [], total: 0 });
+      const { limit, offset } = paginate(searchParams);
+      const results = [];
+      const allMsgs = db.messages || [];
+      for (let i = allMsgs.length - 1; i >= 0 && results.length < offset + limit + 100; i--) {
+        const m = allMsgs[i];
+        if (!m.text || m.type === 'system') continue;
+        if (m.text.toLowerCase().includes(q)) {
+          const sender = index.usersById.get(m.senderId);
+          const conv = index.convById.get(m.conversationId);
+          const memberNames = conv ? (conv.members || []).map(mid => {
+            const u = index.usersById.get(mid);
+            return u?.displayName || mid;
+          }).join(' ↔ ') : '';
+          results.push({
+            id: m.id, text: m.text, type: m.type,
+            senderId: m.senderId, senderName: sender?.displayName || m.senderId || '系统',
+            conversationId: m.conversationId, conversationName: memberNames,
+            createdAt: m.createdAt,
+          });
+        }
+      }
+      return sendJson(res, 200, slicePage(results, offset, limit));
+    }
+
+    // ══════════════════════════════════════════
+    //  ADMIN CHANGE OWN PASSWORD
+    // ══════════════════════════════════════════
+    if (matchRoute(pathname, '/api/admin/change-password') && method === 'POST') {
+      const context = await getAuthedBody(req, res);
+      if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
+      const { oldPassword, newPassword } = context.body;
+      if (!oldPassword || !newPassword) return sendJson(res, 400, { error: '请填写旧密码和新密码' });
+      const { verifyPasswordAsync } = ctx;
+      const valid = await verifyPasswordAsync(oldPassword, context.authUser.password);
+      if (!valid) return sendJson(res, 400, { error: '旧密码不正确' });
+      if (newPassword.length < 4 || newPassword.length > 64) return sendJson(res, 400, { error: '新密码长度需 4-64 位' });
+      context.authUser.password = await hashPasswordAsync(newPassword);
+      await schedulePersistCritical('admin_change_password', { userId: context.authUser.id });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // ══════════════════════════════════════════
+    //  ADMIN OPERATION LOG (in-memory ring buffer)
+    // ══════════════════════════════════════════
+    if (matchRoute(pathname, '/api/admin/audit-log') && method === 'GET') {
+      const authUser = adminGuard(req, res, searchParams);
+      if (!authUser) return true;
+      const { limit, offset } = paginate(searchParams);
+      return sendJson(res, 200, slicePage(adminAuditLog, offset, limit));
+    }
+
+    // ══════════════════════════════════════════
+    //  SIDEBAR BADGE COUNTS
+    // ══════════════════════════════════════════
+    if (matchRoute(pathname, '/api/admin/badge-counts') && method === 'GET') {
+      const authUser = adminGuard(req, res, searchParams);
+      if (!authUser) return true;
+      const pendingOrders = (db.orders || []).filter(o => o.status === 'pending').length;
+      const pendingRequests = (db.friendRequests || []).filter(r => r.status === 'pending').length;
+      const disabledUsers = db.users.filter(u => u.status === 'disabled').length;
+      let onlineCount = 0;
+      for (const [, conns] of sseClientsByUser) { if (conns && conns.size > 0) onlineCount++; }
+      return sendJson(res, 200, { pendingOrders, pendingRequests, disabledUsers, onlineCount });
     }
 
     // ══════════════════════════════════════════

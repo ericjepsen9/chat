@@ -69,7 +69,7 @@ const state = {
   users: { items: [], total: 0, offset: 0, q: '', status: '', role: '' },
   orders: { items: [], total: 0, offset: 0, q: '', status: '' },
   products: { items: [], total: 0, offset: 0, q: '', listed: '' },
-  convs: { items: [], total: 0, offset: 0, q: '' },
+  convs: { items: [], total: 0, offset: 0, q: '', type: '' },
 };
 const PAGE_SIZE = 20;
 
@@ -104,7 +104,7 @@ async function doLogin() {
 const TAB_TITLES = {
   dashboard: '数据概览', users: '用户管理', orders: '订单管理',
   products: '商品管理', conversations: '会话消息', broadcast: '广播中心',
-  friends: '好友关系', sessions: '会话/在线', system: '系统信息',
+  friends: '好友关系', sessions: '会话/在线', msgSearch: '消息搜索', system: '系统信息',
 };
 
 function switchTab(tab) {
@@ -513,7 +513,7 @@ window.doDelProduct = async function(id) {
    ═══════════════════════════════════════ */
 async function loadConversations() {
   const s = state.convs;
-  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q });
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q, type: s.type || '' });
   try {
     const data = await api(`/api/admin/conversations?${params}`);
     s.items = data.items || []; s.total = data.total || 0;
@@ -530,7 +530,7 @@ function renderConvsTable() {
       <td><span class="badge badge-gray">${esc(c.type)}</span></td>
       <td>${c.messageCount}</td>
       <td>${fmtDate(c.lastMessageAt)}</td>
-      <td><button class="btn-action primary" onclick="viewConvMessages('${esc(c.id)}')">查看消息</button></td>
+      <td class="cell-actions"><button class="btn-action primary" onclick="viewConvMessages('${esc(c.id)}')">查看消息</button><button class="btn-action danger" onclick="deleteConversation('${esc(c.id)}','${esc(names)}')">删除</button></td>
     </tr>`;
   });
   renderTable('convsTable', [
@@ -665,6 +665,7 @@ function initApp() {
   bindSearch('productSearch', 'products', loadProducts);
   bindFilter('productListedFilter', 'products', 'listed', loadProducts);
   bindSearch('convSearch', 'convs', loadConversations);
+  bindFilter('convTypeFilter', 'convs', 'type', loadConversations);
 
   // Refresh
   $('refreshBtn').addEventListener('click', () => loadTabData(state.tab));

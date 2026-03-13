@@ -37,10 +37,12 @@
       <a class="nav-item" data-tab="broadcast"><span class="nav-ico">📢</span>广播中心</a>
       <a class="nav-item" data-tab="friends"><span class="nav-ico">🤝</span>好友关系</a>
       <a class="nav-item" data-tab="sessions"><span class="nav-ico">🔐</span>会话/在线</a>
+      <a class="nav-item" data-tab="msgSearch"><span class="nav-ico">🔍</span>消息搜索</a>
       <a class="nav-item" data-tab="system"><span class="nav-ico">⚙️</span>系统信息</a>
     </nav>
     <div class="sidebar-footer">
       <div class="admin-info" id="adminInfo"></div>
+      <button class="btn-sidebar" onclick="showChangePassword()" style="margin-bottom:6px">修改密码</button>
       <button id="logoutBtn" class="btn-sidebar">退出登录</button>
     </div>
   </aside>
@@ -51,6 +53,7 @@
       <button id="menuToggle" class="menu-toggle">☰</button>
       <h1 id="pageTitle" class="page-title">数据概览</h1>
       <div class="top-actions">
+        <button id="autoRefreshBtn" class="btn-outline btn-sm" onclick="toggleAutoRefresh()">自动刷新:关</button>
         <button id="refreshBtn" class="btn-outline btn-sm">刷新</button>
       </div>
     </header>
@@ -83,6 +86,9 @@
       <div class="toolbar">
         <input id="orderSearch" class="search-input" placeholder="搜索订单号/买家/卖家...">
         <select id="orderStatusFilter" class="filter-sel"><option value="">全部状态</option><option value="pending">待处理</option><option value="accepted">已接单</option><option value="processing">处理中</option><option value="in_progress">进行中</option><option value="completed">已完成</option></select>
+        <input id="orderDateFrom" type="date" class="filter-sel" title="起始日期">
+        <input id="orderDateTo" type="date" class="filter-sel" title="截止日期">
+        <button class="btn-outline btn-sm" onclick="applyOrderDateFilter()">按日期筛选</button>
         <button class="btn-outline btn-sm" onclick="exportOrders()">导出CSV</button>
       </div>
       <div id="ordersTable"></div>
@@ -101,7 +107,10 @@
 
     <!-- Conversations -->
     <section id="tab-conversations" class="tab-pane">
-      <div class="toolbar"><input id="convSearch" class="search-input" placeholder="搜索会话成员..."></div>
+      <div class="toolbar">
+        <input id="convSearch" class="search-input" placeholder="搜索会话成员...">
+        <select id="convTypeFilter" class="filter-sel"><option value="">全部类型</option><option value="direct">私聊</option><option value="group">群聊</option></select>
+      </div>
       <div id="convsTable"></div>
       <div id="convsPager" class="pager"></div>
     </section>
@@ -159,11 +168,30 @@
       </div>
     </section>
 
+    <!-- Message Search -->
+    <section id="tab-msgSearch" class="tab-pane">
+      <div class="toolbar"><input id="msgSearchInput" class="search-input" placeholder="搜索消息内容（至少2个字符）..."></div>
+      <div class="card">
+        <div class="card-title">搜索结果</div>
+        <div id="msgSearchResults"><div class="empty">请输入关键词搜索</div></div>
+      </div>
+    </section>
+
     <!-- System -->
     <section id="tab-system" class="tab-pane">
-      <div class="card">
-        <div class="card-title">服务器信息</div>
-        <div id="systemInfoPanel"></div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">服务器信息</div>
+          <div id="systemInfoPanel"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">管理员操作</div>
+          <div class="form-actions" style="margin-bottom:14px">
+            <button class="btn-primary btn-sm" onclick="showChangePassword()">修改密码</button>
+          </div>
+          <div class="card-title">操作日志</div>
+          <div id="auditLogPanel"><div class="empty">暂无记录</div></div>
+        </div>
       </div>
     </section>
   </main>
@@ -183,5 +211,6 @@
 
 <script src="admin_console.js"></script>
 <script src="admin_console_ext.js"></script>
+<script src="admin_console_adv.js"></script>
 </body>
 </html>
