@@ -355,52 +355,33 @@ function buildOrderCard(order, role){
   const actions = document.createElement('div');
   actions.className = 'order-card-actions';
   if(role === 'seller' && order.status === 'pending'){
-    const editPriceBtn = document.createElement('button');
-    editPriceBtn.type = 'button';
-    editPriceBtn.className = 'secondary-btn';
-    editPriceBtn.textContent = '修改价格';
-    editPriceBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    const editPriceBtn = createStopBtn('secondary-btn', '修改价格', (e, btn) => {
       if(!order.id) return;
       showPrompt('请输入新的总价', String(order.total || ''), (raw) => {
-        withButtonLock(editPriceBtn, async () => { await doUpdateOrderPrice(order.id, raw); renderSellerOrdersManage(); }, '修改中...');
+        withButtonLock(btn, async () => { await doUpdateOrderPrice(order.id, raw); renderSellerOrdersManage(); }, '修改中...');
       });
     });
     actions.appendChild(editPriceBtn);
-    const acceptBtn = document.createElement('button');
-    acceptBtn.type = 'button';
-    acceptBtn.className = 'primary-btn';
-    acceptBtn.textContent = '接单';
-    acceptBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    const acceptBtn = createStopBtn('primary-btn', '接单', (e, btn) => {
       if(!order.id) return;
-      withButtonLock(acceptBtn, async () => { await doAcceptOrder(order.id); renderSellerOrdersManage(); }, '接单中...');
+      withButtonLock(btn, async () => { await doAcceptOrder(order.id); renderSellerOrdersManage(); }, '接单中...');
     });
     actions.appendChild(acceptBtn);
   }
   if(order.status === 'accepted'){
-    const completeBtn = document.createElement('button');
-    completeBtn.type = 'button';
-    completeBtn.className = 'primary-btn';
-    completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成';
-    completeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    const completeLabel = role === 'buyer' ? '确认收货' : '标记已完成';
+    const completeBtn = createStopBtn('primary-btn', completeLabel, (e, btn) => {
       const msg = role === 'buyer' ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？';
       showConfirm(msg, () => {
-        withButtonLock(completeBtn, async () => { await doCompleteOrder(order.id); if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage(); }, '处理中...');
+        withButtonLock(btn, async () => { await doCompleteOrder(order.id); if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage(); }, '处理中...');
       });
     });
     actions.appendChild(completeBtn);
   }
   if(order.status === 'completed'){
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'order-card-del-btn';
-    delBtn.textContent = '删除';
-    delBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    const delBtn = createStopBtn('order-card-del-btn', '删除', (e, btn) => {
       showConfirm('确认删除该订单？', () => {
-        withButtonLock(delBtn, () => deleteOrderRecord(order.id), '删除中...');
+        withButtonLock(btn, () => deleteOrderRecord(order.id), '删除中...');
       });
     });
     actions.appendChild(delBtn);
@@ -420,13 +401,7 @@ function renderBuyerOrdersManage(){
   const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.buyerOrderSearch + '|' + state.buyerOrderFrom + '|' + state.buyerOrderTo;
   if (sig === _buyerOrdersSig) return;
   _buyerOrdersSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '🧾 暂无购买订单';
-    list.replaceChildren(empty);
-    return;
-  }
+  if(!rows.length){ showEmptyState(list, '🧾 暂无购买订单', 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach(order => frag.appendChild(buildOrderCard(order, 'buyer')));
   list.replaceChildren(frag);
@@ -442,13 +417,7 @@ function renderSellerOrdersManage(){
   const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.sellerOrderSearch + '|' + state.sellerOrderFrom + '|' + state.sellerOrderTo;
   if (sig === _sellerOrdersSig) return;
   _sellerOrdersSig = sig;
-  if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '📋 暂无卖家订单';
-    list.replaceChildren(empty);
-    return;
-  }
+  if(!rows.length){ showEmptyState(list, '📋 暂无卖家订单', 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach(order => frag.appendChild(buildOrderCard(order, 'seller')));
   list.replaceChildren(frag);
@@ -528,13 +497,7 @@ function renderSellerProductsManage(){
   const sig = products.map(p => p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||'')).join(';') + '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
   if (sig === _sellerProductsSig) return;
   _sellerProductsSig = sig;
-  if(!products.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布');
-    list.replaceChildren(empty);
-    return;
-  }
+  if(!products.length){ showEmptyState(list, '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布'), 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   products.forEach(item => {
     const card = document.createElement('div');
@@ -582,35 +545,12 @@ function renderSellerProductsManage(){
     const actions = document.createElement('div');
     actions.className = 'sp-card-actions';
 
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'sp-action-btn';
-    editBtn.textContent = '编辑';
-    editBtn.addEventListener('click', (e) => { e.stopPropagation(); openPublishProductPage('sellerProductsPage', item); });
-
-    const stockBtn = document.createElement('button');
-    stockBtn.type = 'button';
-    stockBtn.className = 'sp-action-btn';
-    stockBtn.textContent = '改库存';
-    stockBtn.addEventListener('click', (e) => { e.stopPropagation(); window.updateSellerProductStock(item.id, item.stock || 0); });
-
-    const listedBtn = document.createElement('button');
-    listedBtn.type = 'button';
-    listedBtn.className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
-    listedBtn.textContent = item.listed === false ? '上架' : '下架';
-    listedBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (listedBtn.disabled) return;
-      listedBtn.disabled = true;
-      await window.toggleSellerProductListed(item.id, item.listed === false);
-      listedBtn.disabled = false;
+    const editBtn = createStopBtn('sp-action-btn', '编辑', () => openPublishProductPage('sellerProductsPage', item));
+    const stockBtn = createStopBtn('sp-action-btn', '改库存', () => window.updateSellerProductStock(item.id, item.stock || 0));
+    const listedBtn = createStopBtn('sp-action-btn' + (item.listed === false ? ' accent' : ''), item.listed === false ? '上架' : '下架', (e, btn) => {
+      withButtonLock(btn, () => window.toggleSellerProductListed(item.id, item.listed === false));
     });
-
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'sp-action-btn danger';
-    delBtn.textContent = '删除';
-    delBtn.addEventListener('click', (e) => { e.stopPropagation(); window.deleteMyProduct(item.id); });
+    const delBtn = createStopBtn('sp-action-btn danger', '删除', () => window.deleteMyProduct(item.id));
 
     actions.append(editBtn, stockBtn, listedBtn, delBtn);
     body.appendChild(actions);
@@ -786,10 +726,7 @@ function renderBroadcastDrafts(){
   if (sig === _broadcastDraftsSig) return;
   _broadcastDraftsSig = sig;
   if(!state.broadcastDrafts.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无广播草稿';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无广播草稿');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -951,10 +888,7 @@ function renderProfileStore(){
     : sortedItems;
   if(title) title.textContent = `在售商品 ${allItems.length}`;
   if(!allItems.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无在售商品';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无在售商品');
     if(moreBtn) moreBtn.classList.add('hidden');
     updateProfileCartBar();
     return;
@@ -1195,10 +1129,7 @@ function renderProfileCartPage(){
   }
 
   if(!currentCart.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '购物车为空';
-    list.replaceChildren(empty);
+    showEmptyState(list, '购物车为空');
     if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = '0 件商品';
     if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(0);
     return;
@@ -1337,10 +1268,7 @@ function renderCartHubPage(){
   if (sig === _cartHubSig) return;
   _cartHubSig = sig;
   if(!groups.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无待结算商品';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无待结算商品');
     return;
   }
   // Build sellerName cache from orders for O(1) lookup
@@ -1497,10 +1425,7 @@ function renderAdminOrders(){
   if (sig === _adminOrdersSig) return;
   _adminOrdersSig = sig;
   if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无平台订单';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无平台订单');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -1534,10 +1459,7 @@ function renderAdminUsers(){
   if (sig === _adminUsersSig) return;
   _adminUsersSig = sig;
   if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无用户数据';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无用户数据');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -1571,10 +1493,7 @@ function renderAdminProducts(){
   if (sig === _adminProductsSig) return;
   _adminProductsSig = sig;
   if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无商品数据';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无商品数据');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -1602,10 +1521,7 @@ function renderAdminReports(){
   if (sig === _adminReportsSig) return;
   _adminReportsSig = sig;
   if(!rows.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无举报与风控提醒';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无举报与风控提醒');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -1646,10 +1562,7 @@ function renderProfileOrders(){
   if (sig === _profileOrdersSig) return;
   _profileOrdersSig = sig;
   if(!state.profileOrders.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无订单';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无订单');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -1672,58 +1585,35 @@ function renderProfileOrders(){
     const canManage = state.currentUser?.id && state.currentUser.id === order.sellerId;
 
     if (canManage) {
-      // Price edit + Accept button for pending orders
       if(order.status === 'pending'){
-        const editPriceBtn = document.createElement('button');
-        editPriceBtn.type = 'button';
-        editPriceBtn.className = 'secondary-btn';
-        editPriceBtn.textContent = '修改价格';
-        editPriceBtn.addEventListener('click', (e) => { e.stopPropagation();
+        actions.appendChild(createStopBtn('secondary-btn', '修改价格', () => {
           if(!order.id) return;
           showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
             try{ await doUpdateOrderPrice(order.id, raw); }catch(e){ showModal(e.message || '修改失败'); }
           });
-        });
-        actions.appendChild(editPriceBtn);
-        const acceptBtn = document.createElement('button');
-        acceptBtn.type = 'button';
-        acceptBtn.className = 'primary-btn';
-        acceptBtn.textContent = '接单';
-        acceptBtn.addEventListener('click', async (e) => { e.stopPropagation();
+        }));
+        actions.appendChild(createStopBtn('primary-btn', '接单', (e, btn) => {
           if(!order.id) return;
-          try{ await doAcceptOrder(order.id); }catch(e){ showModal(e.message || '接单失败'); }
-        });
-        actions.appendChild(acceptBtn);
+          withButtonLock(btn, () => doAcceptOrder(order.id), '接单中...');
+        }));
       }
-
-      // Complete button only on accepted orders
       if(order.status === 'accepted'){
-        const doneBtn = document.createElement('button');
-        doneBtn.type = 'button';
-        doneBtn.className = 'primary-btn';
-        doneBtn.textContent = '标记已完成';
-        doneBtn.addEventListener('click', async (e) => { e.stopPropagation();
+        actions.appendChild(createStopBtn('primary-btn', '标记已完成', (e, btn) => {
           if(!order.id) return;
-          try{ await doCompleteOrder(order.id); }catch(e){ showModal(e.message || '更新失败'); }
-        });
-        actions.appendChild(doneBtn);
+          withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+        }));
       }
     }
 
     // Buyer can confirm receipt on accepted orders
     const isBuyerUser = state.currentUser?.id && state.currentUser.id === order.buyerId;
     if(isBuyerUser && order.status === 'accepted'){
-      const receiveBtn = document.createElement('button');
-      receiveBtn.type = 'button';
-      receiveBtn.className = 'primary-btn';
-      receiveBtn.textContent = '确认收货';
-      receiveBtn.addEventListener('click', async (e) => { e.stopPropagation();
+      actions.appendChild(createStopBtn('primary-btn', '确认收货', () => {
         if(!order.id) return;
         showConfirm('确认已收到商品？订单将标记为已完成。', async () => {
           try{ await doCompleteOrder(order.id); }catch(e){ showModal(e.message || '确认失败'); }
         });
-      });
-      actions.appendChild(receiveBtn);
+      }));
     }
 
     card.append(title, sub, status);
@@ -1783,10 +1673,7 @@ function showTradePicker(title, items, renderLine, emptyText) {
   titleEl.textContent = title;
   list.replaceChildren();
   if (!Array.isArray(items) || !items.length) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = emptyText || '暂无可选项';
-    list.appendChild(empty);
+    showEmptyState(list, emptyText || '暂无可选项');
   } else {
     const frag = document.createDocumentFragment();
     items.forEach((item, idx) => {
@@ -1908,10 +1795,7 @@ function renderContactCardPicker(keyword){
   let totalVisible = 0;
   grouped.forEach(members => { totalVisible += members.length; });
   if (totalVisible === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'ccp-empty';
-    empty.textContent = search ? '未找到匹配的好友' : '通讯录暂无好友可发送';
-    list.replaceChildren(empty);
+    showEmptyState(list, search ? '未找到匹配的好友' : '通讯录暂无好友可发送', 'ccp-empty');
     return;
   }
 
@@ -1989,10 +1873,7 @@ async function renderProductCardPicker(){
   if(!list) return;
   const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
   if(!products.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无可发送商品，请先发布';
-    list.replaceChildren(empty);
+    showEmptyState(list, '暂无可发送商品，请先发布');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -2032,10 +1913,7 @@ async function renderOrderCardPicker(filterTab){
     return o.sellerId === state.currentUser?.id;
   });
   if(!orders.length){
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = tab === 'bought' ? '暂无从对方购买的订单' : '暂无卖给对方的订单';
-    list.replaceChildren(empty);
+    showEmptyState(list, tab === 'bought' ? '暂无从对方购买的订单' : '暂无卖给对方的订单');
     return;
   }
   const frag = document.createDocumentFragment();
@@ -2407,28 +2285,16 @@ function buildOrderCardMessage(msg){
 
   // Seller can accept pending orders
   if(isSeller && order.status === 'pending'){
-    const editPriceBtn = document.createElement('button');
-    editPriceBtn.type = 'button';
-    editPriceBtn.className = 'secondary-btn';
-    editPriceBtn.textContent = '修改价格';
-    editPriceBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    actions.appendChild(createStopBtn('secondary-btn', '修改价格', (e, btn) => {
       if(!order.id) return;
       showPrompt('请输入新的总价', String(order.total || ''), (raw) => {
-        withButtonLock(editPriceBtn, () => doUpdateOrderPrice(order.id, raw), '修改中...');
+        withButtonLock(btn, () => doUpdateOrderPrice(order.id, raw), '修改中...');
       });
-    });
-    actions.appendChild(editPriceBtn);
-    const acceptBtn = document.createElement('button');
-    acceptBtn.type = 'button';
-    acceptBtn.className = 'primary-btn';
-    acceptBtn.textContent = '接单';
-    acceptBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    }));
+    actions.appendChild(createStopBtn('primary-btn', '接单', (e, btn) => {
       if(!order.id) return;
-      withButtonLock(acceptBtn, () => doAcceptOrder(order.id), '接单中...');
-    });
-    actions.appendChild(acceptBtn);
+      withButtonLock(btn, () => doAcceptOrder(order.id), '接单中...');
+    }));
   }
 
   // Buyer waiting for seller to accept
@@ -2441,16 +2307,10 @@ function buildOrderCardMessage(msg){
 
   // Confirm receipt / mark complete for accepted orders
   if(isParticipant && order.status === 'accepted'){
-    const completeBtn = document.createElement('button');
-    completeBtn.type = 'button';
-    completeBtn.className = 'primary-btn';
-    completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成';
-    completeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    actions.appendChild(createStopBtn('primary-btn', isBuyer ? '确认收货' : '标记已完成', (e, btn) => {
       if(!order.id) return;
-      withButtonLock(completeBtn, () => doCompleteOrder(order.id), '处理中...');
-    });
-    actions.appendChild(completeBtn);
+      withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+    }));
   }
   wrap.appendChild(actions);
   return wrap;
@@ -2475,18 +2335,12 @@ function buildBroadcastCardMessage(msg){
   }
   const actions = document.createElement('div');
   actions.className = 'trade-card-actions';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'primary-btn';
-  btn.textContent = '查看详情';
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
+  actions.appendChild(createStopBtn('primary-btn', '查看详情', () => {
     openBroadcastDetail(
       (msg.broadcast && msg.broadcast.title) || '图文通知',
       (msg.broadcast && msg.broadcast.summary) || ''
     );
-  });
-  actions.appendChild(btn);
+  }));
   card.appendChild(actions);
   return card;
 }
@@ -6028,10 +5882,7 @@ async function _loadFriendRequestsImpl() {
       const container = $("requestsList");
       container.replaceChildren();
       if (!state.friendRequests.length) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-state';
-        empty.textContent = '暂无新的朋友';
-        container.replaceChildren(empty);
+        showEmptyState(container, '暂无新的朋友');
         return;
       }
       state.friendRequests.forEach((r) => {
@@ -6082,10 +5933,7 @@ async function _loadFriendRequestsImpl() {
   } catch(e) {
     console.warn('load friend requests failed', e);
     if($("requestsList")) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = '加载失败，请重试';
-      $("requestsList").replaceChildren(empty);
+      showEmptyState($("requestsList"), '加载失败，请重试');
     }
   }
 }
@@ -6146,10 +5994,7 @@ async function _loadFriendsImpl() {
     console.warn('load friends failed', e);
     const container = $("friendList");
     if (container) {
-      const empty = document.createElement('div');
-      empty.className = 'chat-list-empty';
-      empty.textContent = e?.message || '加载联系人失败';
-      container.replaceChildren(empty);
+      showEmptyState(container, e?.message || '加载联系人失败', 'chat-list-empty');
     }
   }
 }
@@ -6642,10 +6487,7 @@ function renderSystemMessagesList(){
   if(!list) return;
   const msgs = state.systemMessages || [];
   if(!msgs.length){
-    const empty = document.createElement('div');
-    empty.className = 'order-empty-state';
-    empty.textContent = '📢 暂无系统消息';
-    list.replaceChildren(empty);
+    showEmptyState(list, '📢 暂无系统消息', 'order-empty-state');
     return;
   }
   const frag = document.createDocumentFragment();

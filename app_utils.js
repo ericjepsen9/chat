@@ -282,6 +282,15 @@ function appendActionButton(container, label, handler) {
   container.appendChild(btn);
   return btn;
 }
+// Create a button that stops event propagation on click
+function createStopBtn(className, text, handler) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = className;
+  btn.textContent = text;
+  btn.addEventListener('click', (e) => { e.stopPropagation(); handler(e, btn); });
+  return btn;
+}
 function renderAvatarHtml(userObj, fallbackName) {
   if (!userObj) return `<div class="avatar">${firstChar(fallbackName)}</div>`;
   const safeAvatar = normalizeMediaUrl(userObj.avatarUrl);
@@ -395,6 +404,14 @@ function formatConversationTime(timestamp) {
   if (diffDays < 7) return _WEEKDAYS[d.getDay()];
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Render an empty-state placeholder inside a container
+function showEmptyState(container, message, className) {
+  const empty = document.createElement('div');
+  empty.className = className || 'empty-state';
+  empty.textContent = message;
+  container.replaceChildren(empty);
 }
 
 // Reconcile a list of items into a container using signature-based diffing.
