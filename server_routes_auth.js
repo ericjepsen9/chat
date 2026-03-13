@@ -49,6 +49,7 @@ module.exports = function createAuthRoutes(ctx) {
         user.password = await hashPasswordAsync(body.password);
         await schedulePersistCritical('migrate_password', { userId: user.id });
       }
+      revokeSessionsForUser(user.id);
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
@@ -118,6 +119,7 @@ module.exports = function createAuthRoutes(ctx) {
         await schedulePersistCritical('register', { userId: user.id });
         broadcastAll('users_updated', { userId: user.id });
       }
+      revokeSessionsForUser(user.id);
       const token = issueSession(user.id);
       const csrfToken = issueCsrfToken(token);
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
@@ -199,6 +201,9 @@ module.exports = function createAuthRoutes(ctx) {
       const username = phone;
       const regCode = String(body.code || '').trim();
       if (!regCode) return sendJson(res, 400, { error: '请输入验证码' });
+      // Check for duplicate user BEFORE consuming the phone code to avoid wasting the code on a doomed registration
+      if (ctx.index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
+      if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const codeResult = consumePhoneCode(phone, regCode, 'register');
       if (!codeResult.ok) {
         const fallbackResult = consumePhoneCode(phone, regCode, 'login');
@@ -206,8 +211,6 @@ module.exports = function createAuthRoutes(ctx) {
           return sendJson(res, 400, { error: fallbackResult.error || '验证码错误或已过期' });
         }
       }
-      if (ctx.index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const hashedPassword = await hashPasswordAsync(body.password);
       // Re-check after async hash to guard against race condition
       if (ctx.index.usersByName.has(username) || findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });

@@ -128,6 +128,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     );
   }
 
+  // Validate stock availability before any mutations
   const stockUpdates = [];
   for (const [productId, neededQty] of neededByProduct.entries()) {
     const sellerProduct = productById.get(String(productId));
@@ -136,10 +137,6 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     if (currentStock < neededQty) return { ok: false, status: 409, error: 'insufficient_stock' };
     stockUpdates.push({ sellerProduct, nextStock: currentStock - neededQty });
   }
-
-  stockUpdates.forEach(({ sellerProduct, nextStock }) => {
-    sellerProduct.stock = nextStock;
-  });
 
   const total = normalized.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
@@ -157,6 +154,11 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     clientRequestId: clientRequestId || null,
     priceAdjustmentLocked: false,
   };
+
+  // Apply stock deduction and order insertion together after all validation passes
+  stockUpdates.forEach(({ sellerProduct, nextStock }) => {
+    sellerProduct.stock = nextStock;
+  });
   db.orders.unshift(order);
   if (ordersById) ordersById.set(order.id, order);
 
