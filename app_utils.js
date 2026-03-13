@@ -434,6 +434,18 @@ function buildProfileCard(titleText, subText, tagName) {
   return card;
 }
 
+// Create a flex info column with a bold name, and append it + avatar to a container
+function appendUserInfo(container, avatarObj, displayText) {
+  container.appendChild(createAvatarNode(avatarObj, displayText));
+  const info = document.createElement('div');
+  info.style.cssText = 'flex:1;min-width:0;text-align:left;';
+  const strong = document.createElement('strong');
+  strong.textContent = displayText;
+  info.appendChild(strong);
+  container.appendChild(info);
+  return info;
+}
+
 // Render an empty-state placeholder inside a container
 function showEmptyState(container, message, className) {
   const empty = document.createElement('div');
@@ -464,4 +476,15 @@ function reconcileList(container, items, opts) {
   if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
   else existingNodes.forEach(n => n.remove());
   return nextSigs;
+}
+
+function singleFlight(fn) {
+  let inflight = null;
+  return function (...args) {
+    if (inflight) return inflight;
+    inflight = fn.apply(this, args);
+    const cleanup = () => { inflight = null; };
+    inflight.then(cleanup, cleanup);
+    return inflight;
+  };
 }

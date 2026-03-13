@@ -2836,13 +2836,7 @@ function buildFriendRow(item, groupName = '') {
   btn.dataset.friendId = item.friend.id;
   btn.dataset.friendKey = `${groupName}::${item.friend.id}`;
   btn.addEventListener('click', () => window.openUserProfile(item.friend.id, item.friend.displayName));
-  btn.appendChild(createAvatarNode(item.friend, item.friend.displayName));
-  const info = document.createElement('div');
-  info.style.cssText = 'flex:1;min-width:0;text-align:left;';
-  const strong = document.createElement('strong');
-  strong.textContent = item.friend.remark || item.friend.displayName || '';
-  info.appendChild(strong);
-  btn.appendChild(info);
+  appendUserInfo(btn, item.friend, item.friend.remark || item.friend.displayName || '');
   return btn;
 }
 function patchFriendRow(row, item, groupName = '') {
@@ -3196,13 +3190,7 @@ window.forwardMsg = (msgId) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'chat-item';
-      btn.appendChild(createAvatarNode({avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title));
-      const info = document.createElement('div');
-      info.style.cssText = 'flex:1; text-align:left;';
-      const strong = document.createElement('strong');
-      strong.textContent = c.title || '';
-      info.appendChild(strong);
-      btn.appendChild(info);
+      appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
       btn.addEventListener('click', () => window.confirmForward(c.id));
       list.appendChild(btn);
     });
@@ -4687,19 +4675,13 @@ function bindSocialEvents() {
           const data = await api(`/api/blacklist?userId=${encodeURIComponent(state.currentUser.id)}`);
           const list = $("blacklistContainer"); if(!list) return;
           const blacklist = data.users || data.blacklist || [];
-          if(blacklist.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center;padding:40px;color:var(--text-muted);font-size:14px;'; emptyDiv.textContent = '黑名单为空'; list.replaceChildren(emptyDiv); }
+          if(blacklist.length === 0) { showEmptyState(list, '黑名单为空'); }
           else {
             list.replaceChildren();
             blacklist.forEach((u) => {
               const row = document.createElement('div');
               row.className = 'chat-item';
-              row.appendChild(createAvatarNode(u, u.displayName));
-              const info = document.createElement('div');
-              info.style.cssText = 'flex:1;text-align:left;';
-              const strong = document.createElement('strong');
-              strong.textContent = u.displayName || '';
-              info.appendChild(strong);
-              row.appendChild(info);
+              appendUserInfo(row, u, u.displayName || '');
               const btn = document.createElement('button');
               btn.className = 'primary-btn';
               btn.style.background = '#ff3b30';
@@ -4736,14 +4718,8 @@ function bindSocialEvents() {
       const userObj = friend ? friend.friend : { displayName: state.activeConversation?.title || state.conversationsById?.get(state.activeConversation?.id)?.title || '未知用户', avatarUrl: state.activeConversation?.peerAvatarUrl || null };
       const finalName = userObj.remark || userObj.displayName || '未知用户';
       profileCard.style.opacity = '';
-      profileCard.appendChild(createAvatarNode(userObj, finalName));
-      const info = document.createElement('div');
-      info.style.cssText = 'flex:1;text-align:left;';
-      const strong = document.createElement('strong');
-      strong.style.fontSize = '18px';
-      strong.textContent = finalName;
-      info.appendChild(strong);
-      profileCard.appendChild(info);
+      const info = appendUserInfo(profileCard, userObj, finalName);
+      info.querySelector('strong').style.fontSize = '18px';
       profileCard.onclick = () => window.openUserProfile(peerId, finalName);
   });
 
@@ -5640,7 +5616,7 @@ async function _loadMyProductsImpl() {
     const data = await api(`/api/users/${state.currentUser.id}/profile?viewerId=${encodeURIComponent(state.currentUser.id)}`);
     const list = $("myProductsList"); if(!list) return;
     const products = data.profile.products || [];
-    if(products.length === 0) { const emptyDiv = document.createElement('div'); emptyDiv.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;'; emptyDiv.textContent = '你还没有发布任何闲置商品'; list.replaceChildren(emptyDiv); return; }
+    if(products.length === 0) { showEmptyState(list, '你还没有发布任何闲置商品'); return; }
     list.replaceChildren();
     products.forEach((p) => {
       const row = document.createElement('div');
@@ -5675,10 +5651,7 @@ async function _loadMyProductsImpl() {
     console.warn('load my products failed', e);
     const list = $("myProductsList");
     if (list) {
-      const empty = document.createElement('div');
-      empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;';
-      empty.textContent = e?.message || '加载我的商品失败';
-      list.replaceChildren(empty);
+      showEmptyState(list, e?.message || '加载我的商品失败');
     }
   }
 }
@@ -5727,10 +5700,7 @@ async function _loadMallImpl() {
     if (products.length === 0) {
       state.mallListSignature = nextSignature;
       state.mallItemSignatures = {};
-      const empty = document.createElement('div');
-      empty.style.cssText = 'text-align:center; padding: 40px; color:#8e8e93; font-size:14px;';
-      empty.textContent = state.mallTab === 'nearby' ? '附近暂无闲置商品，快去发布吧' : '暂无商品，快去发布吧';
-      list.replaceChildren(empty);
+      showEmptyState(list, state.mallTab === 'nearby' ? '附近暂无闲置商品，快去发布吧' : '暂无商品，快去发布吧');
       return;
     }
     if (nextSignature === state.mallListSignature && grid) return;
@@ -5749,7 +5719,7 @@ async function _loadMallImpl() {
       sigStore: state.mallItemSignatures,
     });
     state.mallListSignature = nextSignature;
-  } catch(e) { if($("mallList")) { const empty = document.createElement('div'); empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;'; empty.textContent = '加载失败'; $("mallList").replaceChildren(empty); } }
+  } catch(e) { const _ml = $("mallList"); if (_ml) showEmptyState(_ml, '加载失败'); }
 }
 
 async function doMallSearchPage() {
