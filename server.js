@@ -201,7 +201,7 @@ const {
   rebuildFriendshipIndexes, rebuildFriendRequestMaps,
   rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
   rebuildMessageIndexes,
-} = createIndexManager({ db, index, normalizeUserRole, normalizePhone });
+} = createIndexManager({ db, index, normalizeUserRole, normalizePhone, generateUniqueAppNumberId });
 
 
 rebuildIndexes();

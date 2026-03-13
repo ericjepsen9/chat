@@ -1,4 +1,4 @@
-module.exports = function createIndexManager({ db, index, normalizeUserRole, normalizePhone }) {
+module.exports = function createIndexManager({ db, index, normalizeUserRole, normalizePhone, generateUniqueAppNumberId }) {
 function addToMapArray(map, key, value) {
   if (!map.has(key)) map.set(key, []);
   map.get(key).push(value);
@@ -197,9 +197,7 @@ function rebuildIndexes() {
       if (specs) user.specPresets = [...specs];
     }
     if (!user.appNumberId) {
-      let appNum;
-      do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber.has(appNum));
-      user.appNumberId = appNum;
+      user.appNumberId = generateUniqueAppNumberId();
     }
     index.usersById.set(user.id, user);
     index.usersByName.set(user.username, user);

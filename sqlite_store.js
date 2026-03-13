@@ -78,8 +78,13 @@ function initSchema(db) {
   `);
 }
 
+const ALLOWED_TABLES = new Set(['users', 'friendships', 'friend_requests', 'conversations']);
+
 function getSnapshot(db) {
-  const readAll = (table) => db.prepare(`SELECT json FROM ${table}`).all().map((r) => JSON.parse(r.json));
+  const readAll = (table) => {
+    if (!ALLOWED_TABLES.has(table)) throw new Error(`invalid table: ${table}`);
+    return db.prepare(`SELECT json FROM ${table}`).all().map((r) => JSON.parse(r.json));
+  };
   const readMessages = () => db.prepare('SELECT json FROM messages ORDER BY created_at ASC').all().map((r) => JSON.parse(r.json));
   const readOrders = () => db.prepare('SELECT json FROM orders ORDER BY created_at DESC').all().map((r) => JSON.parse(r.json));
   const readProducts = () => db.prepare('SELECT json FROM products ORDER BY created_at ASC').all().map((r) => JSON.parse(r.json));

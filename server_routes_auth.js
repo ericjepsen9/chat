@@ -16,6 +16,12 @@ module.exports = function createAuthRoutes(ctx) {
     schedulePersistCritical, broadcastAll,
   } = ctx;
 
+  function validatePasswordLength(password) {
+    if (!password || password.length < 8) return '新密码至少8位';
+    if (password.length > 128) return '密码长度不能超过128位';
+    return null;
+  }
+
   return async function handleAuthRoutes(pathname, method, req, res, searchParams) {
 
     if (matchRoute(pathname, '/api/login') && method === 'POST') {
@@ -128,8 +134,8 @@ module.exports = function createAuthRoutes(ctx) {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - Date.now()) / 1000) });
       }
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
-      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
-      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
+      const pwErr1 = validatePasswordLength(nextPassword);
+      if (pwErr1) return sendJson(res, 400, { error: pwErr1 });
       if (!phone || !/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
@@ -163,8 +169,8 @@ module.exports = function createAuthRoutes(ctx) {
       if (String(body.oldPassword || '') === nextPassword) {
         return sendJson(res, 400, { error: '新密码不能与旧密码相同' });
       }
-      if (nextPassword.length < 8) return sendJson(res, 400, { error: '新密码至少8位' });
-      if (nextPassword.length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
+      const pwErr2 = validatePasswordLength(nextPassword);
+      if (pwErr2) return sendJson(res, 400, { error: pwErr2 });
       authUser.password = await hashPasswordAsync(nextPassword);
       revokeSessionsForUser(authUser.id);
       const token = issueSession(authUser.id);
@@ -186,9 +192,8 @@ module.exports = function createAuthRoutes(ctx) {
       if (!body.displayName || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
       const displayName = String(body.displayName).trim();
       if (!displayName) return sendJson(res, 400, { error: '昵称不能为空' });
-      if (String(body.password || '').length < 8) {
-        return sendJson(res, 400, { error: '密码至少8位' });
-      }
+      const regPwErr = validatePasswordLength(body.password);
+      if (regPwErr) return sendJson(res, 400, { error: regPwErr });
       const phone = normalizePhone(body.phone || '');
       if (!phone) return sendJson(res, 400, { error: '请填写有效手机号' });
       const username = phone;
@@ -203,8 +208,8 @@ module.exports = function createAuthRoutes(ctx) {
       }
       if (ctx.index.usersByName.has(username)) return sendJson(res, 409, { error: '该手机号已被注册' });
       if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
-      if (String(body.password || '').length > 128) return sendJson(res, 400, { error: '密码长度不能超过128位' });
       const hashedPassword = await hashPasswordAsync(body.password);
+      // Re-check after async hash to guard against race condition
       if (ctx.index.usersByName.has(username) || findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const user = {
         id: uid('u'),

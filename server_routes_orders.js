@@ -22,8 +22,8 @@ module.exports = function createOrderRoutes(ctx) {
       (data.orders || []).forEach(o => {
         const buyer = index.usersById.get(o.buyerId);
         const seller = index.usersById.get(o.sellerId);
-        o.buyerName = buyer?.displayName || buyer?.nickname || '';
-        o.sellerName = seller?.displayName || seller?.nickname || '';
+        o.buyerName = buyer?.displayName || '';
+        o.sellerName = seller?.displayName || '';
       });
       return sendJson(res, 200, data);
     }
