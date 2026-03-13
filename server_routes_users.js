@@ -1,5 +1,8 @@
 /* server_routes_users.js — User profile, store, and phone change route handlers */
 
+const RE_USER_PROFILE = /(?:\/api)?\/users\/([^/]+)\/profile$/;
+const RE_USER_STORE = /^\/api\/users\/([^/]+)\/store$/;
+
 module.exports = function createUserRoutes(ctx) {
   const {
     matchRoute, sendJson, sendResult,
@@ -84,7 +87,7 @@ module.exports = function createUserRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    const profileMatch = pathname.match(/(?:\/api)?\/users\/([^/]+)\/profile$/);
+    const profileMatch = pathname.match(RE_USER_PROFILE);
     if (profileMatch && method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
@@ -102,7 +105,7 @@ module.exports = function createUserRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    const storeMatch = pathname.match(/^\/api\/users\/([^/]+)\/store$/);
+    const storeMatch = pathname.match(RE_USER_STORE);
     if (storeMatch && method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;

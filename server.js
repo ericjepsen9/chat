@@ -310,7 +310,7 @@ function broadcastToConversation(conversationId, event, payload) {
 }
 function broadcastAll(event, payload) {
   const chunk = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-  for (const userId of Array.from(sseClientsByUser.keys())) broadcastToUser(userId, event, payload, chunk);
+  for (const userId of sseClientsByUser.keys()) broadcastToUser(userId, event, payload, chunk);
 }
 
 function sendJson(res, status, payload) {
@@ -324,54 +324,7 @@ function sendResult(res, result) {
   return sendJson(res, result.status, result.payload);
 }
 
-function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    let settled = false;
-    const chunks = [];
-    req.on('data', (chunk) => {
-      if (settled) return;
-      size += chunk.length;
-      if (size > BODY_LIMIT) {
-        settled = true;
-        const err = new Error('payload_too_large');
-        err.statusCode = 413;
-        reject(err);
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => {
-      if (settled) return;
-      settled = true;
-      const raw = Buffer.concat(chunks).toString('utf8');
-      if (!raw) return resolve({});
-      try {
-        resolve(JSON.parse(raw));
-      } catch (_) {
-        const err = new Error('invalid_json');
-        err.statusCode = 400;
-        reject(err);
-      }
-    });
-    req.on('error', (e) => {
-      if (settled) return;
-      settled = true;
-      reject(e);
-    });
-    req.on('close', () => {
-      if (settled) return;
-      settled = true;
-      const err = new Error('client_closed');
-      err.statusCode = 499;
-      reject(err);
-    });
-  });
-}
-
-
-function parseRawBody(req, limit = UPLOAD_LIMIT) {
+function collectBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
     let settled = false;
@@ -407,6 +360,23 @@ function parseRawBody(req, limit = UPLOAD_LIMIT) {
       reject(err);
     });
   });
+}
+
+async function parseBody(req) {
+  const buf = await collectBody(req, BODY_LIMIT);
+  if (!buf.length) return {};
+  const raw = buf.toString('utf8');
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const err = new Error('invalid_json');
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function parseRawBody(req, limit = UPLOAD_LIMIT) {
+  return collectBody(req, limit);
 }
 
 function ensureUploadRoot() {
@@ -860,12 +830,22 @@ const server = http.createServer(async (req, res) => {
         const ext = path.extname(filePath);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
         const headers = { 'Content-Type': contentType, 'Content-Length': stat.size };
+        // ETag based on mtime + size for conditional requests
+        const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
+        headers['ETag'] = etag;
         if (pathname.startsWith('/uploads/')) {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_UPLOADS}, immutable`;
         } else if (ext === '.html') {
           headers['Cache-Control'] = 'no-cache';
         } else {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_DEFAULT}`;
+        }
+        // Conditional request: return 304 if ETag matches
+        const ifNoneMatch = req.headers['if-none-match'];
+        if (ifNoneMatch && ifNoneMatch === etag) {
+          res.writeHead(304, { 'ETag': etag });
+          res.end();
+          return;
         }
         res.writeHead(200, headers);
         const stream = fs.createReadStream(filePath);

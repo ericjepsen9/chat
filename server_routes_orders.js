@@ -1,5 +1,7 @@
 /* server_routes_orders.js — Order route handlers */
 
+const RE_ORDER_ACTION = /^\/api\/orders\/([^/]+)\/(accept|price|price-request|price-confirm|status|delete)$/;
+
 module.exports = function createOrderRoutes(ctx) {
   const {
     matchRoute, sendJson, sendResult,
@@ -50,7 +52,7 @@ module.exports = function createOrderRoutes(ctx) {
     }
 
     // Single regex for all /api/orders/:id/:action POST routes (avoids 6 separate regex matches)
-    const orderActionMatch = method === 'POST' && pathname.match(/^\/api\/orders\/([^/]+)\/(accept|price|price-request|price-confirm|status|delete)$/);
+    const orderActionMatch = method === 'POST' && pathname.match(RE_ORDER_ACTION);
     if (orderActionMatch) {
       const orderId = orderActionMatch[1];
       const action = orderActionMatch[2];

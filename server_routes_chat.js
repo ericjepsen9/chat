@@ -2,6 +2,12 @@
 
 const SEARCH_LIMITS = { GLOBAL_DEFAULT: 20, GLOBAL_MAX: 50, CONV_DEFAULT: 30, CONV_MAX: 100 };
 
+// Pre-compiled route regexes — avoid re-compilation on every request
+const RE_CONV_SEARCH = /(?:\/api)?\/conversations\/([^/]+)\/messages\/search$/;
+const RE_CONV_MSG = /(?:\/api)?\/conversations\/([^/]+)\/messages$/;
+const RE_CONV_MSG_ACTION = /(?:\/api)?\/conversations\/([^/]+)\/messages\/([^/]+)\/(delete|recall)$/;
+const RE_CONV_ACTION = /(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/;
+
 module.exports = function createChatRoutes(ctx) {
   const {
     matchRoute, sendJson, sendResult,
@@ -62,7 +68,7 @@ module.exports = function createChatRoutes(ctx) {
       return sendJson(res, 200, searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }));
     }
 
-    const convSearchMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/search$/);
+    const convSearchMatch = pathname.match(RE_CONV_SEARCH);
     if (convSearchMatch && method === 'GET') {
       const conversationId = convSearchMatch[1];
       const conv = index.convById.get(conversationId);
@@ -77,7 +83,7 @@ module.exports = function createChatRoutes(ctx) {
       return sendJson(res, 200, searchMessagesInConversation({ conv, keyword, limit, offset, authUserId: authUser.id, index, isMessageVisibleToUser }));
     }
 
-    const convMsgMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages$/);
+    const convMsgMatch = pathname.match(RE_CONV_MSG);
     if (convMsgMatch) {
       const conversationId = convMsgMatch[1];
       const conv = index.convById.get(conversationId);
@@ -116,7 +122,7 @@ module.exports = function createChatRoutes(ctx) {
       }
     }
 
-    const convMsgActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/messages\/([^/]+)\/(delete|recall)$/);
+    const convMsgActionMatch = pathname.match(RE_CONV_MSG_ACTION);
     if (convMsgActionMatch && method === 'POST') {
       const [_, conversationId, messageId, action] = convMsgActionMatch;
       const conv = index.convById.get(conversationId);
@@ -148,7 +154,7 @@ module.exports = function createChatRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    const convActionMatch = pathname.match(/(?:\/api)?\/conversations\/([^/]+)\/(delete|recall|read|signal|call|mute|pin|clear)$/);
+    const convActionMatch = pathname.match(RE_CONV_ACTION);
     if (convActionMatch && method === 'POST') {
       const conversationId = convActionMatch[1];
       const action = convActionMatch[2];

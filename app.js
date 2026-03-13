@@ -112,8 +112,13 @@ function getCartSummary() {
 function getGroupedCartTotal(){ return getCartSummary().total; }
 function getGroupedCartCount(){ return getCartSummary().count; }
 const CART_STORAGE_KEY = 'chattrade_cart';
+let _cartSaveTimer = null;
 function saveCartToStorage() {
-  try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.profileCartBySeller || {})); } catch(_) {}
+  if (_cartSaveTimer) return;
+  _cartSaveTimer = setTimeout(() => {
+    _cartSaveTimer = null;
+    try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.profileCartBySeller || {})); } catch(_) {}
+  }, 100);
 }
 function loadCartFromStorage() {
   try {
@@ -5697,14 +5702,12 @@ function bindChatViewDelegation(chatView) {
 const renderMessages = safeRender(function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
   bindChatViewDelegation(chatView);
-  // Build lightweight signature: id|type|recalled for each message
-  const sigParts = new Array(state.messages.length + 1);
-  sigParts[0] = state.messages.length + ':';
+  // Build lightweight signature: id|type|createdAt per message — single string, no array alloc
+  let sig = state.messages.length + ':';
   for (let i = 0; i < state.messages.length; i++) {
     const m = state.messages[i];
-    sigParts[i + 1] = m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0);
+    sig += m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0) + ';';
   }
-  const sig = sigParts.join(';');
   if (!sigChanged('messages', sig) && !preserveScroll) return;
   _messagesSig = sig;
   const oldScrollHeight = chatView.scrollHeight;
@@ -6269,15 +6272,18 @@ function renderSystemMessagesList(){
 const loadConversations = singleFlight(async function _loadConversationsImpl() {
   try {
     const data = await api(`/api/conversations?userId=${encodeURIComponent(state.currentUser.id)}`);
-    state.conversations = (data.conversations || []).map(normalizeConversation);
+    const convArr = data.conversations || [];
+    // Normalize in-place — avoid .map() allocation since normalizeConversation mutates
+    for (let ci = 0; ci < convArr.length; ci++) normalizeConversation(convArr[ci]);
+    state.conversations = convArr;
     state.conversationsById = new Map();
     state.mutedConvIds = new Set();
     state.pinnedConvIds = new Set();
     const uid = state.currentUser?.id;
-    for (const c of state.conversations) {
+    for (const c of convArr) {
       state.conversationsById.set(c.id, c);
-      if (c.muted === true || (Array.isArray(c.mutedBy) && uid && c.mutedBy.includes(uid))) state.mutedConvIds.add(c.id);
-      if (c.pinned === true || (Array.isArray(c.pinnedBy) && uid && c.pinnedBy.includes(uid))) state.pinnedConvIds.add(c.id);
+      if (c.muted) state.mutedConvIds.add(c.id);
+      if (c.pinned) state.pinnedConvIds.add(c.id);
     }
     if (state.activeConversation) {
       const next = state.conversationsById.get(state.activeConversation.id);

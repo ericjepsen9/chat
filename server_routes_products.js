@@ -1,6 +1,7 @@
 /* server_routes_products.js — Product, mall, and broadcast route handlers */
 
 const MAX_PRESETS = 50;
+const RE_BROADCAST = /^\/api\/conversations\/([^/]+)\/broadcast$/;
 
 module.exports = function createProductRoutes(ctx) {
   const {
@@ -19,7 +20,7 @@ module.exports = function createProductRoutes(ctx) {
 
   return async function handleProductRoutes(pathname, method, req, res, searchParams) {
 
-    const broadcastMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/broadcast$/);
+    const broadcastMatch = pathname.match(RE_BROADCAST);
     if (broadcastMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context) return true;

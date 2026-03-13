@@ -51,12 +51,17 @@ const on = (id, ev, fn) => {
 };
 
 async function api(p, o={}) {
-    const session = readSession();
-    const headers = { ...(o.headers || {}) };
+    const headers = o.headers ? { ...o.headers } : {};
     if (!(o.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-    const token = state.sessionToken || session.token;
+    // Use in-memory tokens first; only read localStorage as fallback
+    let token = state.sessionToken;
+    let csrf = state.csrfToken;
+    if (!token) {
+      const session = readSession();
+      token = session.token;
+      csrf = csrf || session.csrfToken;
+    }
     if (token) headers.Authorization = `Bearer ${token}`;
-    const csrf = state.csrfToken || session.csrfToken;
     if (csrf && o.method && o.method !== 'GET') headers['X-CSRF-Token'] = csrf;
     let r;
     try {
