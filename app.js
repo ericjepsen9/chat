@@ -5602,6 +5602,7 @@ async function fetchMessages(before = 0) {
 
 // WebRTC/calling functions moved to app_calling.js
 let _connectRealtimeInFlight = false;
+let _convUpdateTimer = null;
 async function connectRealtime() {
   if (_connectRealtimeInFlight) return;
   _connectRealtimeInFlight = true;
@@ -5625,6 +5626,7 @@ async function connectRealtime() {
     return;
   }
   state.eventSource = new EventSource(`/api/events?sse=${encodeURIComponent(sseToken)}`);
+  if (_convUpdateTimer) { clearTimeout(_convUpdateTimer); _convUpdateTimer = null; }
   state._sseHandlers = [];
   const _on = (evt, fn) => { state._sseHandlers.push([evt, fn]); state.eventSource.addEventListener(evt, fn); };
   _on('message_created', async (e) => { try {
@@ -5664,7 +5666,6 @@ async function connectRealtime() {
       loadConversations();
     }
   } catch (err) { console.warn('[sse] message_recalled handler error', err); } });
-  let _convUpdateTimer = null;
   _on('conversation_updated', () => {
     // Debounce rapid conversation_updated events to avoid hammering the API
     if (_convUpdateTimer) clearTimeout(_convUpdateTimer);

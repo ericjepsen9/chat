@@ -175,13 +175,14 @@ function rebuildIndexes() {
   for (const user of db.users) {
     if (!Array.isArray(user.blacklist)) user.blacklist = [];
     if (!Array.isArray(user.products)) user.products = [];
-    user.products = user.products.map((p) => {
+    for (let pi = 0; pi < user.products.length; pi++) {
+      const p = user.products[pi];
       const next = p && typeof p === 'object' ? p : {};
+      if (next !== p) user.products[pi] = next;
       const rawStock = Number(next.stock);
       next.stock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 99;
       next.listed = next.listed !== false;
-      return next;
-    });
+    }
     user.paymentCodes = normalizePaymentCodes(user.paymentCodes);
     user.role = normalizeUserRole(user);
     if (!user.status) user.status = 'active';

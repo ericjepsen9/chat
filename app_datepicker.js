@@ -21,7 +21,7 @@ function dpBuildItems(col, items, selectedVal) {
   if (!col) return;
   const ITEM_H = 44;
   const padCount = 2; // blank items top/bottom for centering
-  col.innerHTML = '';
+  col.textContent = '';
   for (let i = 0; i < padCount; i++) {
     const pad = document.createElement('div');
     pad.className = 'dp-item dp-pad';
