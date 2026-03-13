@@ -392,32 +392,20 @@ function buildOrderCard(order, role){
   return card;
 }
 
-function renderBuyerOrdersManage(){
-  const list = $("buyerOrdersManageList");
+function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
+  const list = $(listId);
   if(!list) return;
-  syncOrderFilterInputs('buyer');
-  const rows = (state.buyerOrders || []).filter((o) => orderMatchesFilters(o, 'buyer'));
-  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.buyerOrderSearch + '|' + state.buyerOrderFrom + '|' + state.buyerOrderTo;
-  if (!sigChanged('buyerOrders', sig)) return;
-  if(!rows.length){ showEmptyState(list, '🧾 暂无购买订单', 'order-empty-state'); return; }
+  syncOrderFilterInputs(role);
+  const rows = (state[ordersKey] || []).filter((o) => orderMatchesFilters(o, role));
+  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
+  if (!sigChanged(ordersKey, sig)) return;
+  if(!rows.length){ showEmptyState(list, emptyMsg, 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
-  rows.forEach(order => frag.appendChild(buildOrderCard(order, 'buyer')));
+  rows.forEach(order => frag.appendChild(buildOrderCard(order, role)));
   list.replaceChildren(frag);
 }
-
-
-function renderSellerOrdersManage(){
-  const list = $("sellerOrdersList");
-  if(!list) return;
-  syncOrderFilterInputs('seller');
-  const rows = (state.sellerOrders || []).filter((o) => orderMatchesFilters(o, 'seller'));
-  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.sellerOrderSearch + '|' + state.sellerOrderFrom + '|' + state.sellerOrderTo;
-  if (!sigChanged('sellerOrders', sig)) return;
-  if(!rows.length){ showEmptyState(list, '📋 暂无卖家订单', 'order-empty-state'); return; }
-  const frag = document.createDocumentFragment();
-  rows.forEach(order => frag.appendChild(buildOrderCard(order, 'seller')));
-  list.replaceChildren(frag);
-}
+function renderBuyerOrdersManage() { renderOrdersManage('buyer', 'buyerOrdersManageList', 'buyerOrders', '🧾 暂无购买订单'); }
+function renderSellerOrdersManage() { renderOrdersManage('seller', 'sellerOrdersList', 'sellerOrders', '📋 暂无卖家订单'); }
 
 
 function updateSellerProductsFilterUI(){
@@ -1157,7 +1145,7 @@ function renderProfileCartPage(){
     priceLabel.className = 'checkout-price checkout-price-editable';
     priceLabel.textContent = formatMoney(Number(item.unitPrice || 0));
     priceLabel.title = '点击修改价格';
-    priceLabel.addEventListener('click', () => {
+    const editPrice = () => {
       showPrompt('请输入新的单价', String(item.unitPrice || 0), (raw) => {
         const newPrice = Math.max(0, Number(String(raw).replace(/[^\d.]/g, '')) || 0);
         item.unitPrice = newPrice;
@@ -1165,20 +1153,13 @@ function renderProfileCartPage(){
         updateTotals();
         saveCartToStorage();
       });
-    });
+    };
+    priceLabel.addEventListener('click', editPrice);
     const priceEditBtn = document.createElement('button');
     priceEditBtn.type = 'button';
     priceEditBtn.className = 'checkout-price-edit-btn';
     priceEditBtn.textContent = '改价';
-    priceEditBtn.addEventListener('click', () => {
-      showPrompt('请输入新的单价', String(item.unitPrice || 0), (raw) => {
-        const newPrice = Math.max(0, Number(String(raw).replace(/[^\d.]/g, '')) || 0);
-        item.unitPrice = newPrice;
-        priceLabel.textContent = formatMoney(newPrice);
-        updateTotals();
-        saveCartToStorage();
-      });
-    });
+    priceEditBtn.addEventListener('click', editPrice);
     priceWrap.append(priceLabel, priceEditBtn);
 
     // Quantity controls
@@ -4752,21 +4733,22 @@ function bindSocialEvents() {
     });
   });
 
+  async function doAddBlacklist(targetId) {
+    showLoading('处理中...');
+    try {
+      await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'add' }) });
+      showModal('已加入黑名单');
+      loadFriends().catch(() => {});
+      loadConversations().catch(() => {});
+    } catch(e) { showModal(e?.message || '加入黑名单失败');
+    } finally { hideLoading(); }
+  }
   on("blacklistBtn", "click", () => {
       const peerId = conversationPeerId(state.activeConversation);
       if(!peerId) return showModal('未找到会话对象');
       showConfirm("确定把他加入黑名单吗？加入后将拒收他的消息。", async () => {
-        showLoading('处理中...');
-        try {
-          await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: peerId, action: 'add' }) });
-          showModal("已加入黑名单");
-          loadFriends().catch(() => {});
-          loadConversations().catch(() => {});
-          if($("backBtn")) $("backBtn").click();
-        } catch(e){
-          console.warn('add blacklist failed', e);
-          showModal(e?.message || '加入黑名单失败');
-        } finally { hideLoading(); }
+        await doAddBlacklist(peerId);
+        if($("backBtn")) $("backBtn").click();
       });
   });
   on("deleteFriendBtn", "click", () => {
@@ -5031,13 +5013,7 @@ function bindBroadcastEvents() {
   on("profileActionBlacklistBtn", "click", async () => {
       const p = state.currentProfileUser; if(!p) return;
       hideProfileActionSheet();
-      showLoading('处理中...');
-      try {
-        await api('/api/blacklist', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId: p.id, action: 'add' }) });
-        showModal('已加入黑名单');
-        loadFriends().catch(() => {});
-        loadConversations().catch(() => {});
-      } catch(e) { showModal(e.message || '操作失败'); } finally { hideLoading(); }
+      await doAddBlacklist(p.id);
   });
   on("profileActionReportBtn", "click", () => { hideProfileActionSheet(); showModal('已收到举报，我们会尽快处理'); });
   on("btnSettingsMoveGroup", "click", () => { const peerId = conversationPeerId(state.activeConversation); if(peerId) window.openGroupSelect(peerId); });
