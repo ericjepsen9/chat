@@ -4,6 +4,15 @@ const ADMIN_PAGE_LIMIT = 50;
 const AUDIT_LOG_MAX = 200;
 const adminAuditLog = []; // in-memory ring buffer
 
+// Pre-compiled route regexes
+const RE_USER_DELETE = /^\/api\/admin\/users\/([^/]+)\/delete$/;
+const RE_BL_REMOVE = /^\/api\/admin\/users\/([^/]+)\/blacklist\/remove$/;
+const RE_ORDER_DELETE = /^\/api\/admin\/orders\/([^/]+)\/delete$/;
+const RE_FRIEND_REMOVE = /^\/api\/admin\/friends\/remove$/;
+const RE_FR_DELETE = /^\/api\/admin\/friend-requests\/([^/]+)\/delete$/;
+const RE_SESSION_REVOKE = /^\/api\/admin\/sessions\/([^/]+)\/revoke$/;
+const RE_CONV_DELETE = /^\/api\/admin\/conversations\/([^/]+)\/delete$/;
+
 function logAudit(adminUser, action, detail) {
   adminAuditLog.unshift({
     adminId: adminUser.id,
@@ -96,7 +105,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     // ══════════════════════════════════════════
     //  USER DELETE
     // ══════════════════════════════════════════
-    const userDeleteMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/delete$/);
+    const userDeleteMatch = pathname.match(RE_USER_DELETE);
     if (userDeleteMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -127,7 +136,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     // ══════════════════════════════════════════
     //  BLACKLIST MANAGEMENT
     // ══════════════════════════════════════════
-    const blRemoveMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/blacklist\/remove$/);
+    const blRemoveMatch = pathname.match(RE_BL_REMOVE);
     if (blRemoveMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -146,7 +155,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     // ══════════════════════════════════════════
     //  ORDER DELETE
     // ══════════════════════════════════════════
-    const orderDeleteMatch = pathname.match(/^\/api\/admin\/orders\/([^/]+)\/delete$/);
+    const orderDeleteMatch = pathname.match(RE_ORDER_DELETE);
     if (orderDeleteMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -209,7 +218,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     }
 
     // Admin remove friendship
-    const friendRemoveMatch = pathname.match(/^\/api\/admin\/friends\/remove$/);
+    const friendRemoveMatch = pathname.match(RE_FRIEND_REMOVE);
     if (friendRemoveMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -247,7 +256,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     }
 
     // Admin delete friend request
-    const frDeleteMatch = pathname.match(/^\/api\/admin\/friend-requests\/([^/]+)\/delete$/);
+    const frDeleteMatch = pathname.match(RE_FR_DELETE);
     if (frDeleteMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -296,7 +305,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     }
 
     // Force logout user (revoke all sessions)
-    const sessionRevokeMatch = pathname.match(/^\/api\/admin\/sessions\/([^/]+)\/revoke$/);
+    const sessionRevokeMatch = pathname.match(RE_SESSION_REVOKE);
     if (sessionRevokeMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -381,7 +390,7 @@ module.exports = function createAdminExtRoutes(ctx) {
     // ══════════════════════════════════════════
     //  CONVERSATION DELETE
     // ══════════════════════════════════════════
-    const convDeleteMatch = pathname.match(/^\/api\/admin\/conversations\/([^/]+)\/delete$/);
+    const convDeleteMatch = pathname.match(RE_CONV_DELETE);
     if (convDeleteMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });

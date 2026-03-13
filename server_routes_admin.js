@@ -3,6 +3,18 @@
 const SYSTEM_MSG_LIMITS = { TITLE: 80, SUMMARY: 240, COVER: 512, LIST_MAX: 30, STORE_MAX: 100 };
 const ADMIN_PAGE_LIMIT = 50;
 
+// Pre-compiled route regexes
+const RE_SYS_DEL = /^\/api\/admin\/system\/messages\/([^/]+)\/delete$/;
+const RE_USER_DETAIL = /^\/api\/admin\/users\/([^/]+)$/;
+const RE_USER_UPDATE = /^\/api\/admin\/users\/([^/]+)\/update$/;
+const RE_USER_RESET_PW = /^\/api\/admin\/users\/([^/]+)\/reset-password$/;
+const RE_ORDER_DETAIL = /^\/api\/admin\/orders\/([^/]+)$/;
+const RE_ORDER_STATUS = /^\/api\/admin\/orders\/([^/]+)\/status$/;
+const RE_PRODUCT_UPDATE = /^\/api\/admin\/products\/([^/]+)\/update$/;
+const RE_PRODUCT_DELETE = /^\/api\/admin\/products\/([^/]+)\/delete$/;
+const RE_CONV_MSG = /^\/api\/admin\/conversations\/([^/]+)\/messages$/;
+const RE_MSG_DEL = /^\/api\/admin\/messages\/([^/]+)\/delete$/;
+
 module.exports = function createAdminRoutes(ctx) {
   const {
     sendJson, matchRoute,
@@ -61,7 +73,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // ── Admin: delete system message ──
-    const sysDelMatch = pathname.match(/^\/api\/admin\/system\/messages\/([^/]+)\/delete$/);
+    const sysDelMatch = pathname.match(RE_SYS_DEL);
     if (sysDelMatch && method === 'POST') {
       const authUser = await getAuthedBody(req, res).then(c => c?.authUser);
       if (!authUser || !isAdmin(authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -118,7 +130,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Get user detail
-    const userDetailMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    const userDetailMatch = pathname.match(RE_USER_DETAIL);
     if (userDetailMatch && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
@@ -156,7 +168,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Update user
-    const userUpdateMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/update$/);
+    const userUpdateMatch = pathname.match(RE_USER_UPDATE);
     if (userUpdateMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -174,7 +186,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Reset user password
-    const userResetPwMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/);
+    const userResetPwMatch = pathname.match(RE_USER_RESET_PW);
     if (userResetPwMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -230,7 +242,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Get order detail
-    const orderDetailMatch = pathname.match(/^\/api\/admin\/orders\/([^/]+)$/);
+    const orderDetailMatch = pathname.match(RE_ORDER_DETAIL);
     if (orderDetailMatch && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
@@ -250,7 +262,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Update order status (admin force)
-    const orderStatusMatch = pathname.match(/^\/api\/admin\/orders\/([^/]+)\/status$/);
+    const orderStatusMatch = pathname.match(RE_ORDER_STATUS);
     if (orderStatusMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -269,37 +281,55 @@ module.exports = function createAdminRoutes(ctx) {
     //  PRODUCT MANAGEMENT
     // ══════════════════════════════════════════
 
-    // List all products
+    // List all products — uses pre-built mallItems index (already sorted by createdAt desc)
     if (pathname === '/api/admin/products' && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
       const { limit, offset } = paginate(searchParams);
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const listedFilter = searchParams.get('listed');
-      const allProducts = [];
-      for (const u of db.users) {
-        if (!Array.isArray(u.products)) continue;
-        for (const p of u.products) {
-          allProducts.push({ ...p, sellerId: u.id, sellerName: u.displayName || u.username });
+      // mallItems only contains listed+in-stock items; for admin we need all products
+      let allProducts;
+      if (!listedFilter && !q) {
+        // Unfiltered: build from users (admin needs unlisted items too)
+        allProducts = [];
+        for (const u of db.users) {
+          if (!Array.isArray(u.products)) continue;
+          const sellerId = u.id;
+          const sellerName = u.displayName || u.username;
+          for (let pi = 0; pi < u.products.length; pi++) {
+            const p = u.products[pi];
+            p.sellerId = sellerId;
+            p.sellerName = sellerName;
+            allProducts.push(p);
+          }
         }
+        allProducts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      } else {
+        // Filtered: still need full scan but avoid spread-copying each product
+        allProducts = [];
+        for (const u of db.users) {
+          if (!Array.isArray(u.products)) continue;
+          const sellerId = u.id;
+          const sellerName = u.displayName || u.username;
+          for (let pi = 0; pi < u.products.length; pi++) {
+            const p = u.products[pi];
+            if (listedFilter === 'true' && !p.listed) continue;
+            if (listedFilter === 'false' && p.listed !== false) continue;
+            if (q && !(p.title || '').toLowerCase().includes(q) && !(sellerName || '').toLowerCase().includes(q) && !(p.category || '').toLowerCase().includes(q)) continue;
+            p.sellerId = sellerId;
+            p.sellerName = sellerName;
+            allProducts.push(p);
+          }
+        }
+        allProducts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       }
-      allProducts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      let filtered = allProducts;
-      if (listedFilter === 'true') filtered = filtered.filter(p => p.listed);
-      else if (listedFilter === 'false') filtered = filtered.filter(p => !p.listed);
-      if (q) {
-        filtered = filtered.filter(p =>
-          (p.title || '').toLowerCase().includes(q) ||
-          (p.sellerName || '').toLowerCase().includes(q) ||
-          (p.category || '').toLowerCase().includes(q)
-        );
-      }
-      const result = slicePage(filtered, offset, limit);
+      const result = slicePage(allProducts, offset, limit);
       return sendJson(res, 200, result);
     }
 
     // Update product (admin)
-    const productUpdateMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/update$/);
+    const productUpdateMatch = pathname.match(RE_PRODUCT_UPDATE);
     if (productUpdateMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -322,7 +352,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Delete product (admin)
-    const productDeleteMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/delete$/);
+    const productDeleteMatch = pathname.match(RE_PRODUCT_DELETE);
     if (productDeleteMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -379,7 +409,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Get conversation messages
-    const convMsgMatch = pathname.match(/^\/api\/admin\/conversations\/([^/]+)\/messages$/);
+    const convMsgMatch = pathname.match(RE_CONV_MSG);
     if (convMsgMatch && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
@@ -402,7 +432,7 @@ module.exports = function createAdminRoutes(ctx) {
     }
 
     // Admin delete message
-    const adminMsgDelMatch = pathname.match(/^\/api\/admin\/messages\/([^/]+)\/delete$/);
+    const adminMsgDelMatch = pathname.match(RE_MSG_DEL);
     if (adminMsgDelMatch && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
@@ -443,17 +473,26 @@ module.exports = function createAdminRoutes(ctx) {
         }
       }
 
-      // Activity trend (last 7 days)
+      // Activity trend (last 7 days) — single pass over each collection
+      const weekStart = today - 6 * dayMs;
+      const trendUsers = new Int32Array(7);
+      const trendOrders = new Int32Array(7);
+      const trendMsgs = new Int32Array(7);
+      for (const u of db.users) {
+        const t = u.createdAt || 0;
+        if (t >= weekStart) { const d = Math.floor((t - weekStart) / dayMs); if (d >= 0 && d < 7) trendUsers[d]++; }
+      }
+      for (const o of (db.orders || [])) {
+        const t = o.createdAt || 0;
+        if (t >= weekStart) { const d = Math.floor((t - weekStart) / dayMs); if (d >= 0 && d < 7) trendOrders[d]++; }
+      }
+      for (const m of (db.messages || [])) {
+        const t = m.createdAt || 0;
+        if (t >= weekStart) { const d = Math.floor((t - weekStart) / dayMs); if (d >= 0 && d < 7) trendMsgs[d]++; }
+      }
       const trend = [];
-      for (let d = 6; d >= 0; d--) {
-        const dayStart = today - d * dayMs;
-        const dayEnd = dayStart + dayMs;
-        let users = 0, orders = 0, msgs = 0;
-        for (const u of db.users) { if ((u.createdAt || 0) >= dayStart && (u.createdAt || 0) < dayEnd) users++; }
-        for (const o of (db.orders || [])) { if ((o.createdAt || 0) >= dayStart && (o.createdAt || 0) < dayEnd) orders++; }
-        for (const m of (db.messages || [])) { if ((m.createdAt || 0) >= dayStart && (m.createdAt || 0) < dayEnd) msgs++; }
-        const dateStr = new Date(dayStart).toISOString().slice(5, 10);
-        trend.push({ date: dateStr, users, orders, messages: msgs });
+      for (let d = 0; d < 7; d++) {
+        trend.push({ date: new Date(weekStart + d * dayMs).toISOString().slice(5, 10), users: trendUsers[d], orders: trendOrders[d], messages: trendMsgs[d] });
       }
 
       return sendJson(res, 200, {

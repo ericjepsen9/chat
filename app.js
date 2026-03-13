@@ -97,7 +97,10 @@ function getCurrentSellerCart(sellerId = ''){
   return state.profileCartBySeller[id];
 }
 
+let _cachedCartSummary = null;
+function invalidateCartSummary() { _cachedCartSummary = null; }
 function getCartSummary() {
+  if (_cachedCartSummary) return _cachedCartSummary;
   let count = 0, total = 0;
   for (const arr of Object.values(state.profileCartBySeller || {})) {
     if (!Array.isArray(arr)) continue;
@@ -107,13 +110,15 @@ function getCartSummary() {
       total += (Number(item.unitPrice) || 0) * qty;
     }
   }
-  return { count, total };
+  _cachedCartSummary = { count, total };
+  return _cachedCartSummary;
 }
 function getGroupedCartTotal(){ return getCartSummary().total; }
 function getGroupedCartCount(){ return getCartSummary().count; }
 const CART_STORAGE_KEY = 'chattrade_cart';
 let _cartSaveTimer = null;
 function saveCartToStorage() {
+  invalidateCartSummary();
   if (_cartSaveTimer) return;
   _cartSaveTimer = setTimeout(() => {
     _cartSaveTimer = null;
@@ -125,6 +130,7 @@ function loadCartFromStorage() {
     const raw = localStorage.getItem(CART_STORAGE_KEY);
     if (raw) state.profileCartBySeller = JSON.parse(raw) || {};
   } catch(_) { state.profileCartBySeller = {}; }
+  invalidateCartSummary();
 }
 
 // formatMoney, parseMoney moved to app_utils.js
