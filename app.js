@@ -758,6 +758,12 @@ function openProductDetailPage(item){
   openProductDetail(item, false);
 }
 
+function sumCartTotals(items) {
+  let count = 0, total = 0;
+  for (let i = 0; i < items.length; i++) { const q = Number(items[i].quantity)||0; count += q; total += (Number(items[i].unitPrice)||0)*q; }
+  return { count, total };
+}
+
 function getProfileStoreItemCartQuantity(item){
   if(!item) return 0;
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
@@ -1063,8 +1069,7 @@ function updateProfileCartBar(){
   const countEl = $("profileCartCount");
   const totalEl = $("profileCartTotal");
   const currentCart = getCurrentSellerCart();
-  let count = 0, cartTotal = 0;
-  for (let i = 0; i < currentCart.length; i++) { const q = Number(currentCart[i].quantity)||0; count += q; cartTotal += (Number(currentCart[i].unitPrice)||0)*q; }
+  const { count, total: cartTotal } = sumCartTotals(currentCart);
   if(countEl) countEl.textContent = `${count} 件商品`;
   if(totalEl) totalEl.textContent = formatMoney(cartTotal);
   if(bar) bar.classList.toggle('hidden', count <= 0);
@@ -1238,8 +1243,7 @@ function renderCartHubPage(){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
     const knownSeller = _sellerNameCache.get(sellerId);
     const title = profile?.displayName || profile?.nickname || knownSeller || `商家 ${sellerId.slice(-6)}`;
-    let count = 0, total = 0;
-    for (let i = 0; i < arr.length; i++) { const q = Number(arr[i].quantity)||0; count += q; total += (Number(arr[i].unitPrice)||0)*q; }
+    const { count, total } = sumCartTotals(arr);
     const card = document.createElement('div');
     card.className = 'cart-hub-card';
     const head = document.createElement('div');
@@ -1372,79 +1376,50 @@ function renderAdminCenter(){
   grid.replaceChildren(frag);
 }
 
-function renderAdminOrders(){
-  const list = $("adminOrdersList");
+function renderAdminList(listId, sigKey, dataKey, sigFn, emptyMsg, buildCardFn) {
+  const list = $(listId);
   if(!list) return;
-  const rows = state.adminDashboard?.recentOrders || [];
-  const sig = rows.map(o => o.id+'|'+o.status).join(';');
-  if (!sigChanged('adminOrders', sig)) return;
-  if(!rows.length){
-    showEmptyState(list, '暂无平台订单');
-    return;
-  }
+  const rows = state.adminDashboard?.[dataKey] || [];
+  const sig = rows.map(sigFn).join(';');
+  if (!sigChanged(sigKey, sig)) return;
+  if(!rows.length){ showEmptyState(list, emptyMsg); return; }
   const frag = document.createDocumentFragment();
-  rows.forEach((order) => {
+  rows.forEach(item => frag.appendChild(buildCardFn(item)));
+  list.replaceChildren(frag);
+}
+
+function addAdminTag(card, text, warn) {
+  const line = document.createElement('div');
+  line.className = 'admin-list-line';
+  const tag = document.createElement('span');
+  tag.className = 'admin-tag' + (warn ? ' warn' : '');
+  tag.textContent = text;
+  line.appendChild(tag);
+  card.appendChild(line);
+  return card;
+}
+
+function renderAdminOrders() {
+  renderAdminList('adminOrdersList', 'adminOrders', 'recentOrders', o => o.id+'|'+o.status, '暂无平台订单', (order) => {
     const card = buildProfileCard(`订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
-    const line = document.createElement('div');
-    line.className = 'admin-list-line';
-    const tag = document.createElement('span');
-    tag.className = 'admin-tag' + (order.status === 'completed' ? '' : ' warn');
-    tag.textContent = order.status === 'completed' ? '已完成' : '处理中';
-    line.appendChild(tag);
-    card.appendChild(line);
-    frag.appendChild(card);
+    return addAdminTag(card, order.status === 'completed' ? '已完成' : '处理中', order.status !== 'completed');
   });
-  list.replaceChildren(frag);
 }
-
-function renderAdminUsers(){
-  const list = $("adminUsersList");
-  if(!list) return;
-  const rows = state.adminDashboard?.userList || [];
-  const sig = rows.map(u => u.id+'|'+(u.productCount||0)+'|'+(u.blacklistCount||0)).join(';');
-  if (!sigChanged('adminUsers', sig)) return;
-  if(!rows.length){ showEmptyState(list, '暂无用户数据'); return; }
-  const frag = document.createDocumentFragment();
-  rows.forEach((user) => {
+function renderAdminUsers() {
+  renderAdminList('adminUsersList', 'adminUsers', 'userList', u => u.id+'|'+(u.productCount||0)+'|'+(u.blacklistCount||0), '暂无用户数据', (user) => {
     const card = buildProfileCard(user.displayName || user.username || '用户', `商品 ${user.productCount || 0} · 卖家订单 ${user.sellerOrderCount || 0}`);
-    const line = document.createElement('div');
-    line.className = 'admin-list-line';
-    const tag = document.createElement('span');
-    tag.className = 'admin-tag' + ((user.blacklistCount || 0) ? ' warn' : '');
-    tag.textContent = (user.blacklistCount || 0) ? `黑名单 ${user.blacklistCount}` : '正常';
-    line.appendChild(tag);
-    card.appendChild(line);
-    frag.appendChild(card);
+    return addAdminTag(card, (user.blacklistCount || 0) ? `黑名单 ${user.blacklistCount}` : '正常', !!(user.blacklistCount || 0));
   });
-  list.replaceChildren(frag);
 }
-
-function renderAdminProducts(){
-  const list = $("adminProductsList");
-  if(!list) return;
-  const rows = state.adminDashboard?.productList || [];
-  const sig = rows.map(p => p.id+'|'+p.price).join(';');
-  if (!sigChanged('adminProducts', sig)) return;
-  if(!rows.length){ showEmptyState(list, '暂无商品数据'); return; }
-  const frag = document.createDocumentFragment();
-  rows.forEach((item) => {
-    frag.appendChild(buildProfileCard(item.title || '商品', `${item.sellerName || '卖家'} · ${formatMoney(item.price || 0)}`));
-  });
-  list.replaceChildren(frag);
+function renderAdminProducts() {
+  renderAdminList('adminProductsList', 'adminProducts', 'productList', p => p.id+'|'+p.price, '暂无商品数据',
+    item => buildProfileCard(item.title || '商品', `${item.sellerName || '卖家'} · ${formatMoney(item.price || 0)}`)
+  );
 }
-
-function renderAdminReports(){
-  const list = $("adminReportsList");
-  if(!list) return;
-  const rows = state.adminDashboard?.reportList || [];
-  const sig = rows.map(r => r.title).join(';');
-  if (!sigChanged('adminReports', sig)) return;
-  if(!rows.length){ showEmptyState(list, '暂无举报与风控提醒'); return; }
-  const frag = document.createDocumentFragment();
-  rows.forEach((row) => {
-    frag.appendChild(buildProfileCard(row.title || '风险提醒', row.summary || ''));
-  });
-  list.replaceChildren(frag);
+function renderAdminReports() {
+  renderAdminList('adminReportsList', 'adminReports', 'reportList', r => r.title, '暂无举报与风控提醒',
+    row => buildProfileCard(row.title || '风险提醒', row.summary || '')
+  );
 }
 
 function renderSellerCenterPage(){
@@ -4467,29 +4442,20 @@ function bindProfileEvents() {
     window.openSecondaryPage('sellerCenterPage', 'profile');
   });
   on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', 'sellerCenterPage'); });
-  on("buyerOrdersSearchInput", "input", () => { state.buyerOrderSearch = $("buyerOrdersSearchInput")?.value?.trim() || ''; renderBuyerOrdersManage(); });
-  on("buyerOrdersFromBtn", "click", () => { openDatePicker('buyer', 'from', state.buyerOrderFrom); });
-  on("buyerOrdersToBtn", "click", () => { openDatePicker('buyer', 'to', state.buyerOrderTo); });
-  on("buyerOrdersClearFilterBtn", "click", () => { state.buyerOrderSearch=''; state.buyerOrderFrom=''; state.buyerOrderTo=''; renderBuyerOrdersManage(); });
-  on("buyerFilterToggleBtn", "click", () => { const d = $("buyerFilterDrawer"); if(d) d.classList.toggle('open'); $("buyerFilterToggleBtn")?.classList.toggle('active'); });
-  on("buyerOrdersRangePresets", "click", (e) => {
-    const btn = e.target.closest('.order-filter-chip');
-    if (!btn) return;
-    const days = Number(btn.dataset.range || 0);
-    if (!days) return;
-    applyOrderQuickRange('buyer', days);
-  });
-  on("sellerOrdersSearchInput", "input", () => { state.sellerOrderSearch = $("sellerOrdersSearchInput")?.value?.trim() || ''; renderSellerOrdersManage(); });
-  on("sellerOrdersFromBtn", "click", () => { openDatePicker('seller', 'from', state.sellerOrderFrom); });
-  on("sellerOrdersToBtn", "click", () => { openDatePicker('seller', 'to', state.sellerOrderTo); });
-  on("sellerOrdersClearFilterBtn", "click", () => { state.sellerOrderSearch=''; state.sellerOrderFrom=''; state.sellerOrderTo=''; renderSellerOrdersManage(); });
-  on("sellerFilterToggleBtn", "click", () => { const d = $("sellerFilterDrawer"); if(d) d.classList.toggle('open'); $("sellerFilterToggleBtn")?.classList.toggle('active'); });
-  on("sellerOrdersRangePresets", "click", (e) => {
-    const btn = e.target.closest('.order-filter-chip');
-    if (!btn) return;
-    const days = Number(btn.dataset.range || 0);
-    if (!days) return;
-    applyOrderQuickRange('seller', days);
+  [['buyer', renderBuyerOrdersManage], ['seller', renderSellerOrdersManage]].forEach(([role, renderFn]) => {
+    const cap = role.charAt(0).toUpperCase() + role.slice(1);
+    on(`${role}OrdersSearchInput`, "input", () => { state[`${role}OrderSearch`] = $(`${role}OrdersSearchInput`)?.value?.trim() || ''; renderFn(); });
+    on(`${role}OrdersFromBtn`, "click", () => { openDatePicker(role, 'from', state[`${role}OrderFrom`]); });
+    on(`${role}OrdersToBtn`, "click", () => { openDatePicker(role, 'to', state[`${role}OrderTo`]); });
+    on(`${role}OrdersClearFilterBtn`, "click", () => { state[`${role}OrderSearch`]=''; state[`${role}OrderFrom`]=''; state[`${role}OrderTo`]=''; renderFn(); });
+    on(`${role}FilterToggleBtn`, "click", () => { const d = $(`${role}FilterDrawer`); if(d) d.classList.toggle('open'); $(`${role}FilterToggleBtn`)?.classList.toggle('active'); });
+    on(`${role}OrdersRangePresets`, "click", (e) => {
+      const btn = e.target.closest('.order-filter-chip');
+      if (!btn) return;
+      const days = Number(btn.dataset.range || 0);
+      if (!days) return;
+      applyOrderQuickRange(role, days);
+    });
   });
   // Date picker confirm/cancel
   on("datePickerConfirmBtn", "click", () => closeDatePicker(true));
@@ -4578,23 +4544,14 @@ function bindProfileEvents() {
     renderSellerPaymentDraft();
     window.openSecondaryPage('sellerPaymentPage', 'sellerCenterPage');
   });
-  on("sellerWxPayUploadBtn", "click", () => { $("sellerWxPayFileInput")?.click(); });
-  on("sellerAliPayUploadBtn", "click", () => { $("sellerAliPayFileInput")?.click(); });
-  on("sellerCloudPayUploadBtn", "click", () => { $("sellerCloudPayFileInput")?.click(); });
-  on("sellerWxPayFileInput", "change", async () => {
-    const file = $("sellerWxPayFileInput")?.files?.[0];
-    if($("sellerWxPayFileInput")) $("sellerWxPayFileInput").value = '';
-    await uploadSellerPaymentCode('wechat', file);
-  });
-  on("sellerAliPayFileInput", "change", async () => {
-    const file = $("sellerAliPayFileInput")?.files?.[0];
-    if($("sellerAliPayFileInput")) $("sellerAliPayFileInput").value = '';
-    await uploadSellerPaymentCode('alipay', file);
-  });
-  on("sellerCloudPayFileInput", "change", async () => {
-    const file = $("sellerCloudPayFileInput")?.files?.[0];
-    if($("sellerCloudPayFileInput")) $("sellerCloudPayFileInput").value = '';
-    await uploadSellerPaymentCode('cloudpay', file);
+  [['WxPay','wechat'],['AliPay','alipay'],['CloudPay','cloudpay']].forEach(([prefix, key]) => {
+    const uploadBtnId = `seller${prefix}UploadBtn`, fileInputId = `seller${prefix}FileInput`;
+    on(uploadBtnId, "click", () => { $(fileInputId)?.click(); });
+    on(fileInputId, "change", async () => {
+      const file = $(fileInputId)?.files?.[0];
+      if($(fileInputId)) $(fileInputId).value = '';
+      await uploadSellerPaymentCode(key, file);
+    });
   });
   on("saveSellerPaymentBtn", "click", () => {
     const paymentCodes = {
