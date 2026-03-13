@@ -15,8 +15,7 @@ function queryMallItems({ mallItems, keyword, limit: rawLimit, offset: rawOffset
   const limit = Math.min(Math.max(parseInt(rawLimit) || 50, 1), 200);
   const offset = Math.max(parseInt(rawOffset) || 0, 0);
   const paged = filtered.slice(offset, offset + limit);
-  const items = paged.map(({ _searchText, ...item }) => item);
-  return { items, total: filtered.length, limit, offset, hasMore: offset + limit < filtered.length };
+  return { items: paged, total: filtered.length, limit, offset, hasMore: offset + limit < filtered.length };
 }
 
 module.exports = {

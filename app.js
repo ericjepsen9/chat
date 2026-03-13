@@ -2889,9 +2889,13 @@ window.forwardMsg = (msgId) => {
     state.conversations.forEach(c => {
       const btn = createEl('button', 'chat-item');
       btn.type = 'button';
+      btn.dataset.convId = c.id;
       appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
-      btn.addEventListener('click', () => window.confirmForward(c.id));
       list.appendChild(btn);
+    });
+    list.addEventListener('click', (e) => {
+      const item = e.target.closest('.chat-item');
+      if (item?.dataset.convId) window.confirmForward(item.dataset.convId);
     });
   }
   showEl("forwardModal");
@@ -3034,9 +3038,12 @@ window.openGroupSelect = (targetUserId) => {
       cg.forEach((g) => {
         const btn = createEl('button', 'primary-btn', g);
         btn.style.cssText = 'background:#f2f2f6; color:#000; width:100%; border-radius:8px; padding:12px; margin-bottom:10px;';
-        btn.addEventListener('click', () => window.confirmMoveGroup(g));
         list.appendChild(btn);
       });
+      list.onclick = (e) => {
+        const btn = e.target.closest('.primary-btn');
+        if (btn?.textContent) window.confirmMoveGroup(btn.textContent);
+      };
     }
     showEl("groupSelectSheet");
 };
@@ -5196,11 +5203,12 @@ function bindSearchAndEmojiEvents() {
 
   const emojiList = ["😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","😉","😊","😇","🥰","😍","🤩","😘","😗","☺️","😚"];
   if($("emojiPanel")) {
-    $("emojiPanel").replaceChildren();
-    emojiList.forEach((e) => {
-      const span = createEl('span', '', e);
-      span.addEventListener('click', () => window.insertEmoji(e));
-      $("emojiPanel").appendChild(span);
+    const panel = $("emojiPanel");
+    panel.replaceChildren();
+    emojiList.forEach((e) => panel.appendChild(createEl('span', '', e)));
+    panel.addEventListener('click', (e) => {
+      const span = e.target.closest('span');
+      if (span && span.textContent) window.insertEmoji(span.textContent);
     });
   }
 }
@@ -5796,9 +5804,9 @@ function updateMessagesTabBadge(totalUnread) {
 function sortConversationsInPlace() {
   if (!Array.isArray(state.conversations)) return;
   state.conversations.sort((a, b) => {
-    const aPinned = Number(isConversationPinned(a));
-    const bPinned = Number(isConversationPinned(b));
-    if (bPinned !== aPinned) return bPinned - aPinned;
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (bp !== ap) return bp - ap;
     return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
   });
 }
