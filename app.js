@@ -11,14 +11,14 @@ const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
 const DEFAULT_GROUP = '我的好友';
 
 const state = {
-  currentUser: null, sessionToken: null, conversations: [], activeConversation: null, messages: [], messagesById: new Map(),
-  friends: [], friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
+  currentUser: null, sessionToken: null, conversations: [], conversationsById: new Map(), activeConversation: null, messages: [], messagesById: new Map(),
+  friends: [], friendsById: new Map(), friendRequests: [], currentProfileUser: null, targetForGroupMove: null,
   profileStoreItems: [], profileCartBySeller: {}, selectedProfileProduct: null, selectedProfileSpec: '', profileOrders: [], currentCartSellerId: '',
   profileStoreExpanded: false, profileStoreCategoryFilter: '',
   systemMessages: [],
   adminDashboard: null,
   paymentCodeDraft: { wechat:'', alipay:'', cloudpay:'' },
-  buyerOrders: [], sellerOrders: [], sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
+  buyerOrders: [], sellerOrders: [], ordersById: new Map(), sellerProducts: [], selectedOrderDetail: null, selectedOrderRole: 'buyer', selectedProductDetail: null, publishEditingProductId: '', sellerProductViewTab: 'listed', sellerProductSearch: '', sellerProductSort: 'newest', buyerOrderSearch: '', buyerOrderFrom: '', buyerOrderTo: '', sellerOrderSearch: '', sellerOrderFrom: '', sellerOrderTo: '', broadcastDrafts: [], tradePickerResolver: null,
   hasMoreMessages: false, isLoadingMessages: false, oldestMessageTime: 0, 
   eventSource: null, peerLastReadAt: 0, rtc: { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], remoteCandidateQueue: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: null, incomingShownKey: null }, 
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {},
@@ -5862,11 +5862,25 @@ function sortConversationsInPlace() {
 }
 /* ===== Sidebar Avatar Bar ===== */
 let _sidebarSignature = '';
+let _sidebarDelegated = false;
+function ensureSidebarDelegation() {
+  if (_sidebarDelegated) return;
+  const list = $('sidebarList');
+  if (!list) return;
+  _sidebarDelegated = true;
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.sidebar-item');
+    if (!item) return;
+    const convId = item.dataset.convId;
+    if (convId) window.openConversation(convId);
+  });
+}
 function renderSidebar() {
   const panel = $('sidebarPanel');
   const list = $('sidebarList');
   if (!panel || !list) return;
   if (state.sidebarMode === 'hidden') return;
+  ensureSidebarDelegation();
 
   const convs = (state.conversations || []).filter(c => !c.synthetic && !c.syntheticType);
   const visible = convs.filter(c => {
@@ -5886,7 +5900,6 @@ function renderSidebar() {
     item.className = 'sidebar-item';
     if (state.activeConversation && state.activeConversation.id === conv.id) item.classList.add('is-active');
     item.dataset.convId = conv.id;
-    item.addEventListener('click', () => { window.openConversation(conv.id); });
 
     const avatarWrap = document.createElement('div');
     avatarWrap.className = 'sidebar-item-avatar';

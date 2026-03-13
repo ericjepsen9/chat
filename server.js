@@ -85,7 +85,8 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
 const CACHE_MAX_AGE_DEFAULT = 300;       // 5 minutes
-const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = MS_PER_DAY;
 const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
 const serverStartedAt = Date.now();
 
@@ -906,7 +907,7 @@ setInterval(runCleanupAuthState, 60 * 1000).unref();
 
 // Message retention cleanup — runs daily, removes messages older than MESSAGE_RETENTION_DAYS
 function cleanupExpiredMessages() {
-  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * CLEANUP_INTERVAL_MS;
+  const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * MS_PER_DAY;
   const before = db.messages.length;
   db.messages = db.messages.filter((m) => m.createdAt > cutoff);
   if (db.messages.length < before) {
