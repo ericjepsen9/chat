@@ -241,6 +241,14 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   return { ok: true, status: 200, payload: { order } };
 }
 
+// Allowed status transitions: currentStatus -> Set of valid nextStatuses
+const ALLOWED_TRANSITIONS = {
+  pending:     new Set(['accepted']),
+  accepted:    new Set(['completed', 'processing', 'in_progress']),
+  processing:  new Set(['completed']),
+  in_progress: new Set(['completed']),
+};
+
 function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
   const order = findOrderById(orderId, { ordersById, db });
   if (!order) return { ok: false, status: 404, error: 'not_found' };
@@ -250,21 +258,24 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
   if (versionError) return versionError;
 
   const nextStatus = String(body.status || '').trim();
-  if (nextStatus !== 'completed') return { ok: false, status: 400, error: 'invalid_status_transition' };
-  if (order.status === 'completed') {
+  if (order.status === nextStatus) {
     return { ok: true, status: 200, payload: { order, deduplicated: true } };
   }
-  if (order.status === 'pending') return { ok: false, status: 409, error: 'order_not_accepted_yet' };
+  const allowed = ALLOWED_TRANSITIONS[order.status];
+  if (!allowed || !allowed.has(nextStatus)) {
+    return { ok: false, status: 400, error: 'invalid_status_transition' };
+  }
 
-  order.status = 'completed';
+  order.status = nextStatus;
   order.updatedAt = Date.now();
 
+  const STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受' };
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
     order: buildOrderCardPayload(order, {
-      title: '订单已完成',
+      title: STATUS_TITLES[nextStatus] || '订单状态更新',
       role: authUser.id === order.sellerId ? 'seller' : 'buyer',
     }),
   });

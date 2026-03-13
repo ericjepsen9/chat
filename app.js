@@ -224,6 +224,13 @@ const loadSellerProductsManage = singleFlight(async function _loadSellerProducts
 });
 
 
+// Cache item summary text per order to avoid re-building on every filter call
+function getOrderItemSummary(order) {
+  if (order._itemSummary !== undefined) return order._itemSummary;
+  order._itemSummary = (order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ');
+  return order._itemSummary;
+}
+
 function orderMatchesFilters(order, role = 'buyer'){
   const prefix = orderPrefix(role);
   const keyword = String(state[`${prefix}OrderSearch`] || '').trim().toLowerCase();
@@ -232,7 +239,7 @@ function orderMatchesFilters(order, role = 'buyer'){
   const createdAt = Number(order?.createdAt || 0);
   if (keyword) {
     const counterpartyName = role === 'buyer' ? (order?.sellerName || '') : (order?.buyerName || '');
-    const hay = `#${formatOrderId(order?.id)} ${(order?.items || []).map(i => `${i.title} ${i.spec || ''}`).join(' ')} ${counterpartyName}`.toLowerCase();
+    const hay = `#${formatOrderId(order?.id)} ${getOrderItemSummary(order)} ${counterpartyName}`.toLowerCase();
     if (!hay.includes(keyword)) return false;
   }
   if (fromVal) {
@@ -762,8 +769,12 @@ function adjustProfileStoreItemQuantity(item, delta){
       showToast('库存不足');
       return;
     }
+    if (inCartQty >= 9999) {
+      showToast('单品数量已达上限');
+      return;
+    }
     if(found){
-      found.quantity = (Number(found.quantity) || 0) + 1;
+      found.quantity = Math.min(9999, (Number(found.quantity) || 0) + 1);
     }else{
       cart.push({
         key,
@@ -4819,6 +4830,7 @@ function bindChatEvents() {
               if (Date.now() - recordStartTime < 1000) return showModal("录音太短");
               try {
                   const audioBlob = new Blob(state.audioChunks, { type: mimeType || 'audio/webm' });
+                  if (audioBlob.size > 10 * 1024 * 1024) return showModal('语音文件过大，请缩短录音');
                   const audioUrl = await uploadBinary(audioBlob, `voice_${Date.now()}.webm`, audioBlob.type || 'audio/webm');
                   await window.sendMessage({ type: 'audio', audioUrl });
               } catch (err) {
@@ -5574,7 +5586,9 @@ async function fetchMessages(before = 0) {
       applyLastOutgoingReadState();
     } else if (data.messages.length > 0) {
       const oldFirst = state.messages[0] || null;
-      state.messages = data.messages.concat(state.messages);
+      const MAX_CLIENT_MESSAGES = 500;
+      const combined = data.messages.concat(state.messages);
+      state.messages = combined.length > MAX_CLIENT_MESSAGES ? combined.slice(combined.length - MAX_CLIENT_MESSAGES) : combined;
       rebuildMessagesById();
       prependMessagesToView(data.messages, oldFirst);
     }

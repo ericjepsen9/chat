@@ -414,10 +414,17 @@ function formatConversationTime(timestamp) {
 }
 
 // Signature memoization: returns true if sig changed, false if same (skip render)
-const _sigCache = {};
+// Use Map with bounded size to prevent unbounded memory growth
+const _sigCache = new Map();
+const _SIG_CACHE_MAX = 500;
 function sigChanged(key, newSig) {
-  if (_sigCache[key] === newSig) return false;
-  _sigCache[key] = newSig;
+  if (_sigCache.get(key) === newSig) return false;
+  _sigCache.set(key, newSig);
+  // Prune oldest entries when cache exceeds limit
+  if (_sigCache.size > _SIG_CACHE_MAX) {
+    const it = _sigCache.keys();
+    for (let i = _sigCache.size - _SIG_CACHE_MAX; i > 0; i--) _sigCache.delete(it.next().value);
+  }
   return true;
 }
 
