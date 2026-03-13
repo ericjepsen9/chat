@@ -36,23 +36,29 @@ function normalizeSingleGroupName(name) {
 
 function rebuildMallIndex() {
   const items = [];
-  for (const user of db.users) {
+  const users = db.users;
+  for (let u = 0; u < users.length; u++) {
+    const user = users[u];
+    const products = user.products;
+    if (!products || !products.length) continue;
+    const sellerId = user.id;
     const sellerName = user.displayName;
     const sellerAvatarUrl = user.avatarUrl;
     const sellerAppNumberId = user.appNumberId;
-    for (const product of user.products || []) {
+    const nameLower = (sellerName || '').toLowerCase();
+    for (let p = 0; p < products.length; p++) {
+      const product = products[p];
       if (product?.listed === false) continue;
-      items.push({
-        ...product,
-        sellerId: user.id,
-        sellerName,
-        sellerAvatarUrl,
-        sellerAppNumberId,
-        _searchText: `${product.title || ''} ${product.desc || ''} ${sellerName || ''}`.toLowerCase(),
-      });
+      // Assign seller fields directly to avoid object spread copy
+      product.sellerId = sellerId;
+      product.sellerName = sellerName;
+      product.sellerAvatarUrl = sellerAvatarUrl;
+      product.sellerAppNumberId = sellerAppNumberId;
+      product._searchText = ((product.title || '') + ' ' + (product.desc || '') + ' ' + nameLower).toLowerCase();
+      items.push(product);
     }
   }
-  items.sort((a, b) => b.createdAt - a.createdAt);
+  items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   index.mallItems = items;
 }
 

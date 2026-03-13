@@ -2131,6 +2131,7 @@ function syncSessionGroups(groups) {
 function rebuildMessagesById() {
   state.messagesById = new Map();
   for (let i = 0; i < state.messages.length; i++) state.messagesById.set(state.messages[i].id, i);
+  _messagesSig = '';
 }
 function findMessageIndex(msg) {
   if (!msg) return -1;
@@ -3821,8 +3822,9 @@ window.insertEmoji = (emoji) => { const input = $("messageInput"); if(!input) re
 
 window.sendMessage = async (payload) => {
   if (!state.activeConversation) return;
-  const clientMessageId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const tempMsg = { id: 'temp_'+Date.now(), senderId: state.currentUser.id, createdAt: Date.now(), clientMessageId, ...payload };
+  const _now = Date.now();
+  const clientMessageId = `c_${_now}_${Math.random().toString(36).slice(2, 8)}`;
+  const tempMsg = { id: 'temp_'+_now, senderId: state.currentUser.id, createdAt: _now, clientMessageId, ...payload };
   state.messages.push(tempMsg);
   state.messagesById.set(tempMsg.id, state.messages.length - 1);
   appendMessageToView(tempMsg);
@@ -5085,6 +5087,7 @@ function bindSocialEvents() {
       showModal('聊天记录已清空');
       state.messages = [];
       state.messagesById = new Map();
+      _messagesSig = '';
       state.messageBefore = null;
       renderMessages();
       applyLastOutgoingReadState();
@@ -6228,16 +6231,26 @@ function applyLastOutgoingReadState(){
   refreshMessageReadReceipts();
 }
 
+let _messagesSig = '';
 function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
+  // Build lightweight signature: id|type|recalled for each message
+  let sig = state.messages.length + ':';
+  for (let i = 0; i < state.messages.length; i++) {
+    const m = state.messages[i];
+    sig += m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0) + ';';
+  }
+  if (sig === _messagesSig && !preserveScroll) return;
+  _messagesSig = sig;
   const oldScrollHeight = chatView.scrollHeight;
   chatView.replaceChildren();
   const fragment = document.createDocumentFragment();
   let lastTime = 0;
-  state.messages.forEach((msg) => {
+  for (let i = 0; i < state.messages.length; i++) {
+    const msg = state.messages[i];
     fragment.appendChild(buildMessageChunk(msg, lastTime));
     lastTime = msg.createdAt || lastTime;
-  });
+  }
   chatView.appendChild(fragment);
   if (preserveScroll) { chatView.scrollTop = chatView.scrollHeight - oldScrollHeight; } else { setTimeout(() => chatView.scrollTo({ top: chatView.scrollHeight, behavior: 'smooth' }), 10); }
   refreshMessageReadReceipts();
