@@ -56,20 +56,14 @@ function validateOrderActor(order, authUser, usersById, { allowBuyer = true, all
   return { ok: true, isBuyer, isSeller, buyer, seller };
 }
 
-function buildOrderCardPayload(order, extras = {}) {
-  return {
+function buildOrderCardPayload(order, extras) {
+  const items = order.items || [];
+  const payload = {
     id: order.id,
     buyerId: order.buyerId,
     sellerId: order.sellerId,
-    items: (order.items || []).map(i => ({
-      productId: i.productId,
-      title: i.title,
-      spec: i.spec,
-      quantity: i.quantity,
-      price: i.price,
-      imageUrl: i.imageUrl || '',
-    })),
-    summary: formatOrderSummary(order.items || []),
+    items: items,
+    summary: formatOrderSummary(items),
     total: order.total,
     status: order.status,
     createdAt: order.createdAt || null,
@@ -77,8 +71,13 @@ function buildOrderCardPayload(order, extras = {}) {
     priceAdjustmentLocked: !!order.priceAdjustmentLocked,
     pendingPrice: order.pendingPrice ?? null,
     pendingPriceRequestedBy: order.pendingPriceRequestedBy || null,
-    ...extras,
   };
+  // Assign extras directly instead of spread to avoid object copy overhead
+  if (extras) {
+    if (extras.title !== undefined) payload.title = extras.title;
+    if (extras.role !== undefined) payload.role = extras.role;
+  }
+  return payload;
 }
 
 function addToMapArray(map, key, value) {

@@ -20,8 +20,37 @@ module.exports = function createProductRoutes(ctx) {
 
   return async function handleProductRoutes(pathname, method, req, res, searchParams) {
 
+    // --- GET routes ---
+    if (method === 'GET') {
+      if (matchRoute(pathname, '/api/product-presets')) {
+        const authUser = getAuthedUser(req, res, { searchParams });
+        if (!authUser) return true;
+        return sendJson(res, 200, {
+          categoryPresets: authUser.categoryPresets || [],
+          specPresets: authUser.specPresets || [],
+        });
+      }
+
+      if (matchRoute(pathname, '/api/mall')) {
+        const authUser = getAuthedUser(req, res, { searchParams });
+        if (!authUser) return true;
+        const data = queryMallItems({
+          mallItems: index.mallItems,
+          keyword: searchParams.get('q') || '',
+          limit: searchParams.get('limit'),
+          offset: searchParams.get('offset'),
+        });
+        return sendJson(res, 200, data);
+      }
+
+      return false;
+    }
+
+    // --- POST routes only below ---
+    if (method !== 'POST') return false;
+
     const broadcastMatch = pathname.match(RE_BROADCAST);
-    if (broadcastMatch && method === 'POST') {
+    if (broadcastMatch) {
       const context = await getAuthedBody(req, res);
       if (!context) return true;
       const result = createBroadcastMessage({
@@ -36,7 +65,7 @@ module.exports = function createProductRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/products') && method === 'POST') {
+    if (matchRoute(pathname, '/api/products')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = createProduct({
@@ -50,7 +79,7 @@ module.exports = function createProductRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/products/delete') && method === 'POST') {
+    if (matchRoute(pathname, '/api/products/delete')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = deleteProduct({
@@ -63,7 +92,7 @@ module.exports = function createProductRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/products/update') && method === 'POST') {
+    if (matchRoute(pathname, '/api/products/update')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = updateProduct({
@@ -76,16 +105,7 @@ module.exports = function createProductRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    if (matchRoute(pathname, '/api/product-presets') && method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return true;
-      return sendJson(res, 200, {
-        categoryPresets: authUser.categoryPresets || [],
-        specPresets: authUser.specPresets || [],
-      });
-    }
-
-    if (matchRoute(pathname, '/api/product-presets/update') && method === 'POST') {
+    if (matchRoute(pathname, '/api/product-presets/update')) {
       const context = await getAuthedActingBody(req, res, { actingKeys: [] });
       if (!context) return true;
       const { categoryPresets, specPresets } = context.body;
@@ -100,18 +120,6 @@ module.exports = function createProductRoutes(ctx) {
         categoryPresets: context.authUser.categoryPresets,
         specPresets: context.authUser.specPresets,
       });
-    }
-
-    if (matchRoute(pathname, '/api/mall') && method === 'GET') {
-      const authUser = getAuthedUser(req, res, { searchParams });
-      if (!authUser) return true;
-      const data = queryMallItems({
-        mallItems: index.mallItems,
-        keyword: searchParams.get('q') || '',
-        limit: searchParams.get('limit'),
-        offset: searchParams.get('offset'),
-      });
-      return sendJson(res, 200, data);
     }
 
     return false; // not handled

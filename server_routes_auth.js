@@ -24,7 +24,10 @@ module.exports = function createAuthRoutes(ctx) {
 
   return async function handleAuthRoutes(pathname, method, req, res, searchParams) {
 
-    if (matchRoute(pathname, '/api/login') && method === 'POST') {
+    // All auth routes are POST-only
+    if (method !== 'POST') return false;
+
+    if (matchRoute(pathname, '/api/login')) {
       const body = await parseBody(req);
       const username = String(body.username || body.phone || '').trim();
       const loginPhone = normalizePhone(body.phone || username);
@@ -55,7 +58,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
-    if (matchRoute(pathname, '/api/auth/send-code') && method === 'POST') {
+    if (matchRoute(pathname, '/api/auth/send-code')) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const scene = String(body.scene || 'login');
@@ -76,7 +79,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true, expiresInSec: issueResult.expiresInSec });
     }
 
-    if (matchRoute(pathname, '/api/login/phone-code') && method === 'POST') {
+    if (matchRoute(pathname, '/api/login/phone-code')) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
@@ -125,7 +128,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { token, csrfToken, user: sanitizePublicUser(user, { includePhone: true }) });
     }
 
-    if (matchRoute(pathname, '/api/password/forgot') && method === 'POST') {
+    if (matchRoute(pathname, '/api/password/forgot')) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
@@ -157,7 +160,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true });
     }
 
-    if (matchRoute(pathname, '/api/password/change') && method === 'POST') {
+    if (matchRoute(pathname, '/api/password/change')) {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
       const body = await parseBody(req);
@@ -181,7 +184,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true, token, csrfToken });
     }
 
-    if (matchRoute(pathname, '/api/logout') && method === 'POST') {
+    if (matchRoute(pathname, '/api/logout')) {
       const authUser = getAuthedUser(req, res);
       if (!authUser) return true;
       const token = parseAuthToken(req);
@@ -189,7 +192,7 @@ module.exports = function createAuthRoutes(ctx) {
       return sendJson(res, 200, { ok: true });
     }
 
-    if (matchRoute(pathname, '/api/register') && method === 'POST') {
+    if (matchRoute(pathname, '/api/register')) {
       const body = await parseBody(req);
       if (!body.displayName || !body.password) return sendJson(res, 400, { error: '请填写完整信息' });
       const displayName = String(body.displayName).trim();

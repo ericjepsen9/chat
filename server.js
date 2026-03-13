@@ -267,11 +267,15 @@ function broadcastToUser(userId, event, payload, _prebuilt) {
   }
   // Pre-serialize once for multiple clients
   const chunk = _prebuilt || `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-  // Snapshot to array to allow safe removal during iteration
-  const snapshot = Array.from(clients);
-  for (let i = 0; i < snapshot.length; i++) {
-    if (!sendSseRaw(snapshot[i], chunk)) removeSseClient(userId, snapshot[i]);
+  // Collect dead connections during iteration, clean up after to avoid modifying Set mid-loop
+  let dead = null;
+  for (const res of clients) {
+    if (!sendSseRaw(res, chunk)) {
+      if (!dead) dead = [];
+      dead.push(res);
+    }
   }
+  if (dead) for (let i = 0; i < dead.length; i++) removeSseClient(userId, dead[i]);
 }
 /**
  * Push fallback: when user has no active SSE connection, send via EMAS push.
