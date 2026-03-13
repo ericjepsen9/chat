@@ -184,7 +184,7 @@ module.exports = function createAuthRoutes(ctx) {
     if (matchRoute(pathname, '/api/logout') && method === 'POST') {
       const authUser = getAuthedUser(req, res);
       if (!authUser) return true;
-      const token = parseAuthToken(req, searchParams);
+      const token = parseAuthToken(req);
       if (token) { sessions.delete(token); csrfTokens.delete(token); }
       return sendJson(res, 200, { ok: true });
     }

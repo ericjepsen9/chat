@@ -19,8 +19,8 @@ function buildOrderCardPayload(order, authUserId) {
 
 function listConversationMessages({ conv, authUser, searchParams, getVisibleMessagesSlice }) {
   if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
-  const before = parseInt(searchParams.get('before') || '0', 10);
-  const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
+  const before = Math.max(0, parseInt(searchParams.get('before') || '0', 10) || 0);
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '30', 10) || 30), 100);
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
   const members = conv.members || [];
   const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;

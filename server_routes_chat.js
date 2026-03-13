@@ -57,8 +57,8 @@ module.exports = function createChatRoutes(ctx) {
       if (!authUser) return true;
       const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
-      const limit = Math.min(parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.GLOBAL_DEFAULT), 10), SEARCH_LIMITS.GLOBAL_MAX);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
+      const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.GLOBAL_DEFAULT), 10) || SEARCH_LIMITS.GLOBAL_DEFAULT), SEARCH_LIMITS.GLOBAL_MAX);
+      const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
       return sendJson(res, 200, searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }));
     }
 
@@ -72,8 +72,8 @@ module.exports = function createChatRoutes(ctx) {
       if (!conv.members.includes(authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
       const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
-      const limit = Math.min(parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.CONV_DEFAULT), 10), SEARCH_LIMITS.CONV_MAX);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
+      const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.CONV_DEFAULT), 10) || SEARCH_LIMITS.CONV_DEFAULT), SEARCH_LIMITS.CONV_MAX);
+      const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
       return sendJson(res, 200, searchMessagesInConversation({ conv, keyword, limit, offset, authUserId: authUser.id, index, isMessageVisibleToUser }));
     }
 

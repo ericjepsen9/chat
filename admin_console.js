@@ -104,7 +104,7 @@ function renderOverview(){
   const recent = state.data?.recentOrders || [];
   $('adminRecentOrders').innerHTML = recent.length ? recent.map(o => `
     <div class="row-card">
-      <div class="row-title">订单 #${String(o.id || '').slice(-6)} · ${money(o.total)}</div>
+      <div class="row-title">订单 #${esc(String(o.id || '').slice(-6))} · ${money(o.total)}</div>
       <div class="row-sub">${esc(o.buyerName || '买家')} → ${esc(o.sellerName || '卖家')} · ${esc(o.summary || '')}</div>
       <div class="row-line"><span class="badge ${o.status === 'completed' ? '' : 'warn'}">${o.status === 'completed' ? '已完成' : '处理中'}</span></div>
     </div>
@@ -130,7 +130,7 @@ function table(containerId, columns, rows){
 function renderOrders(){
   const rows = (state.data?.recentOrders || []).map(o => `
     <div class="table-row">
-      <div>订单 #${String(o.id || '').slice(-6)}<br><span class="row-sub">${esc(o.summary || '')}</span></div>
+      <div>订单 #${esc(String(o.id || '').slice(-6))}<br><span class="row-sub">${esc(o.summary || '')}</span></div>
       <div>${esc(o.buyerName || '-')} → ${esc(o.sellerName || '-')}</div>
       <div>${money(o.total)}</div>
       <div><span class="badge ${o.status === 'completed' ? '' : 'warn'}">${o.status === 'completed' ? '已完成' : '处理中'}</span></div>

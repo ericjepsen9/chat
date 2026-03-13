@@ -560,7 +560,7 @@ function ensureActingUser(body, authUser, ...candidateKeys) {
       err.statusCode = 403;
       throw err;
     }
-    if (key) body[key] = authUser.id;
+    body[key] = authUser.id;
   }
 }
 

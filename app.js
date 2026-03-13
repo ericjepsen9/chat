@@ -231,7 +231,7 @@ function orderMatchesFilters(order, role = 'buyer'){
   }
   if (toVal) {
     const toTs = Date.parse(toVal);
-    if (Number.isFinite(toTs) && createdAt > toTs + 86400000) return false;
+    if (Number.isFinite(toTs) && createdAt >= toTs + 86400000) return false;
   }
   return true;
 }
@@ -1791,8 +1791,8 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
   let userObj = state.currentUser; let finalName = '我';
   if (msg.senderId !== state.currentUser?.id) {
     const friend = findFriendEntry(msg.senderId);
-    userObj = friend ? friend.friend : { displayName: '用户' };
-    finalName = userObj.remark || userObj.displayName;
+    userObj = (friend && friend.friend) ? friend.friend : { displayName: '用户' };
+    finalName = userObj.remark || userObj.displayName || '用户';
   }
   const isTemp = String(msg.id).startsWith('temp_');
 
