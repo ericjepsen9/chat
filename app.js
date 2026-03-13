@@ -2242,11 +2242,13 @@ function buildMallSignature(products) {
 }
 function isConversationMuted(conv) {
   if (!conv) return false;
+  if (state.mutedConvIds && conv.id) return state.mutedConvIds.has(conv.id);
   if (typeof conv.muted === 'boolean') return conv.muted;
   return Array.isArray(conv.mutedBy) && conv.mutedBy.includes(state.currentUser?.id);
 }
 function isConversationPinned(conv) {
   if (!conv) return false;
+  if (state.pinnedConvIds && conv.id) return state.pinnedConvIds.has(conv.id);
   if (typeof conv.pinned === 'boolean') return conv.pinned;
   return Array.isArray(conv.pinnedBy) && conv.pinnedBy.includes(state.currentUser?.id);
 }
@@ -2526,6 +2528,7 @@ function buildConversationRow(conv) {
         const nextPinned = Boolean(res?.pinned);
         if (target) target.pinned = nextPinned;
         if (state.activeConversation?.id === conv.id) state.activeConversation.pinned = nextPinned;
+        if (state.pinnedConvIds) { nextPinned ? state.pinnedConvIds.add(conv.id) : state.pinnedConvIds.delete(conv.id); }
         showModal(nextPinned ? '已置顶会话' : '已取消置顶');
         sortConversationsInPlace();
         renderConversationListFromState();
@@ -4371,10 +4374,14 @@ function bindSocialEvents() {
         const nextMuted = Boolean(res?.muted);
         if (state.activeConversation) state.activeConversation.muted = nextMuted;
         if (conv) conv.muted = nextMuted;
+        const cid = state.activeConversation?.id;
+        if (cid && state.mutedConvIds) { nextMuted ? state.mutedConvIds.add(cid) : state.mutedConvIds.delete(cid); }
       } else if (action === 'pin') {
         const nextPinned = Boolean(res?.pinned);
         if (state.activeConversation) state.activeConversation.pinned = nextPinned;
         if (conv) conv.pinned = nextPinned;
+        const cid = state.activeConversation?.id;
+        if (cid && state.pinnedConvIds) { nextPinned ? state.pinnedConvIds.add(cid) : state.pinnedConvIds.delete(cid); }
       } else if (action === 'clear') {
         const now = Number(res?.clearedAt) || Date.now();
         if (state.activeConversation) {
@@ -6047,7 +6054,14 @@ const loadConversations = singleFlight(async function _loadConversationsImpl() {
     const data = await api(`/api/conversations?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.conversations = (data.conversations || []).map(normalizeConversation);
     state.conversationsById = new Map();
-    for (const c of state.conversations) state.conversationsById.set(c.id, c);
+    state.mutedConvIds = new Set();
+    state.pinnedConvIds = new Set();
+    const uid = state.currentUser?.id;
+    for (const c of state.conversations) {
+      state.conversationsById.set(c.id, c);
+      if (c.muted === true || (Array.isArray(c.mutedBy) && uid && c.mutedBy.includes(uid))) state.mutedConvIds.add(c.id);
+      if (c.pinned === true || (Array.isArray(c.pinnedBy) && uid && c.pinnedBy.includes(uid))) state.pinnedConvIds.add(c.id);
+    }
     if (state.activeConversation) {
       const next = state.conversationsById.get(state.activeConversation.id);
       if (next) Object.assign(state.activeConversation, {
