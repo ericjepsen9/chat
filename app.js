@@ -362,12 +362,8 @@ function buildOrderCard(order, role){
     editPriceBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if(!order.id) return;
-      showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
-        editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
-        try{
-          await doUpdateOrderPrice(order.id, raw);
-          renderSellerOrdersManage();
-        }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
+      showPrompt('请输入新的总价', String(order.total || ''), (raw) => {
+        withButtonLock(editPriceBtn, async () => { await doUpdateOrderPrice(order.id, raw); renderSellerOrdersManage(); }, '修改中...');
       });
     });
     actions.appendChild(editPriceBtn);
@@ -375,14 +371,10 @@ function buildOrderCard(order, role){
     acceptBtn.type = 'button';
     acceptBtn.className = 'primary-btn';
     acceptBtn.textContent = '接单';
-    acceptBtn.addEventListener('click', async (e) => {
+    acceptBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if(!order.id || acceptBtn.disabled) return;
-      acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
-      try{
-        await doAcceptOrder(order.id);
-        renderSellerOrdersManage();
-      }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
+      if(!order.id) return;
+      withButtonLock(acceptBtn, async () => { await doAcceptOrder(order.id); renderSellerOrdersManage(); }, '接单中...');
     });
     actions.appendChild(acceptBtn);
   }
@@ -393,14 +385,9 @@ function buildOrderCard(order, role){
     completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成';
     completeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if(completeBtn.disabled) return;
       const msg = role === 'buyer' ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？';
-      showConfirm(msg, async () => {
-        completeBtn.disabled = true; completeBtn.textContent = '处理中...';
-        try{
-          await doCompleteOrder(order.id);
-          if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage();
-        }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = role === 'buyer' ? '确认收货' : '标记已完成'; }
+      showConfirm(msg, () => {
+        withButtonLock(completeBtn, async () => { await doCompleteOrder(order.id); if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage(); }, '处理中...');
       });
     });
     actions.appendChild(completeBtn);
@@ -412,10 +399,8 @@ function buildOrderCard(order, role){
     delBtn.textContent = '删除';
     delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if(delBtn.disabled) return;
-      showConfirm('确认删除该订单？', async () => {
-        delBtn.disabled = true; delBtn.textContent = '删除中...';
-        try { await deleteOrderRecord(order.id); } finally { delBtn.disabled = false; delBtn.textContent = '删除'; }
+      showConfirm('确认删除该订单？', () => {
+        withButtonLock(delBtn, () => deleteOrderRecord(order.id), '删除中...');
       });
     });
     actions.appendChild(delBtn);
@@ -2429,11 +2414,8 @@ function buildOrderCardMessage(msg){
     editPriceBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if(!order.id) return;
-      showPrompt('请输入新的总价', String(order.total || ''), async (raw) => {
-        editPriceBtn.disabled = true; editPriceBtn.textContent = '修改中...';
-        try{
-          await doUpdateOrderPrice(order.id, raw);
-        }catch(err){ showModal(err.message || '修改失败'); } finally { editPriceBtn.disabled = false; editPriceBtn.textContent = '修改价格'; }
+      showPrompt('请输入新的总价', String(order.total || ''), (raw) => {
+        withButtonLock(editPriceBtn, () => doUpdateOrderPrice(order.id, raw), '修改中...');
       });
     });
     actions.appendChild(editPriceBtn);
@@ -2441,13 +2423,10 @@ function buildOrderCardMessage(msg){
     acceptBtn.type = 'button';
     acceptBtn.className = 'primary-btn';
     acceptBtn.textContent = '接单';
-    acceptBtn.addEventListener('click', async (e) => {
+    acceptBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if(!order.id || acceptBtn.disabled) return;
-      acceptBtn.disabled = true; acceptBtn.textContent = '接单中...';
-      try{
-        await doAcceptOrder(order.id);
-      }catch(err){ showModal(err.message || '接单失败'); } finally { acceptBtn.disabled = false; acceptBtn.textContent = '接单'; }
+      if(!order.id) return;
+      withButtonLock(acceptBtn, () => doAcceptOrder(order.id), '接单中...');
     });
     actions.appendChild(acceptBtn);
   }
@@ -2466,13 +2445,10 @@ function buildOrderCardMessage(msg){
     completeBtn.type = 'button';
     completeBtn.className = 'primary-btn';
     completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成';
-    completeBtn.addEventListener('click', async (e) => {
+    completeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if(!order.id || completeBtn.disabled) return;
-      completeBtn.disabled = true; completeBtn.textContent = '处理中...';
-      try{
-        await doCompleteOrder(order.id);
-      }catch(err){ showModal(err.message || '操作失败'); } finally { completeBtn.disabled = false; completeBtn.textContent = isBuyer ? '确认收货' : '标记已完成'; }
+      if(!order.id) return;
+      withButtonLock(completeBtn, () => doCompleteOrder(order.id), '处理中...');
     });
     actions.appendChild(completeBtn);
   }
@@ -3140,24 +3116,16 @@ function patchFriendGroupSection(section, groupName, members) {
     content.dataset.role = 'friend-group-content';
     section.appendChild(content);
   }
-  const existingRows = new Map(Array.from(content.querySelectorAll('button.chat-item[data-friend-key]')).map((node) => [node.dataset.friendKey, node]));
-  const nextItemSignatures = {};
-  const orderedNodes = [];
-  members.forEach((item) => {
-    const itemKey = `${groupName}::${item.friend.id}`;
-    const sig = buildFriendItemSignature(item, groupName);
-    nextItemSignatures[itemKey] = sig;
-    const existing = existingRows.get(itemKey);
-    let row = existing;
-    if (!existing) row = buildFriendRow(item, groupName);
-    else if (state.friendItemSignatures[itemKey] !== sig) row = patchFriendRow(existing, item, groupName);
-    orderedNodes.push(row);
-    existingRows.delete(itemKey);
+  const nextItemSignatures = reconcileList(content, members, {
+    selector: 'button.chat-item[data-friend-key]',
+    dataKey: 'friendKey',
+    keyFn: (item) => `${groupName}::${item.friend.id}`,
+    sigFn: (item) => buildFriendItemSignature(item, groupName),
+    buildFn: (item) => buildFriendRow(item, groupName),
+    patchFn: (node, item) => patchFriendRow(node, item, groupName),
+    sigStore: state.friendItemSignatures,
   });
-  const needsOrderUpdate = orderedNodes.length !== content.childElementCount || orderedNodes.some((node, idx) => content.children[idx] !== node);
-  if (needsOrderUpdate) content.replaceChildren(...orderedNodes);
-  else existingRows.forEach((node) => node.remove());
-  Object.entries(nextItemSignatures).forEach(([id, sig]) => { state.friendItemSignatures[id] = sig; });
+  Object.assign(state.friendItemSignatures, nextItemSignatures);
   return section;
 }
 function buildMallItemSignature(product) {
@@ -3509,23 +3477,19 @@ window.openProductChat = async (sellerId, title, price, image, productId) => {
   } catch(e) { showModal("发起交易沟通失败"); }
 };
 
-window.acceptRequest = async (requestId) => {
-  const btn = $("profileAcceptRequestBtn");
-  if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
-  try { await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); showModal('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click(); } catch(e) { showModal(e.message || '操作失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '接受'; } }
+window.acceptRequest = (requestId) => {
+  withButtonLock($("profileAcceptRequestBtn"), async () => {
+    await api('/api/friends/accept', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) }); showModal('已添加对方为好友！'); await Promise.all([loadFriends(), loadFriendRequests(), loadConversations()]); updateProfileDetailActions(); if($("backBtn")) $("backBtn").click();
+  }, '处理中...');
 };
 
 window.rejectRequest = (requestId) => {
-  showConfirm('确定拒绝该好友请求吗？', async () => {
-    const btn = $("profileRejectRequestBtn");
-    if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = '处理中...'; }
-    try {
+  showConfirm('确定拒绝该好友请求吗？', () => {
+    withButtonLock($("profileRejectRequestBtn"), async () => {
       await api('/api/friends/reject', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, requestId }) });
       await loadFriendRequests();
       updateProfileDetailActions();
-    } catch (e) {
-      showModal(e.message || '操作失败');
-    } finally { if (btn) { btn.disabled = false; btn.textContent = '拒绝'; } }
+    }, '处理中...');
   });
 };
 
@@ -4211,56 +4175,39 @@ function bindAuthEvents() {
   on("openAboutPageBtn", "click", () => window.openSecondaryPage('aboutPage', 'settingsPage'));
   on("aboutTermsBtn", "click", () => window.openSecondaryPage('termsPage', 'aboutPage'));
   on("aboutPrivacyBtn", "click", () => window.openSecondaryPage('privacyPolicyPage', 'aboutPage'));
-  on("sendChangePhoneCodeBtn", "click", async () => {
+  on("sendChangePhoneCodeBtn", "click", () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     if(!phone) return showModal('请输入11位手机号');
-    const btn = $("sendChangePhoneCodeBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
-    try {
+    withButtonLock($("sendChangePhoneCodeBtn"), async () => {
       const res = await api('/api/auth/send-code', { method:'POST', body: JSON.stringify({ phone, scene:'reset' }) });
       showModal(res.mockCode ? `验证码（测试）: ${res.mockCode}` : '验证码已发送');
-    } catch (e) {
-      showModal(e.message || '发送失败');
-    } finally { if (btn) { btn.disabled = false; btn.textContent = '获取验证码'; } }
+    }, '发送中...');
   });
-  on("submitChangePhoneBtn", "click", async () => {
+  on("submitChangePhoneBtn", "click", () => {
     const phone = normalizePhoneInput($("changePhoneInput")?.value.trim());
     const code = $("changePhoneCodeInput")?.value.trim();
     if(!phone || !code) return showModal('请填写手机号和验证码');
-    const btn = $("submitChangePhoneBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
-    try {
+    withButtonLock($("submitChangePhoneBtn"), async () => {
       const data = await api('/api/users/change-phone', { method:'POST', body: JSON.stringify({ phone, code }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
       if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
       showModal('手机号修改成功');
       if($("backBtn")) $("backBtn").click();
-    } catch (e) {
-      showModal(e.message || '修改失败');
-    } finally { if (btn) { btn.disabled = false; btn.textContent = '确认修改'; } }
+    }, '提交中...');
   });
-  on("submitChangePasswordBtn", "click", async () => {
+  on("submitChangePasswordBtn", "click", () => {
     const oldPassword = $("oldPasswordInput")?.value || '';
     const newPassword = $("newPasswordInput")?.value || '';
     if(!oldPassword.trim() || !newPassword.trim()) return showModal('请填写旧密码和新密码');
     if(oldPassword === newPassword) return showModal('新密码不能与旧密码相同');
     if((newPassword || '').length < 8) return showModal('新密码至少8位');
-    const submitBtn = $("submitChangePasswordBtn");
-    submitBtn.disabled = true;
-    const prevText = submitBtn.textContent;
-    submitBtn.textContent = '提交中...';
-    try {
+    withButtonLock($("submitChangePasswordBtn"), async () => {
       await api('/api/password/change', { method:'POST', body: JSON.stringify({ oldPassword, newPassword }) });
       showModal('密码修改成功，请重新登录');
       localStorage.removeItem(SESSION_KEY);
       location.reload();
-    } catch (e) {
-      showModal(e.message || '修改密码失败');
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = prevText || '保存新密码';
-    }
+    }, '提交中...');
   });
 
   on("forgotPhoneInput", "keydown", (e) => { if(e.key === 'Enter') $("sendForgotCodeBtn").click(); });
@@ -4732,12 +4679,10 @@ function bindProfileEvents() {
       else $("editAvatarPreview").textContent = firstChar(state.currentUser.displayName);
   });
 
-  on("saveProfileBtn", "click", async () => {
+  on("saveProfileBtn", "click", () => {
       const name = $("editNameInput").value.trim(); const sign = $("editSignatureInput").value.trim();
       if(!name) return showModal("名字不能为空");
-      const btn = $("saveProfileBtn");
-      if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
-      try {
+      withButtonLock($("saveProfileBtn"), async () => {
           const data = await api('/api/users/update', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, displayName: name, signature: sign, avatarUrl: state.tempAvatarUrl }) });
           state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); showModal("资料修改成功！");
           if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName;
@@ -4746,7 +4691,7 @@ function bindProfileEvents() {
               else $("myProfileAvatar").textContent = firstChar(state.currentUser.displayName);
           }
           if($("backBtn")) $("backBtn").click();
-      } catch(e) { showModal("保存失败: " + e.message); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+      }, '保存中...');
   });
 
   on("messagesTab", "click", () => setMainTab('messages'));
@@ -4946,22 +4891,20 @@ function bindProfileEvents() {
     if($("sellerCloudPayFileInput")) $("sellerCloudPayFileInput").value = '';
     await uploadSellerPaymentCode('cloudpay', file);
   });
-  on("saveSellerPaymentBtn", "click", async () => {
+  on("saveSellerPaymentBtn", "click", () => {
     const paymentCodes = {
       wechat: state.paymentCodeDraft?.wechat || '',
       alipay: state.paymentCodeDraft?.alipay || '',
       cloudpay: state.paymentCodeDraft?.cloudpay || '',
     };
     if (!paymentCodes.wechat && !paymentCodes.alipay && !paymentCodes.cloudpay) return showModal('请至少上传一个收款码');
-    const btn = $("saveSellerPaymentBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
-    try{
+    withButtonLock($("saveSellerPaymentBtn"), async () => {
       const data = await api('/api/users/update', { method:'POST', body: JSON.stringify({ userId: state.currentUser.id, paymentCodes }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
       showModal('收款码已保存');
       window.openSecondaryPage('sellerCenterPage', state.secondaryReturn || 'profile');
-    }catch(e){ showModal(e.message || '保存失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }
+    }, '保存中...');
   });
 }
 
@@ -5335,18 +5278,16 @@ function bindBroadcastEvents() {
     window.openSecondaryPage('broadcastEditorPage', 'broadcastManagePage');
   });
   on("saveBroadcastDraftBtn", "click", saveBroadcastDraft);
-  on("sendBroadcastNowBtn", "click", async () => {
+  on("sendBroadcastNowBtn", "click", () => {
     const draft = state.selectedBroadcastDraft;
     if(!draft) return showModal('请先选择一条广播');
     const title = draft.title || '广播通知';
     const summary = draft.summary || '';
-    const btn = $("sendBroadcastNowBtn");
-    if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
-    try {
+    withButtonLock($("sendBroadcastNowBtn"), async () => {
       await window.sendMessage({ type: 'broadcast_card', broadcast: { title, summary, cover: '' } });
       showToast('广播已发送');
       if($("backBtn")) $("backBtn").click();
-    } catch(e) { showModal(e.message || '发送失败'); } finally { if (btn) { btn.disabled = false; btn.textContent = '发送'; } }
+    }, '发送中...');
   });
 
   on("profileMoreBtn", "click", () => showProfileActionSheet());
@@ -6011,7 +5952,6 @@ async function _loadMallImpl() {
     const products = data.items || data.products || [];
     const list = $("mallList"); if (!list) return;
     const nextSignature = buildMallSignature(products);
-    const nextItemSignatures = {};
     let grid = list.querySelector('.mall-grid');
     if (products.length === 0) {
       state.mallListSignature = nextSignature;
@@ -6028,24 +5968,16 @@ async function _loadMallImpl() {
       grid.className = 'mall-grid';
       list.replaceChildren(grid);
     }
-    const existingCards = new Map(Array.from(grid.querySelectorAll('.product-card[data-product-id]')).map((node) => [node.dataset.productId, node]));
-    const orderedNodes = [];
-    products.forEach((product) => {
-      const id = String(product.id);
-      const sig = buildMallItemSignature(product);
-      nextItemSignatures[id] = sig;
-      const existing = existingCards.get(id);
-      let card = existing;
-      if (!existing) card = buildMallCard(product);
-      else if (state.mallItemSignatures[id] !== sig) card = patchMallCard(existing, product);
-      orderedNodes.push(card);
-      existingCards.delete(id);
+    state.mallItemSignatures = reconcileList(grid, products, {
+      selector: '.product-card[data-product-id]',
+      dataKey: 'productId',
+      keyFn: (p) => String(p.id),
+      sigFn: buildMallItemSignature,
+      buildFn: buildMallCard,
+      patchFn: patchMallCard,
+      sigStore: state.mallItemSignatures,
     });
-    const needsOrderUpdate = orderedNodes.length !== grid.childElementCount || orderedNodes.some((node, idx) => grid.children[idx] !== node);
-    if (needsOrderUpdate) grid.replaceChildren(...orderedNodes);
-    else existingCards.forEach((node) => node.remove());
     state.mallListSignature = nextSignature;
-    state.mallItemSignatures = nextItemSignatures;
   } catch(e) { if($("mallList")) { const empty = document.createElement('div'); empty.style.cssText = 'text-align:center; padding:40px; color:#8e8e93;'; empty.textContent = '加载失败'; $("mallList").replaceChildren(empty); } }
 }
 
@@ -6191,26 +6123,18 @@ async function _loadFriendsImpl() {
     const nextSignature = buildFriendListSignature(customGroups, grouped);
     const container = $("friendList");
     if (!container) return;
-    const nextGroupSignatures = {};
     if (nextSignature === state.friendListSignature && container.childElementCount) return;
-    const existingGroups = new Map(Array.from(container.querySelectorAll(':scope > div[data-group-name]')).map((node) => [node.dataset.groupName, node]));
-    const orderedGroups = [];
-    customGroups.forEach((groupName) => {
-      const members = grouped.get(groupName) || [];
-      const groupSig = buildFriendGroupSignature(groupName, members);
-      nextGroupSignatures[groupName] = groupSig;
-      const existing = existingGroups.get(groupName);
-      let section = existing;
-      if (!existing) section = createFriendGroupSection(groupName, members);
-      else if (state.friendGroupSignatures[groupName] !== groupSig) section = patchFriendGroupSection(existing, groupName, members);
-      orderedGroups.push(section);
-      existingGroups.delete(groupName);
+    const groupItems = customGroups.map(name => ({ name, members: grouped.get(name) || [] }));
+    state.friendGroupSignatures = reconcileList(container, groupItems, {
+      selector: ':scope > div[data-group-name]',
+      dataKey: 'groupName',
+      keyFn: (g) => g.name,
+      sigFn: (g) => buildFriendGroupSignature(g.name, g.members),
+      buildFn: (g) => createFriendGroupSection(g.name, g.members),
+      patchFn: (node, g) => patchFriendGroupSection(node, g.name, g.members),
+      sigStore: state.friendGroupSignatures,
     });
-    const needsOrderUpdate = orderedGroups.length !== container.childElementCount || orderedGroups.some((node, idx) => container.children[idx] !== node);
-    if (needsOrderUpdate) container.replaceChildren(...orderedGroups);
-    else existingGroups.forEach((node) => node.remove());
     state.friendListSignature = nextSignature;
-    state.friendGroupSignatures = nextGroupSignatures;
     const nextFriendItemSignatures = {};
     customGroups.forEach((groupName) => {
       const members = grouped.get(groupName) || [];
@@ -6677,30 +6601,19 @@ function renderConversationListFromState() {
   state.chatListSignature = nextSignature;
 
   if(container) {
-    const nextIds = new Set(visible.map((conv) => String(conv.id)));
-    const nextItemSignatures = {};
-    const existingRows = new Map(Array.from(container.querySelectorAll('[data-conversation-id]')).map((node) => [node.dataset.conversationId, node]));
-    const orderedNodes = [];
     if (visible.length === 0) {
       state.conversationItemSignatures = {};
       container.replaceChildren(createEmptyChatListNode());
     } else {
-      visible.forEach((conv) => {
-        const id = String(conv.id);
-        const itemSig = buildConversationItemSignature(conv);
-        nextItemSignatures[id] = itemSig;
-        const existing = existingRows.get(id);
-        let row = existing;
-        if (!existing) row = buildConversationRow(conv);
-        else if (state.conversationItemSignatures[id] !== itemSig) row = patchConversationRow(existing, conv);
-        orderedNodes.push(row);
-        existingRows.delete(id);
+      state.conversationItemSignatures = reconcileList(container, visible, {
+        selector: '[data-conversation-id]',
+        dataKey: 'conversationId',
+        keyFn: (conv) => String(conv.id),
+        sigFn: buildConversationItemSignature,
+        buildFn: buildConversationRow,
+        patchFn: patchConversationRow,
+        sigStore: state.conversationItemSignatures,
       });
-      const hasOnlyEmptyState = container.children.length === 1 && container.firstElementChild && container.firstElementChild.classList.contains('chat-list-empty');
-      const needsOrderUpdate = hasOnlyEmptyState || orderedNodes.length !== container.childElementCount || orderedNodes.some((node, idx) => container.children[idx] !== node);
-      if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
-      else existingRows.forEach((node, id) => { if (!nextIds.has(id)) node.remove(); });
-      state.conversationItemSignatures = nextItemSignatures;
     }
   }
   updateMessagesTabBadge(totalUnread);

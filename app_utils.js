@@ -118,7 +118,7 @@ function withButtonLock(btn, asyncFn, loadingText) {
   const origText = btn.textContent;
   btn.disabled = true;
   if (loadingText) btn.textContent = loadingText;
-  Promise.resolve(asyncFn()).catch((e) => { showToast(e?.message || '操作失败'); }).finally(() => {
+  Promise.resolve(asyncFn()).catch((e) => { showModal(e?.message || '操作失败'); }).finally(() => {
     btn.disabled = false;
     if (loadingText) btn.textContent = origText;
   });
@@ -395,4 +395,28 @@ function formatConversationTime(timestamp) {
   if (diffDays < 7) return _WEEKDAYS[d.getDay()];
   if (d.getFullYear() === now.getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Reconcile a list of items into a container using signature-based diffing.
+// Returns the new signatures map { key -> sig }.
+// opts: { selector, keyFn(item), sigFn(item), buildFn(item), patchFn(existingNode, item), sigStore }
+function reconcileList(container, items, opts) {
+  const existingNodes = new Map(Array.from(container.querySelectorAll(opts.selector)).map(n => [n.dataset[opts.dataKey], n]));
+  const nextSigs = {};
+  const orderedNodes = [];
+  items.forEach(item => {
+    const key = opts.keyFn(item);
+    const sig = opts.sigFn(item);
+    nextSigs[key] = sig;
+    const existing = existingNodes.get(key);
+    let node = existing;
+    if (!existing) node = opts.buildFn(item);
+    else if (opts.sigStore[key] !== sig) node = opts.patchFn(existing, item);
+    orderedNodes.push(node);
+    existingNodes.delete(key);
+  });
+  const needsOrderUpdate = orderedNodes.length !== container.childElementCount || orderedNodes.some((n, i) => container.children[i] !== n);
+  if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
+  else existingNodes.forEach(n => n.remove());
+  return nextSigs;
 }
