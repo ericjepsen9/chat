@@ -1540,7 +1540,7 @@ function renderContactCardPicker(keyword){
   allFriends.forEach(item => {
     const f = item.friend;
     if (!f) return;
-    if (search && !(f.displayName || '').toLowerCase().includes(search) && !(f.remark || '').toLowerCase().includes(search) && !(f.username || '').toLowerCase().includes(search)) return;
+    if (search && !(f._lcName || (f._lcName = (f.displayName || '').toLowerCase())).includes(search) && !(f._lcRemark || (f._lcRemark = (f.remark || '').toLowerCase())).includes(search) && !(f._lcUser || (f._lcUser = (f.username || '').toLowerCase())).includes(search)) return;
     const groupName = item.group || DEFAULT_GROUP;
     if (!grouped.has(groupName)) grouped.set(groupName, []);
     grouped.get(groupName).push(f);
@@ -5520,11 +5520,13 @@ function markConversationRead(convId) {
 function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
   // Build lightweight signature: id|type|recalled for each message
-  let sig = state.messages.length + ':';
+  const sigParts = new Array(state.messages.length + 1);
+  sigParts[0] = state.messages.length + ':';
   for (let i = 0; i < state.messages.length; i++) {
     const m = state.messages[i];
-    sig += m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0) + ';';
+    sigParts[i + 1] = m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0);
   }
+  const sig = sigParts.join(';');
   if (!sigChanged('messages', sig) && !preserveScroll) return;
   _messagesSig = sig;
   const oldScrollHeight = chatView.scrollHeight;

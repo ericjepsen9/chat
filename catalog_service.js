@@ -1,11 +1,25 @@
 function buildUserStoreItems({ usersById, sellerId }) {
   const seller = usersById.get(sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
-  const items = (seller.products || []).filter((product) => product.listed !== false).map((product) => ({
-    ...product,
-    imageUrl: product.image,
-    specs: Array.isArray(product.specs) && product.specs.length ? product.specs : ['默认规格'],
-  }));
+  const allProducts = seller.products || [];
+  const items = [];
+  for (let i = 0; i < allProducts.length; i++) {
+    const product = allProducts[i];
+    if (product.listed === false) continue;
+    items.push({
+      id: product.id,
+      title: product.title,
+      category: product.category,
+      desc: product.desc,
+      price: product.price,
+      image: product.image,
+      imageUrl: product.image,
+      specs: Array.isArray(product.specs) && product.specs.length ? product.specs : ['默认规格'],
+      stock: product.stock,
+      listed: product.listed,
+      createdAt: product.createdAt,
+    });
+  }
   return { ok: true, status: 200, payload: { items } };
 }
 
