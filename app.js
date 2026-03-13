@@ -560,11 +560,11 @@ function openProductDetail(item, fromSeller = false){
   state.selectedProductDetail = { ...item, fromSeller: !!fromSeller };
   const _pdImg = $("productDetailImage");
   if(_pdImg) { _pdImg.style.display = ''; _pdImg.onerror = function() { this.style.display = 'none'; }; _pdImg.src = normalizeMediaUrl(item.image || item.imageUrl) || ''; }
-  if($("productDetailTitle")) $("productDetailTitle").textContent = item.title || '商品';
-  if($("productDetailDesc")) $("productDetailDesc").textContent = item.desc || '商品详情页为图片、文字、价格与规格';
-  if($("productDetailPrice")) $("productDetailPrice").textContent = formatMoney(item.price);
+  setText("productDetailTitle", item.title || '商品');
+  setText("productDetailDesc", item.desc || '商品详情页为图片、文字、价格与规格');
+  setText("productDetailPrice", formatMoney(item.price));
   const stock = Math.max(0, Math.floor(Number(item.stock || 0)));
-  if($("productDetailStock")) $("productDetailStock").textContent = `库存 ${stock}`;
+  setText("productDetailStock", `库存 ${stock}`);
   const specsEl = $("productDetailSpecs");
   if(specsEl){
     const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
@@ -578,12 +578,12 @@ function openProductDetail(item, fromSeller = false){
     specsEl.replaceChildren(frag);
   }
   const isOwnProduct = !fromSeller && item.sellerId && item.sellerId === state.currentUser?.id;
-  if($("productDetailOpenSellerBtn")) $("productDetailOpenSellerBtn").classList.toggle('hidden', !fromSeller);
-  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
-  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
-  if($("productDetailChatBtn")) $("productDetailChatBtn").classList.toggle('hidden', fromSeller || isOwnProduct);
+  toggleEl("productDetailOpenSellerBtn", 'hidden', !fromSeller);
+  toggleEl("productDetailBuyNowBtn", 'hidden', fromSeller || isOwnProduct);
+  toggleEl("productDetailAddCartBtn", 'hidden', fromSeller || isOwnProduct);
+  toggleEl("productDetailChatBtn", 'hidden', fromSeller || isOwnProduct);
   // Show seller management buttons on detail page
-  if($("productDetailSellerActions")) $("productDetailSellerActions").classList.toggle('hidden', !fromSeller);
+  toggleEl("productDetailSellerActions", 'hidden', !fromSeller);
   if(fromSeller && $("productDetailListedBtn")) {
     $("productDetailListedBtn").textContent = item.listed === false ? '上架' : '下架';
     $("productDetailListedBtn").className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
@@ -610,7 +610,7 @@ function renderOrderDetailPage(){
     box.textContent = '暂无订单详情';
     return;
   }
-  if($("orderDetailStatus")) $("orderDetailStatus").textContent = orderStatusText(order.status);
+  setText("orderDetailStatus", orderStatusText(order.status));
   box.replaceChildren();
 
   // Order number & time
@@ -678,11 +678,11 @@ function renderOrderDetailPage(){
 
   // Action buttons visibility
   const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
-  if($("orderDetailAcceptBtn")) $("orderDetailAcceptBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
-  if($("orderDetailEditPriceBtn")) $("orderDetailEditPriceBtn").classList.toggle('hidden', role !== 'seller' || order.status !== 'pending');
-  if($("orderDetailPriceRequestBtn")) $("orderDetailPriceRequestBtn").classList.toggle('hidden', true);
-  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").classList.toggle('hidden', order.status !== 'accepted');
-  if($("orderDetailChatBtn")) $("orderDetailChatBtn").classList.toggle('hidden', !counterId);
+  toggleEl("orderDetailAcceptBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
+  toggleEl("orderDetailEditPriceBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
+  toggleEl("orderDetailPriceRequestBtn", 'hidden', true);
+  toggleEl("orderDetailCompleteBtn", 'hidden', order.status !== 'accepted');
+  toggleEl("orderDetailChatBtn", 'hidden', !counterId);
 }
 
 function updateSelectedOrderPrice(){
@@ -965,9 +965,9 @@ function openProductSpecSheet(item, mode = 'cart'){
   const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
   state.selectedProfileSpec = specs[0];
   if($("specSheetImage")) $("specSheetImage").src = normalizeMediaUrl(item.image || item.imageUrl) || '';
-  if($("specSheetTitle")) $("specSheetTitle").textContent = item.title || '商品';
-  if($("specSheetDesc")) $("specSheetDesc").textContent = item.desc || '商品详情页包含图片、文字与价格';
-  if($("specSheetPrice")) $("specSheetPrice").textContent = formatMoney(item.price);
+  setText("specSheetTitle", item.title || '商品');
+  setText("specSheetDesc", item.desc || '商品详情页包含图片、文字与价格');
+  setText("specSheetPrice", formatMoney(item.price));
   const list = $("specOptionsList");
   if(list){
     const frag = document.createDocumentFragment();
@@ -985,11 +985,11 @@ function openProductSpecSheet(item, mode = 'cart'){
     list.replaceChildren(frag);
   }
   // Reset quantity UI
-  if($("specSheetQtyNum")) $("specSheetQtyNum").textContent = '1';
+  setText("specSheetQtyNum", '1');
   if($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = true;
   // Toggle cart vs buy-now buttons
-  if($("confirmAddToCartBtn")) $("confirmAddToCartBtn").classList.toggle('hidden', mode === 'buyNow');
-  if($("confirmBuyNowBtn")) $("confirmBuyNowBtn").classList.toggle('hidden', mode !== 'buyNow');
+  toggleEl("confirmAddToCartBtn", 'hidden', mode === 'buyNow');
+  toggleEl("confirmBuyNowBtn", 'hidden', mode !== 'buyNow');
   $("productSpecSheet")?.classList.remove('hidden');
 }
 
@@ -1109,15 +1109,15 @@ function renderProfileCartPage(){
 
   if(!currentCart.length){
     showEmptyState(list, '购物车为空');
-    if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = '0 件商品';
-    if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(0);
+    setText("profileCartSummaryText", '0 件商品');
+    setText("profileCartPageTotal", formatMoney(0));
     return;
   }
 
   const updateTotals = () => {
     const count = currentCart.reduce((s, i) => s + (Number(i.quantity)||0), 0);
-    if($("profileCartSummaryText")) $("profileCartSummaryText").textContent = `${count} 件商品`;
-    if($("profileCartPageTotal")) $("profileCartPageTotal").textContent = formatMoney(getProfileCartTotal());
+    setText("profileCartSummaryText", `${count} 件商品`);
+    setText("profileCartPageTotal", formatMoney(getProfileCartTotal()));
   };
 
   const frag = document.createDocumentFragment();
@@ -1467,7 +1467,7 @@ function renderAdminReports(){
 }
 
 function renderSellerCenterPage(){
-  if($("chatTitle")) $("chatTitle").textContent = '卖家中心';
+  setText("chatTitle", '卖家中心');
 }
 
 async function renderBuyerOrdersPage(){
@@ -1475,8 +1475,8 @@ async function renderBuyerOrdersPage(){
 }
 
 function openBroadcastDetail(title, summary){
-  if($("broadcastDetailTitle")) $("broadcastDetailTitle").textContent = title || '广播详情';
-  if($("broadcastDetailSummary")) $("broadcastDetailSummary").textContent = summary || '';
+  setText("broadcastDetailTitle", title || '广播详情');
+  setText("broadcastDetailSummary", summary || '');
   window.openSecondaryPage('broadcastDetailPage', state.secondaryReturn || 'home');
 }
 
@@ -1542,8 +1542,8 @@ function renderProfileOrders(){
   list.replaceChildren(frag);
 }
 
-function showProfileActionSheet(){ if($("profileActionSheet")) $("profileActionSheet").classList.remove("hidden"); }
-function hideProfileActionSheet(){ if($("profileActionSheet")) $("profileActionSheet").classList.add("hidden"); }
+function showProfileActionSheet(){ showEl("profileActionSheet"); }
+function hideProfileActionSheet(){ hideEl("profileActionSheet"); }
 
 async function sendFriendRequestToCurrentProfile(){
   const p = state.currentProfileUser;
@@ -3008,62 +3008,62 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
   if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
   if($(page)) $(page).classList.remove('hidden');
-  if($("backBtn")) $("backBtn").classList.remove('hidden');
-  if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
-  if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
+  showEl("backBtn");
+  hideEl("homeMoreBtn");
+  hideEl("chatSettingsBtn");
+  hideEl("sidebarToggleBtn");
   if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
 
   if (page === 'friendRequestsView') {
-    if($("chatTitle")) $("chatTitle").textContent = '新的朋友';
+    setText("chatTitle", '新的朋友');
     refreshFriendRequestState({ forceList: true });
   }
-  else if (page === 'profileDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '详细资料'; if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove('hidden'); }
-  else if (page === 'messageSettingsPage') { if($("chatTitle")) $("chatTitle").textContent = '聊天信息'; if($("pinConversationBtn")) $("pinConversationBtn").textContent = (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天'; if($("muteSettingBtn")) $("muteSettingBtn").textContent = (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰'; }
-  else if (page === 'addFriendPage') { if($("chatTitle")) $("chatTitle").textContent = '添加朋友'; }
+  else if (page === 'profileDetailPage') { setText("chatTitle", '详细资料'); showEl("chatSettingsBtn"); }
+  else if (page === 'messageSettingsPage') { setText("chatTitle", '聊天信息'); setText("pinConversationBtn", (state.activeConversation && state.activeConversation.pinned) ? '取消置顶' : '置顶聊天'); setText("muteSettingBtn", (state.activeConversation && state.activeConversation.muted) ? '取消免打扰' : '消息免打扰'); }
+  else if (page === 'addFriendPage') { setText("chatTitle", '添加朋友'); }
   else if (page === 'scanPage') {
-    if($("chatTitle")) $("chatTitle").textContent = '扫一扫';
-    if($("scanManualPanel")) $("scanManualPanel").classList.add('hidden');
+    setText("chatTitle", '扫一扫');
+    hideEl("scanManualPanel");
     if($("scanIdInput")) $("scanIdInput").value = '';
-    if($("scanHintText")) $("scanHintText").textContent = '将二维码放入框内，即可自动扫描';
+    setText("scanHintText", '将二维码放入框内，即可自动扫描');
     requestAnimationFrame(() => { startScanCamera(); });
   }
-  else if (page === 'privacyPage') { if($("chatTitle")) $("chatTitle").textContent = '黑名单管理'; }
-  else if (page === 'qrCodePage') { if($("chatTitle")) $("chatTitle").textContent = '二维码名片'; }
-  else if (page === 'editProfilePage') { if($("chatTitle")) $("chatTitle").textContent = '个人信息'; }
-  else if (page === 'forgotPasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '找回密码'; }
-  else if (page === 'changePasswordPage') { if($("chatTitle")) $("chatTitle").textContent = '修改密码'; }
-  else if (page === 'changePhonePage') { if($("chatTitle")) $("chatTitle").textContent = '修改手机号'; }
-  else if (page === 'publishProductPage') { if($("chatTitle")) $("chatTitle").textContent = '发布闲置'; }
-  else if (page === 'myProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '我的闲置'; }
-  else if (page === 'settingsPage') { if($("chatTitle")) $("chatTitle").textContent = '设置'; }
-  else if (page === 'groupManagePage') { if($("chatTitle")) $("chatTitle").textContent = '分组管理'; renderGroupManageList(); }
-  else if (page === 'buyerOrdersManagePage') { if($("chatTitle")) $("chatTitle").textContent = '我购买的订单'; renderBuyerOrdersManage(); }
-  else if (page === 'sellerCenterPage') { if($("chatTitle")) $("chatTitle").textContent = '卖家中心'; }
-  else if (page === 'sellerPaymentPage') { if($("chatTitle")) $("chatTitle").textContent = '收款码管理'; }
-  else if (page === 'sellerOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '订单管理'; renderSellerOrdersManage(); }
-  else if (page === 'sellerProductsPage') { if($("chatTitle")) $("chatTitle").textContent = '商品管理'; }
-  else if (page === 'productDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '商品详情'; }
-  else if (page === 'orderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
-  else if (page === 'contactCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '发送名片'; }
-  else if (page === 'productCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '我的商品'; }
-  else if (page === 'orderCardPickerPage') { if($("chatTitle")) $("chatTitle").textContent = '相关订单'; state.orderPickerTab = 'bought'; }
-  else if (page === 'broadcastManagePage') { if($("chatTitle")) $("chatTitle").textContent = '广播管理'; renderBroadcastDrafts(); }
-  else if (page === 'broadcastEditorPage') { if($("chatTitle")) $("chatTitle").textContent = '广播编辑'; }
-  else if (page === 'cartHubPage') { if($("chatTitle")) $("chatTitle").textContent = '购物车'; renderCartHubPage(); }
-  else if (page === 'profileCartPage') { if($("chatTitle")) $("chatTitle").textContent = '结算'; renderProfileCartPage(); }
-  else if (page === 'profileOrdersPage') { if($("chatTitle")) $("chatTitle").textContent = '我的订单'; renderProfileOrders(); }
-  else if (page === 'chatOrderDetailPage') { if($("chatTitle")) $("chatTitle").textContent = '订单详情'; }
-  else if (page === 'msgSearchPage') { if($("chatTitle")) $("chatTitle").textContent = '搜索'; setTimeout(() => { if($("msgSearchPageInput")) $("msgSearchPageInput").focus(); }, 100); }
-  else if (page === 'mallSearchPage') { if($("chatTitle")) $("chatTitle").textContent = '搜索'; setTimeout(() => { if($("mallSearchPageInput")) $("mallSearchPageInput").focus(); }, 100); }
-  else if (page === 'systemMessagesPage') { if($("chatTitle")) $("chatTitle").textContent = '系统消息'; renderSystemMessagesList(); }
+  else if (page === 'privacyPage') { setText("chatTitle", '黑名单管理'); }
+  else if (page === 'qrCodePage') { setText("chatTitle", '二维码名片'); }
+  else if (page === 'editProfilePage') { setText("chatTitle", '个人信息'); }
+  else if (page === 'forgotPasswordPage') { setText("chatTitle", '找回密码'); }
+  else if (page === 'changePasswordPage') { setText("chatTitle", '修改密码'); }
+  else if (page === 'changePhonePage') { setText("chatTitle", '修改手机号'); }
+  else if (page === 'publishProductPage') { setText("chatTitle", '发布闲置'); }
+  else if (page === 'myProductsPage') { setText("chatTitle", '我的闲置'); }
+  else if (page === 'settingsPage') { setText("chatTitle", '设置'); }
+  else if (page === 'groupManagePage') { setText("chatTitle", '分组管理'); renderGroupManageList(); }
+  else if (page === 'buyerOrdersManagePage') { setText("chatTitle", '我购买的订单'); renderBuyerOrdersManage(); }
+  else if (page === 'sellerCenterPage') { setText("chatTitle", '卖家中心'); }
+  else if (page === 'sellerPaymentPage') { setText("chatTitle", '收款码管理'); }
+  else if (page === 'sellerOrdersPage') { setText("chatTitle", '订单管理'); renderSellerOrdersManage(); }
+  else if (page === 'sellerProductsPage') { setText("chatTitle", '商品管理'); }
+  else if (page === 'productDetailPage') { setText("chatTitle", '商品详情'); }
+  else if (page === 'orderDetailPage') { setText("chatTitle", '订单详情'); }
+  else if (page === 'contactCardPickerPage') { setText("chatTitle", '发送名片'); }
+  else if (page === 'productCardPickerPage') { setText("chatTitle", '我的商品'); }
+  else if (page === 'orderCardPickerPage') { setText("chatTitle", '相关订单'); state.orderPickerTab = 'bought'; }
+  else if (page === 'broadcastManagePage') { setText("chatTitle", '广播管理'); renderBroadcastDrafts(); }
+  else if (page === 'broadcastEditorPage') { setText("chatTitle", '广播编辑'); }
+  else if (page === 'cartHubPage') { setText("chatTitle", '购物车'); renderCartHubPage(); }
+  else if (page === 'profileCartPage') { setText("chatTitle", '结算'); renderProfileCartPage(); }
+  else if (page === 'profileOrdersPage') { setText("chatTitle", '我的订单'); renderProfileOrders(); }
+  else if (page === 'chatOrderDetailPage') { setText("chatTitle", '订单详情'); }
+  else if (page === 'msgSearchPage') { setText("chatTitle", '搜索'); setTimeout(() => { if($("msgSearchPageInput")) $("msgSearchPageInput").focus(); }, 100); }
+  else if (page === 'mallSearchPage') { setText("chatTitle", '搜索'); setTimeout(() => { if($("mallSearchPageInput")) $("mallSearchPageInput").focus(); }, 100); }
+  else if (page === 'systemMessagesPage') { setText("chatTitle", '系统消息'); renderSystemMessagesList(); }
 
 };
 
 window.removeFromBlacklist = async (targetId) => { try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'remove' }) }); $("privacySettingsBtn").click(); } catch(e){ showModal(e.message || '操作失败'); } }
 window.toggleQQGroup = (el) => { el.classList.toggle('expanded'); const content = el.nextElementSibling; if(content) content.classList.toggle('expanded'); };
-window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return showModal('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; if($("imageViewer")) $("imageViewer").classList.remove('hidden'); };
-window.closeImageViewer = () => { if($("imageViewer")) $("imageViewer").classList.add('hidden'); if($("viewerImage")) $("viewerImage").removeAttribute('src'); };
+window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return showModal('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; showEl("imageViewer"); };
+window.closeImageViewer = () => { hideEl("imageViewer"); if($("viewerImage")) $("viewerImage").removeAttribute('src'); };
 
 window.playAudio = (url, el) => {
   const safe = normalizeMediaUrl(url);
@@ -3188,7 +3188,7 @@ function bindMessageContextMenu(node, msg) {
 }
 window.forwardMsg = (msgId) => {
   const _fwdIdx = state.messagesById.get(msgId); msgToForward = _fwdIdx !== undefined ? state.messages[_fwdIdx] : undefined; if(!msgToForward) return;
-  if($("contextMenu")) $("contextMenu").classList.add('hidden');
+  hideEl("contextMenu");
   const list = $("forwardList");
   if(list) {
     list.replaceChildren();
@@ -3207,10 +3207,10 @@ window.forwardMsg = (msgId) => {
       list.appendChild(btn);
     });
   }
-  if($("forwardModal")) $("forwardModal").classList.remove('hidden');
+  showEl("forwardModal");
 };
 window.confirmForward = async (convId) => {
-  if($("forwardModal")) $("forwardModal").classList.add('hidden'); if(!msgToForward) return;
+  hideEl("forwardModal"); if(!msgToForward) return;
   try { await api(`/api/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ senderId: state.currentUser.id, type: msgToForward.type, text: msgToForward.text, imageUrl: msgToForward.imageUrl, audioUrl: msgToForward.audioUrl, card: msgToForward.card, order: msgToForward.order, broadcast: msgToForward.broadcast }) }); showModal('已转发'); } catch(e) { showModal('转发失败: ' + e.message); }
 };
 
@@ -3483,19 +3483,19 @@ window.openConversation = async (id, options = {}) => {
   // Clear secondary page navigation state when entering a conversation
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
   SECONDARY_PAGE_IDS.forEach(pid => { if($(pid)) $(pid).classList.add('hidden'); });
-  if($("chatTitle")) $("chatTitle").textContent = conv?.title || '会话';
-  if($("chatListView")) $("chatListView").classList.add("hidden");
-  if($("friendListView")) $("friendListView").classList.add("hidden");
-  if($("mallView")) $("mallView").classList.add("hidden");
-  if($("profileView")) $("profileView").classList.add("hidden");
-  if($("chatView")) $("chatView").classList.remove("hidden");
-  if($("composerPanel")) $("composerPanel").classList.remove("hidden");
-  if($("homeTabbar")) $("homeTabbar").classList.add("hidden");
-  if($("backBtn")) $("backBtn").classList.remove("hidden");
-  if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
-  if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
+  setText("chatTitle", conv?.title || '会话');
+  hideEl("chatListView");
+  hideEl("friendListView");
+  hideEl("mallView");
+  hideEl("profileView");
+  showEl("chatView");
+  showEl("composerPanel");
+  hideEl("homeTabbar");
+  showEl("backBtn");
+  hideEl("homeMoreBtn");
+  showEl("chatSettingsBtn");
   // show sidebar in chat conversation view
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
+  showEl("sidebarToggleBtn");
   if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
   applySidebarMode();
   applyChatRelationshipState();
@@ -3539,10 +3539,10 @@ window.openUserProfile = async (userId, fallbackName) => {
       setAvatarContainer($("profileAvatar"), data.profile, fallbackName);
 
       const finalName = data.profile.remarkName || data.profile.nickname || fallbackName || '未知用户';
-      if($("profileRemarkName")) $("profileRemarkName").textContent = finalName;
-      if($("profileNickName")) $("profileNickName").textContent = data.profile.nickname || '-'; 
-      if($("profileAppId")) $("profileAppId").textContent = `ID：${data.profile.appNumberId}`;
-      if($("profileSignature")) $("profileSignature").textContent = data.profile.signature || '这个人很神秘，还没有填写签名';
+      setText("profileRemarkName", finalName);
+      setText("profileNickName", data.profile.nickname || '-'); 
+      setText("profileAppId", `ID：${data.profile.appNumberId}`);
+      setText("profileSignature", data.profile.signature || '这个人很神秘，还没有填写签名');
       updateProfileDetailActions();
       await loadProfileStore(data.profile.id);
       window.openSecondaryPage('profileDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
@@ -3604,8 +3604,8 @@ window.sendMessage = async (payload) => {
 window.handleSendText = async () => {
     const input = $("messageInput"); if(!input) return; const text = input.value.trim(); if (!text) return;
     input.value = ""; input.style.height = 'auto'; 
-    if($("toggleActionsBtn")) $("toggleActionsBtn").classList.remove("hidden"); if($("sendMsgBtn")) $("sendMsgBtn").classList.add("hidden");
-    if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); if($("actionPanel")) $("actionPanel").classList.add("hidden");
+    showEl("toggleActionsBtn"); hideEl("sendMsgBtn");
+    hideEl("emojiPanel"); hideEl("actionPanel");
     await window.sendMessage({ type: "text", text });
 };
 
@@ -3962,7 +3962,7 @@ function bindAuthEvents() {
       const data = await api('/api/users/change-phone', { method:'POST', body: JSON.stringify({ phone, code }) });
       state.currentUser = data.user || state.currentUser;
       writeSession(state.currentUser);
-      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
+      setText("editPhoneDisplay", state.currentUser.phone || '未绑定');
       showModal('手机号修改成功');
       if($("backBtn")) $("backBtn").click();
     }, '提交中...');
@@ -4001,7 +4001,7 @@ function bindAuthEvents() {
       fetchMessages(state.oldestMessageTime);
     }, { passive: true });
   }
-  on("closeGroupSelectSheetBtn", "click", () => { if($("groupSelectSheet")) $("groupSelectSheet").classList.add("hidden"); });
+  on("closeGroupSelectSheetBtn", "click", () => { hideEl("groupSelectSheet"); });
   on("mallSearchPageBtn", "click", () => { if (checkSearchCooldown('mallSearch')) doMallSearchPage(); });
   on("mallSearchPageInput", "keydown", (e) => { if (e.key === 'Enter') { e.preventDefault(); if (checkSearchCooldown('mallSearch')) doMallSearchPage(); } });
 }
@@ -4443,8 +4443,8 @@ function bindProfileEvents() {
   on("myProfileCard", "click", () => { 
       if(!state.currentUser) return; window.openSecondaryPage('editProfilePage');
       $("editNameInput").value = state.currentUser.displayName || ''; $("editSignatureInput").value = state.currentUser.signature || '';
-      if($("editAppIdDisplay")) $("editAppIdDisplay").textContent = state.currentUser.appNumberId || '-';
-      if($("editPhoneDisplay")) $("editPhoneDisplay").textContent = state.currentUser.phone || '未绑定';
+      setText("editAppIdDisplay", state.currentUser.appNumberId || '-');
+      setText("editPhoneDisplay", state.currentUser.phone || '未绑定');
       state.tempAvatarUrl = state.currentUser.avatarUrl || null;
       if (state.tempAvatarUrl) setImagePreview($("editAvatarPreview"), state.tempAvatarUrl, firstChar(state.currentUser?.displayName));
       else $("editAvatarPreview").textContent = firstChar(state.currentUser.displayName);
@@ -4456,7 +4456,7 @@ function bindProfileEvents() {
       withButtonLock($("saveProfileBtn"), async () => {
           const data = await api('/api/users/update', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, displayName: name, signature: sign, avatarUrl: state.tempAvatarUrl }) });
           state.currentUser = data.user || state.currentUser; writeSession(state.currentUser); showModal("资料修改成功！");
-          if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName;
+          setText("profileDisplayName", state.currentUser.displayName);
           if($("myProfileAvatar")) {
               if(state.currentUser.avatarUrl) setImagePreview($("myProfileAvatar"), state.currentUser.avatarUrl, firstChar(state.currentUser.displayName));
               else $("myProfileAvatar").textContent = firstChar(state.currentUser.displayName);
@@ -4488,21 +4488,21 @@ function bindProfileEvents() {
           state.secondaryPage = prev.page; state.secondaryReturn = prev.backTo;
           ["chatListView","friendListView","mallView","profileView","chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
           if($(prev.page)) $(prev.page).classList.remove('hidden');
-          if($("backBtn")) $("backBtn").classList.remove('hidden');
-          if($("homeMoreBtn")) $("homeMoreBtn").classList.add("hidden");
-          if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
-          if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
+          showEl("backBtn");
+          hideEl("homeMoreBtn");
+          hideEl("chatSettingsBtn");
+          hideEl("sidebarToggleBtn");
           if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
           return;
       }
       if (backTo === 'chat' && state.activeConversation) {
-          if($("backBtn")) $("backBtn").classList.remove('hidden');
-          if($("chatView")) $("chatView").classList.remove('hidden');
-          if($("composerPanel")) $("composerPanel").classList.remove('hidden');
-          if($("chatTitle")) $("chatTitle").textContent = state.conversationsById?.get(state.activeConversation.id)?.title || '会话';
-          if($("chatSettingsBtn")) $("chatSettingsBtn").classList.remove("hidden");
+          showEl("backBtn");
+          showEl("chatView");
+          showEl("composerPanel");
+          setText("chatTitle", state.conversationsById?.get(state.activeConversation.id)?.title || '会话');
+          showEl("chatSettingsBtn");
           // restore sidebar when returning to conversation
-          if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.remove("hidden");
+          showEl("sidebarToggleBtn");
           if($("sidebarPanel")) $("sidebarPanel").classList.remove("sidebar-tab-hidden");
           return;
       }
@@ -4510,8 +4510,8 @@ function bindProfileEvents() {
       state.chatListSignature = '';
       state.conversationItemSignatures = {};
       renderConversationListFromState();
-      if($("chatView")) $("chatView").classList.add("hidden"); if($("composerPanel")) $("composerPanel").classList.add("hidden"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
-      if($("homeTabbar")) $("homeTabbar").classList.remove("hidden"); if($("backBtn")) $("backBtn").classList.add("hidden"); if($("chatSettingsBtn")) $("chatSettingsBtn").classList.add("hidden");
+      hideEl("chatView"); hideEl("composerPanel"); if($("chatSearchBar")) { $("chatSearchBar").classList.add('hidden'); $("chatSearchBar").style.display = 'none'; }
+      showEl("homeTabbar"); hideEl("backBtn"); hideEl("chatSettingsBtn");
       const activeTab = document.querySelector('.tab-item.active');
       if(activeTab) {
           if(activeTab.id === 'messagesTab') setMainTab('messages'); else if(activeTab.id === 'friendsTab') setMainTab('friends'); else if(activeTab.id === 'mallTab') setMainTab('mall'); else if(activeTab.id === 'profileTab') setMainTab('profile');
@@ -4522,7 +4522,7 @@ function bindProfileEvents() {
   on("clearCacheBtn", "click", () => { showConfirm("确定清理本地缓存吗？", () => { localStorage.clear(); location.reload(); }); });
   on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
   on("globalNotifyBtn", "click", () => { showModal("新消息通知目前跟随系统默认设置开启"); });
-  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`; if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`; });
+  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`; setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`); });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage', 'profile'); loadMyProducts(); });
   on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
@@ -4784,7 +4784,7 @@ function bindSocialEvents() {
     const res = await toggleAction('mute');
     if (!res) return;
     showModal(res.muted ? '已开启免打扰' : '已关闭免打扰');
-    if($("muteSettingBtn")) $("muteSettingBtn").textContent = res.muted ? '取消免打扰' : '消息免打扰';
+    setText("muteSettingBtn", res.muted ? '取消免打扰' : '消息免打扰');
     sortConversationsInPlace();
     renderConversationListFromState();
     loadConversations();
@@ -4793,7 +4793,7 @@ function bindSocialEvents() {
     const res = await toggleAction('pin');
     if (!res) return;
     showModal(res.pinned ? '已置顶会话' : '已取消置顶');
-    if($("pinConversationBtn")) $("pinConversationBtn").textContent = res.pinned ? '取消置顶' : '置顶聊天';
+    setText("pinConversationBtn", res.pinned ? '取消置顶' : '置顶聊天');
     sortConversationsInPlace();
     renderConversationListFromState();
     loadConversations();
@@ -4836,10 +4836,10 @@ function bindSocialEvents() {
       });
   });
 
-  on("homeMoreBtn", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.remove("hidden"); });
-  on("closePlusMenuBtn", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); });
-  on("menuAddFriend", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('addFriendPage'); if($("myProfileIdDisplay")) $("myProfileIdDisplay").textContent = state.currentUser.appNumberId || state.currentUser.username; });
-  on("menuScan", "click", () => { if($("plusMenuSheet")) $("plusMenuSheet").classList.add("hidden"); window.openSecondaryPage('scanPage'); });
+  on("homeMoreBtn", "click", () => { showEl("plusMenuSheet"); });
+  on("closePlusMenuBtn", "click", () => { hideEl("plusMenuSheet"); });
+  on("menuAddFriend", "click", () => { hideEl("plusMenuSheet"); window.openSecondaryPage('addFriendPage'); setText("myProfileIdDisplay", state.currentUser.appNumberId || state.currentUser.username); });
+  on("menuScan", "click", () => { hideEl("plusMenuSheet"); window.openSecondaryPage('scanPage'); });
 
   // Search for user first, then show preview card
   on("doSearchFriendBtn", "click", async () => {
@@ -4921,7 +4921,7 @@ function bindSocialEvents() {
       } catch(e) { showModal(e.message || '未找到该用户'); }
   };
   on("toggleManualScanBtn", "click", () => {
-    if($("scanManualPanel")) $("scanManualPanel").classList.toggle('hidden');
+    toggleEl("scanManualPanel", 'hidden');
     if(!$("scanManualPanel")?.classList.contains('hidden') && $("scanIdInput")) $("scanIdInput").focus();
   });
   on("startCameraScanBtn", "click", startScanCamera);
@@ -4932,7 +4932,7 @@ function bindSocialEvents() {
   on("scanMyQrBtn", "click", () => {
     window.openSecondaryPage("qrCodePage", "scanPage");
     if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`;
-    if($("myQrCodeIdTxt")) $("myQrCodeIdTxt").textContent = `ID: ${state.currentUser.appNumberId}`;
+    setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`);
   });
   on("scanCaptureInput", "change", async (e) => {
     const file = e?.target?.files?.[0];
@@ -5104,38 +5104,38 @@ function bindBroadcastEvents() {
 // Messaging, recording, call UI
 function bindChatEvents() {
   document.addEventListener("keydown", (e) => { if(e.key === "Escape" && $("imageViewer") && !$("imageViewer").classList.contains("hidden")) window.closeImageViewer(); });
-  on("closeForwardModalBtn", "click", () => { if($("forwardModal")) $("forwardModal").classList.add("hidden"); });
+  on("closeForwardModalBtn", "click", () => { hideEl("forwardModal"); });
   
   on("chatView", "click", (e) => {
       if(e.target.tagName !== 'IMG') {
-          if($("actionPanel")) $("actionPanel").classList.add("hidden"); 
-          if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); 
+          hideEl("actionPanel"); 
+          hideEl("emojiPanel"); 
       }
   });
 
   on("sendMsgBtn", "click", window.handleSendText);
   on("messageInput", "keydown", (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.handleSendText(); } });
-  on("emojiBtn", "click", () => { if($("actionPanel")) $("actionPanel").classList.add("hidden"); if($("emojiPanel")) $("emojiPanel").classList.toggle("hidden"); });
-  on("toggleActionsBtn", "click", () => { if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); if($("actionPanel")) $("actionPanel").classList.toggle("hidden"); });
+  on("emojiBtn", "click", () => { hideEl("actionPanel"); toggleEl("emojiPanel", "hidden"); });
+  on("toggleActionsBtn", "click", () => { hideEl("emojiPanel"); toggleEl("actionPanel", "hidden"); });
 
   let typingDebounceTimer = null;
   on("messageInput", "input", function() {
       this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';
       const hasText = this.value.trim().length > 0;
-      if($("toggleActionsBtn")) $("toggleActionsBtn").classList.toggle("hidden", hasText); if($("sendMsgBtn")) $("sendMsgBtn").classList.toggle("hidden", !hasText);
+      toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
       if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { const _peerId = conversationPeerId(state.activeConversation); if (_peerId) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: _peerId, signal: {type:'typing'} }) }); } typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }
   });
 
   on("voiceToggleBtn", "click", () => {
       if(!$("pttBtn") || !$("messageInput")) return; const isVoice = $("pttBtn").classList.contains("hidden");
-      if($("actionPanel")) $("actionPanel").classList.add("hidden"); if($("emojiPanel")) $("emojiPanel").classList.add("hidden"); 
+      hideEl("actionPanel"); hideEl("emojiPanel"); 
       $("pttBtn").classList.toggle("hidden", !isVoice); $("messageInput").classList.toggle("hidden", isVoice);
-      if($("voiceToggleBtn")) $("voiceToggleBtn").textContent = isVoice ? "⌨️" : "🎙️";
+      setText("voiceToggleBtn", isVoice ? "⌨️" : "🎙️");
       if(!isVoice) {
           const hasText = $("messageInput").value.trim().length > 0;
-          if($("toggleActionsBtn")) $("toggleActionsBtn").classList.toggle("hidden", hasText); if($("sendMsgBtn")) $("sendMsgBtn").classList.toggle("hidden", !hasText);
+          toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
       } else {
-          if($("toggleActionsBtn")) $("toggleActionsBtn").classList.remove("hidden"); if($("sendMsgBtn")) $("sendMsgBtn").classList.add("hidden");
+          showEl("toggleActionsBtn"); hideEl("sendMsgBtn");
       }
   });
 
@@ -5165,7 +5165,7 @@ function bindChatEvents() {
               }
           };
           state.mediaRecorder.start();
-      } catch(err) { if($("pttBtn")) $("pttBtn").textContent = "按住 说话"; if (_pttStream) try { _pttStream.getTracks().forEach(t => t.stop()); } catch(_) {} showModal("无录音权限"); }
+      } catch(err) { setText("pttBtn", "按住 说话"); if (_pttStream) try { _pttStream.getTracks().forEach(t => t.stop()); } catch(_) {} showModal("无录音权限"); }
   });
   const stopPttRecording = () => {
       if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
@@ -5174,11 +5174,11 @@ function bindChatEvents() {
   on("pttBtn", "touchend", (e) => { e.preventDefault(); stopPttRecording(); });
   on("pttBtn", "touchcancel", (e) => { e.preventDefault(); stopPttRecording(); });
 
-  on("btnTakePhoto", "click", () => { if($("cameraInput")) $("cameraInput").click(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendImage", "click", () => { if($("imageInput")) $("imageInput").click(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnCallVoice", "click", () => { window.startCall('voice'); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnCallVideo", "click", () => { window.startCall('video'); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendContactCard", "click", async () => { await sendContactCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
+  on("btnTakePhoto", "click", () => { if($("cameraInput")) $("cameraInput").click(); hideEl("actionPanel"); });
+  on("btnSendImage", "click", () => { if($("imageInput")) $("imageInput").click(); hideEl("actionPanel"); });
+  on("btnCallVoice", "click", () => { window.startCall('voice'); hideEl("actionPanel"); });
+  on("btnCallVideo", "click", () => { window.startCall('video'); hideEl("actionPanel"); });
+  on("btnSendContactCard", "click", async () => { await sendContactCardInChat(); hideEl("actionPanel"); });
 
   // Contact card picker: search and confirm
   on("ccpSearchInput", "input", () => { renderContactCardPicker(); });
@@ -5201,9 +5201,9 @@ function bindChatEvents() {
     if ($("backBtn")) $("backBtn").click();
   });
 
-  on("btnSendProductCard", "click", async () => { await sendProductCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendOrderCard", "click", async () => { await sendOrderCardInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
-  on("btnSendPaymentCode", "click", async () => { await sendPaymentCodeInChat(); if($("actionPanel")) $("actionPanel").classList.add("hidden"); });
+  on("btnSendProductCard", "click", async () => { await sendProductCardInChat(); hideEl("actionPanel"); });
+  on("btnSendOrderCard", "click", async () => { await sendOrderCardInChat(); hideEl("actionPanel"); });
+  on("btnSendPaymentCode", "click", async () => { await sendPaymentCodeInChat(); hideEl("actionPanel"); });
   // Order picker tab switching
   if($("orderPickerTabs")){
     $("orderPickerTabs").addEventListener('click', (e) => {
@@ -5245,8 +5245,8 @@ function bindChatEvents() {
   on("cameraInput", "change", handleImageUpload);
 
   on("toggleSpeakerBtn", "click", () => { showModal('【原生限制说明】\n网页端无法用代码强制切换听筒，请直接按手机侧边的音量键调节声音。'); });
-  on("toggleMuteBtn", "click", () => { if (!state.rtc.localStream) return; isMuted = !isMuted; state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted); if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; } if($("muteText")) $("muteText").textContent = isMuted ? "已静音" : "静音"; });
-  on("toggleCameraBtn", "click", () => { if (!state.rtc.localStream) return; isCameraOff = !isCameraOff; state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff); if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; } if($("cameraText")) $("cameraText").textContent = isCameraOff ? "已关镜头" : "镜头"; });
+  on("toggleMuteBtn", "click", () => { if (!state.rtc.localStream) return; isMuted = !isMuted; state.rtc.localStream.getAudioTracks().forEach(t => t.enabled = !isMuted); if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.toggle('active', !isMuted); $("toggleMuteBtn").style.color = isMuted ? '#ff3b30' : '#fff'; } setText("muteText", isMuted ? "已静音" : "静音"); });
+  on("toggleCameraBtn", "click", () => { if (!state.rtc.localStream) return; isCameraOff = !isCameraOff; state.rtc.localStream.getVideoTracks().forEach(t => t.enabled = !isCameraOff); if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.toggle('active', !isCameraOff); $("toggleCameraBtn").style.color = isCameraOff ? '#ff3b30' : '#fff'; } setText("cameraText", isCameraOff ? "已关镜头" : "镜头"); });
   
   on("acceptCallBtn", "click", async () => {
       if (state.rtc._accepting) return;
@@ -5256,9 +5256,9 @@ function bindChatEvents() {
           if (!conversationId) return; state.rtc.conversationId = conversationId; 
           if(!state.activeConversation || state.activeConversation.id !== conversationId) { window.openConversation(conversationId, { skipFetch: true }); }
           syncCallConversationState(conversationId, state.rtc.pendingOffer?.senderId || state.rtc.incomingMeta?.senderId || state.rtc.peerId || null, state.rtc.incomingMeta?.senderName || '');
-          if($("callPanel")) $("callPanel").classList.remove('hidden');
-          if($("callTitle")) $("callTitle").textContent = `连接中...`; 
-          if($("chatSubtitle")) $("chatSubtitle").textContent = '建立连接中…';
+          showEl("callPanel");
+          setText("callTitle", `连接中...`); 
+          setText("chatSubtitle", '建立连接中…');
           if (!state.rtc.pendingOffer) { state.rtc.pendingAccept = true; return; } 
           const { senderId, mode, signal } = state.rtc.pendingOffer; state.rtc.pendingAccept = false; state.rtc.peerId = senderId; setRtcPhase('connecting'); 
           await createPeerConnection(mode); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)); 
@@ -5277,7 +5277,7 @@ function bindChatEvents() {
           let peerName = peerMeta.name;
           
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
-          if($("callName")) $("callName").textContent = peerName;
+          setText("callName", peerName);
           state.rtc.pendingOffer = null; 
       } catch (err) { finalizeCall({ alertText: err && err.message ? err.message : '接听失败', event: 'reject', reason: 'error' }); } finally { state.rtc._accepting = false; }
   });
@@ -5578,14 +5578,14 @@ function setMainTab(tab) {
   if($(tab+'Tab')) $(tab+'Tab').classList.add('active');
   ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) { $(id).classList.add('hidden'); } });
 
-  if (tab === 'messages') { if($("chatListView")) $("chatListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "微信"; tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
-  else if (tab === 'friends') { if($("friendListView")) $("friendListView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "通讯录"; tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
-  else if (tab === 'mall') { if($("mallView")) $("mallView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "发现"; if (!state.userLocation) refreshUserLocation(); tabLoad('mall', loadMall); }
-  else if (tab === 'profile') { if($("profileView")) $("profileView").classList.remove('hidden'); if($("chatTitle")) $("chatTitle").textContent = "我"; updateMyCartBadge(); }
-  if($("homeMoreBtn")) $("homeMoreBtn").classList.toggle("hidden", tab !== 'messages');
+  if (tab === 'messages') { showEl("chatListView"); setText("chatTitle", "微信"); tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
+  else if (tab === 'friends') { showEl("friendListView"); setText("chatTitle", "通讯录"); tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
+  else if (tab === 'mall') { showEl("mallView"); setText("chatTitle", "发现"); if (!state.userLocation) refreshUserLocation(); tabLoad('mall', loadMall); }
+  else if (tab === 'profile') { showEl("profileView"); setText("chatTitle", "我"); updateMyCartBadge(); }
+  toggleEl("homeMoreBtn", "hidden", tab !== 'messages');
   // sidebar avatar bar only visible inside chat conversation, hide on all tab views
   if($("sidebarPanel")) $("sidebarPanel").classList.add("sidebar-tab-hidden");
-  if($("sidebarToggleBtn")) $("sidebarToggleBtn").classList.add("hidden");
+  hideEl("sidebarToggleBtn");
 }
 
 function renderGroupManageList() {
@@ -6043,7 +6043,7 @@ async function connectRealtime() {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
-      if($("chatSubtitle")) $("chatSubtitle").textContent = "对方正在输入...";
+      setText("chatSubtitle", "对方正在输入...");
       clearTimeout(state.typingTimer);
       state.typingTimer = setTimeout(() => { applyChatRelationshipState(); }, 3000);
     }
@@ -6065,8 +6065,8 @@ async function connectRealtime() {
       
       if (shouldPresentIncomingUI(payload)) {
         updateCallUIInfo(payload.senderId, payload.mode, "邀请你进行通话...");
-        if($("callName")) $("callName").textContent = peerName;
-        if($("callPanel")) $("callPanel").classList.remove('hidden');
+        setText("callName", peerName);
+        showEl("callPanel");
         setCallActionLayout('incoming');
       }
       clearTimeout(outgoingTimeoutTimer);
@@ -6074,7 +6074,7 @@ async function connectRealtime() {
       incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, 30000);
       if (state.activeConversation?.id !== payload.conversationId) window.openConversation(payload.conversationId, { skipFetch: true });
       syncCallConversationState(payload.conversationId, payload.senderId, payload.senderName || payload.senderId);
-      if($("chatSubtitle")) $("chatSubtitle").textContent = payload.mode === 'video' ? '收到视频来电' : '收到语音来电';
+      setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');
       if (state.rtc.pendingAccept && $("acceptCallBtn")) $("acceptCallBtn").click();
     } else if (signal.type === 'answer' && state.rtc.pc) {
       if (!isCurrentCallPayload(payload)) return;
@@ -6087,7 +6087,7 @@ async function connectRealtime() {
       if(f) peerName = f.friend.remark || f.friend.displayName;
 
       markCallConnecting(state.rtc.peerId, state.rtc.mode, '对方已接听，建立连接中...');
-      if($("callName")) $("callName").textContent = peerName;
+      setText("callName", peerName);
     } else if (signal.type === 'candidate') {
       if (!isCurrentCallPayload(payload)) return;
       if (state.rtc.pc && state.rtc.pc.remoteDescription) { 
@@ -6114,17 +6114,17 @@ async function connectRealtime() {
       state.rtc.conversationId = payload.conversationId; state.rtc.incomingMeta = { senderId: payload.senderId, senderName: payload.senderName || state.rtc.incomingMeta?.senderName || null, mode: payload.mode, conversationId: payload.conversationId, callId: payload.callId || state.rtc.callId || null }; setRtcPhase('incoming');
       if (shouldPresentIncomingUI(payload)) {
         updateCallUIInfo(payload.senderId, payload.mode, "收到来电");
-        if($("callPanel")) $("callPanel").classList.remove('hidden');
+        showEl("callPanel");
         setCallActionLayout('incoming');
       }
       clearTimeout(incomingTimeoutTimer);
       incomingTimeoutTimer = setTimeout(() => { if (state.rtc.phase === 'incoming' && isCurrentCallPayload(payload)) { finalizeCall({ alertText: '来电已超时', event: 'reject', reason: 'timeout' }); } }, 30000);
       if (state.activeConversation?.id !== payload.conversationId) window.openConversation(payload.conversationId, { skipFetch: true });
       syncCallConversationState(payload.conversationId, payload.senderId, payload.senderName || payload.senderId);
-      if($("chatSubtitle")) $("chatSubtitle").textContent = payload.mode === 'video' ? '收到视频来电' : '收到语音来电';
+      setText("chatSubtitle", payload.mode === 'video' ? '收到视频来电' : '收到语音来电');
       return;
     }
-    if (payload.event === 'accept') { if (!isCurrentCallPayload(payload)) return; clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; syncCallConversationState(payload.conversationId || state.rtc.conversationId, state.rtc.peerId || payload.senderId, payload.senderName || ''); markCallConnecting(state.rtc.peerId || payload.senderId, payload.mode || state.rtc.mode, '对方已接听，建立连接中...'); if($("chatSubtitle")) $("chatSubtitle").textContent = '建立连接中…'; scheduleConnectTimeout(); return; }
+    if (payload.event === 'accept') { if (!isCurrentCallPayload(payload)) return; clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; syncCallConversationState(payload.conversationId || state.rtc.conversationId, state.rtc.peerId || payload.senderId, payload.senderName || ''); markCallConnecting(state.rtc.peerId || payload.senderId, payload.mode || state.rtc.mode, '对方已接听，建立连接中...'); setText("chatSubtitle", '建立连接中…'); scheduleConnectTimeout(); return; }
     if (payload.event === 'cancel' || payload.event === 'reject' || payload.event === 'end') { 
       if (!isCurrentCallPayload(payload)) return;
       if (payload.event === 'cancel') finalizeCall({ alertText: state.rtc.phase === 'incoming' ? '对方已取消通话' : '通话已取消' });
@@ -6466,15 +6466,15 @@ async function bootstrap() {
     const user = session.user;
     state.sessionToken = session.token || null;
     state.csrfToken = session.csrfToken || null;
-    if (!user || !user.id || !state.sessionToken) { if($("authScreen")) $("authScreen").classList.remove("hidden"); return; }
+    if (!user || !user.id || !state.sessionToken) { showEl("authScreen"); return; }
 
     // Show app screen immediately with cached user data to avoid blank white page
     state.currentUser = user;
     nativeOnLogin(user.id);
     loadCartFromStorage();
     updateMyCartBadge();
-    if($("authScreen")) $("authScreen").classList.add("hidden");
-    if($("appScreen")) $("appScreen").classList.remove("hidden");
+    hideEl("authScreen");
+    showEl("appScreen");
 
     try {
       const _ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -6492,16 +6492,16 @@ async function bootstrap() {
         console.warn("账号已失效，需重新登录");
         localStorage.removeItem(SESSION_KEY);
         state.currentUser = null;
-        if($("appScreen")) $("appScreen").classList.add("hidden");
-        if($("authScreen")) $("authScreen").classList.remove("hidden");
+        hideEl("appScreen");
+        showEl("authScreen");
         return;
       }
       // Network error or timeout: stay on app screen with cached data
       console.warn("网络异常，使用缓存数据", e);
     }
     
-    if($("profileDisplayName")) $("profileDisplayName").textContent = state.currentUser.displayName; 
-    if($("profileUsername")) $("profileUsername").textContent = `ID: ${state.currentUser.appNumberId}`; 
+    setText("profileDisplayName", state.currentUser.displayName); 
+    setText("profileUsername", `ID: ${state.currentUser.appNumberId}`); 
     setAvatarContainer($("myProfileAvatar"), state.currentUser, state.currentUser.displayName);
     
     connectRealtime().catch(() => {});
@@ -6509,8 +6509,8 @@ async function bootstrap() {
     ['messages', 'friends', 'mall', 'profile'].forEach(t => { if($(t+'Tab')) $(t+'Tab').classList.remove('active'); });
     if($('messagesTab')) $('messagesTab').classList.add('active');
     ["chatListView","friendListView","mallView","profileView"].forEach(id => { if($(id)) $(id).classList.add('hidden'); });
-    if($("chatListView")) $("chatListView").classList.remove('hidden');
-    if($("chatTitle")) $("chatTitle").textContent = "微信"; 
+    showEl("chatListView");
+    setText("chatTitle", "微信"); 
     
     loadConversations().catch(() => {});
     loadSystemMessages().catch(() => {});

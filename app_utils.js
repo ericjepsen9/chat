@@ -79,6 +79,11 @@ async function api(p, o={}) {
 }
 function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
+// Safe DOM setters — avoid repeated null-check + property-set patterns
+function setText(id, val) { const el = $(id); if (el) el.textContent = val; }
+function hideEl(id) { const el = $(id); if (el) el.classList.add('hidden'); }
+function showEl(id) { const el = $(id); if (el) el.classList.remove('hidden'); }
+function toggleEl(id, cls, force) { const el = $(id); if (el) el.classList.toggle(cls, force); }
 // Loading overlay for async operations
 function showLoading(msg = '加载中...') {
   let overlay = $('globalLoadingOverlay');
