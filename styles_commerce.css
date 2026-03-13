@@ -1006,6 +1006,7 @@
   flex:0.6;
 }
 .pd-btn-chat:active,.pd-btn-cart:active,.pd-btn-buy:active,.pd-btn-seller:active{ opacity:.8; }
+.pd-btn-cart:disabled,.pd-btn-buy:disabled{ opacity:.45; cursor:not-allowed; }
 
 .pd-seller-actions{
   display:flex;
@@ -1364,6 +1365,10 @@
 
 .primary-btn {
   background: var(--brand);
+}
+.primary-btn:disabled {
+  opacity:.45;
+  cursor:not-allowed;
 }
 
 .secondary-btn,

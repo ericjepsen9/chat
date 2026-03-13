@@ -18,6 +18,7 @@ function buildUserStoreItems({ usersById, sellerId }) {
       stock: product.stock,
       listed: product.listed,
       createdAt: product.createdAt,
+      sellerId: sellerId,
     });
   }
   return { ok: true, status: 200, payload: { items } };

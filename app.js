@@ -584,14 +584,20 @@ function openProductDetail(item, fromSeller = false){
     specs.forEach(spec => frag.appendChild(createEl('span', 'spec-option-chip', spec)));
     specsEl.replaceChildren(frag);
   }
-  const isOwnProduct = !fromSeller && item.sellerId && item.sellerId === state.currentUser?.id;
+  const effectiveSellerId = item.sellerId || state.currentProfileUser?.id || '';
+  const isOwnProduct = !fromSeller && effectiveSellerId && effectiveSellerId === state.currentUser?.id;
+  const showSellerControls = fromSeller || isOwnProduct;
   toggleEl("productDetailOpenSellerBtn", 'hidden', !fromSeller);
-  toggleEl("productDetailBuyNowBtn", 'hidden', fromSeller || isOwnProduct);
-  toggleEl("productDetailAddCartBtn", 'hidden', fromSeller || isOwnProduct);
-  toggleEl("productDetailChatBtn", 'hidden', fromSeller || isOwnProduct);
-  // Show seller management buttons on detail page
-  toggleEl("productDetailSellerActions", 'hidden', !fromSeller);
-  if(fromSeller && $("productDetailListedBtn")) {
+  toggleEl("productDetailBuyNowBtn", 'hidden', showSellerControls);
+  toggleEl("productDetailAddCartBtn", 'hidden', showSellerControls);
+  toggleEl("productDetailChatBtn", 'hidden', showSellerControls);
+  // Disable buy/cart buttons when out of stock
+  const outOfStock = stock <= 0;
+  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").disabled = outOfStock;
+  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").disabled = outOfStock;
+  // Show seller management buttons on detail page for own products
+  toggleEl("productDetailSellerActions", 'hidden', !showSellerControls);
+  if(showSellerControls && $("productDetailListedBtn")) {
     $("productDetailListedBtn").textContent = item.listed === false ? '上架' : '下架';
     $("productDetailListedBtn").className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
   }
@@ -698,8 +704,9 @@ function renderOrderDetailPage(){
   const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
   toggleEl("orderDetailAcceptBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
   toggleEl("orderDetailEditPriceBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
-  toggleEl("orderDetailPriceRequestBtn", 'hidden', true);
+  toggleEl("orderDetailPriceRequestBtn", 'hidden', role !== 'buyer' || order.status !== 'pending');
   toggleEl("orderDetailCompleteBtn", 'hidden', order.status !== 'accepted');
+  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").textContent = role === 'buyer' ? '确认收货' : '标记已完成';
   toggleEl("orderDetailChatBtn", 'hidden', !counterId);
 }
 
@@ -1009,6 +1016,11 @@ function openProductSpecSheet(item, mode = 'cart'){
   // Toggle cart vs buy-now buttons
   toggleEl("confirmAddToCartBtn", 'hidden', mode === 'buyNow');
   toggleEl("confirmBuyNowBtn", 'hidden', mode !== 'buyNow');
+  // Disable action buttons when out of stock
+  const specSheetStock = getItemAvailableStock(item);
+  if($("confirmAddToCartBtn")) $("confirmAddToCartBtn").disabled = specSheetStock <= 0;
+  if($("confirmBuyNowBtn")) $("confirmBuyNowBtn").disabled = specSheetStock <= 0;
+  if($("specSheetQtyPlus")) $("specSheetQtyPlus").disabled = specSheetStock <= 0;
   showEl("productSpecSheet");
 }
 
@@ -5004,8 +5016,9 @@ function bindChatEvents() {
   // Product detail - send message to seller
   on("productDetailChatBtn", "click", () => {
     const item = state.selectedProductDetail;
-    if(!item || !item.sellerId) return;
-    window.openProductChat(item.sellerId, item.title || '商品', item.price || 0, normalizeMediaUrl(item.image || item.imageUrl) || '', item.id || item.productId || '');
+    const sellerId = item?.sellerId || state.currentProfileUser?.id || '';
+    if(!item || !sellerId) return;
+    window.openProductChat(sellerId, item.title || '商品', item.price || 0, normalizeMediaUrl(item.image || item.imageUrl) || '', item.id || item.productId || '');
   });
   // Product detail - add to cart via spec sheet
   on("productDetailAddCartBtn", "click", () => {
