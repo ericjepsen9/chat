@@ -21,7 +21,7 @@ function buildOrderCardPayload(order, authUserId) {
 }
 
 function listConversationMessages({ conv, authUser, searchParams, getVisibleMessagesSlice }) {
-  if (conv.members[0] !== authUser.id && conv.members[1] !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
   const before = parseInt(searchParams.get('before') || '0', 10);
   const limit = Math.min(parseInt(searchParams.get('limit') || '30', 10), 100);
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
@@ -46,7 +46,7 @@ function createConversationMessage({
   schedulePersist,
   broadcastToConversation,
 }) {
-  if (conv.members[0] !== authUser.id && conv.members[1] !== authUser.id) return { ok: false, status: 403, error: 'forbidden' };
+  if (!conv.members.includes(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
 
   if (!body.type || !ALLOWED_MESSAGE_TYPES.has(body.type)) {
     return { ok: false, status: 400, error: 'invalid_message_type' };

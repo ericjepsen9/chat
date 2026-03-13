@@ -201,14 +201,18 @@ const sseHeartbeatByRes = new WeakMap();
 const MAX_SSE_PER_USER = 8;
 function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
-  const conns = sseClientsByUser.get(userId);
+  let conns = sseClientsByUser.get(userId);
   if (conns.size >= MAX_SSE_PER_USER) {
-    for (const old of conns) {
-      try { old.end(); } catch (_) {}
-      removeSseClient(userId, old);
-      if (conns.size < MAX_SSE_PER_USER) break;
+    const snapshot = Array.from(conns);
+    for (let i = 0; i < snapshot.length; i++) {
+      try { snapshot[i].end(); } catch (_) {}
+      removeSseClient(userId, snapshot[i]);
+      if ((sseClientsByUser.get(userId)?.size || 0) < MAX_SSE_PER_USER) break;
     }
   }
+  // Re-fetch or create: removeSseClient may have deleted the Map entry
+  if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
+  conns = sseClientsByUser.get(userId);
   conns.add(res);
   const timer = setInterval(() => {
     try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
@@ -300,10 +304,13 @@ function sendResult(res, result) {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
     req.on('data', (chunk) => {
+      if (settled) return;
       size += chunk.length;
       if (size > BODY_LIMIT) {
+        settled = true;
         const err = new Error('payload_too_large');
         err.statusCode = 413;
         reject(err);
@@ -313,6 +320,8 @@ function parseBody(req) {
       chunks.push(chunk);
     });
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
       try {
@@ -323,7 +332,11 @@ function parseBody(req) {
         reject(err);
       }
     });
-    req.on('error', reject);
+    req.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      reject(e);
+    });
   });
 }
 
@@ -331,10 +344,13 @@ function parseBody(req) {
 function parseRawBody(req, limit = UPLOAD_LIMIT) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
     req.on('data', (chunk) => {
+      if (settled) return;
       size += chunk.length;
       if (size > limit) {
+        settled = true;
         const err = new Error('payload_too_large');
         err.statusCode = 413;
         reject(err);
@@ -343,8 +359,16 @@ function parseRawBody(req, limit = UPLOAD_LIMIT) {
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      reject(e);
+    });
   });
 }
 
@@ -989,7 +1013,16 @@ const server = http.createServer(async (req, res) => {
         if (err) return res.writeHead(404).end();
         const ext = path.extname(filePath);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': contentType });
+        const headers = { 'Content-Type': contentType };
+        // Uploaded files have unique names; cache aggressively
+        if (pathname.startsWith('/uploads/')) {
+          headers['Cache-Control'] = 'public, max-age=2592000, immutable';
+        } else if (ext === '.html') {
+          headers['Cache-Control'] = 'no-cache';
+        } else {
+          headers['Cache-Control'] = 'public, max-age=300';
+        }
+        res.writeHead(200, headers);
         res.end(data);
       });
       return;
@@ -997,6 +1030,10 @@ const server = http.createServer(async (req, res) => {
 
     return sendJson(res, 404, { error: 'not_found' });
   } catch (error) {
+    if (res.headersSent) {
+      try { if (!res.writableEnded) res.end(); } catch (_) {}
+      return;
+    }
     const status = error.statusCode || 500;
     const message = status >= 500 ? 'server_error' : (error.message || 'request_error');
     return sendJson(res, status, { error: message });

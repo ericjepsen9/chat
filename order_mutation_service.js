@@ -147,7 +147,7 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
   const order = {
-    id: String(Date.now()) + String(Math.floor(Math.random() * 900000) + 100000),
+    id: uid('order'),
     buyerId: authUser.id,
     sellerId: seller.id,
     items: normalized,

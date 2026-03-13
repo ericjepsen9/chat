@@ -36,10 +36,23 @@ function getToken(){
   }catch(_){ return ''; }
 }
 
+function getCsrfToken(){
+  try{
+    const sessionRaw = localStorage.getItem(SESSION_KEY);
+    if (sessionRaw) {
+      const parsed = JSON.parse(sessionRaw);
+      if (parsed && parsed.csrfToken) return String(parsed.csrfToken);
+    }
+    return '';
+  }catch(_){ return ''; }
+}
+
 async function api(path, options = {}){
   const token = getToken();
+  const csrfToken = getCsrfToken();
   const headers = Object.assign({ 'Content-Type':'application/json' }, options.headers || {});
   if(token) headers.Authorization = `Bearer ${token}`;
+  if(csrfToken) headers['X-CSRF-Token'] = csrfToken;
   const res = await fetch(path, Object.assign({}, options, { headers }));
   const data = await res.json().catch(() => ({}));
   if(!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
