@@ -55,7 +55,7 @@ function updateUserProfile({ authUser, body, normalizeUserCustomGroups, normaliz
 
   schedulePersist('user_update', { userId: authUser.id });
   broadcastToUser(authUser.id, 'profile_updated', {});
-  broadcastAll('mall_updated', {});
+  if (viewFieldsChanged) broadcastAll('mall_updated', {});
 
   return { ok: true, status: 200, payload: { user: sanitizePublicUser(authUser, { includePhone: true }) } };
 }

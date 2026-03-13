@@ -1,8 +1,5 @@
 const ALLOWED_MESSAGE_TYPES = new Set(['text', 'image', 'audio', 'card', 'order_card', 'broadcast_card', 'system']);
-
-function formatOrderSummary(items = []) {
-  return items.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
-}
+const { formatOrderSummary } = require('./order_utils');
 
 function buildOrderCardPayload(order, authUserId) {
   return {

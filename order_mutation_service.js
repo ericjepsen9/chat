@@ -1,6 +1,4 @@
-function formatOrderSummary(items = []) {
-  return items.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
-}
+const { formatOrderSummary } = require('./order_utils');
 
 function parseProductPrice(value) {
   const cleaned = String(value ?? '').replace(/[^\d.]/g, '');

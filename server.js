@@ -292,6 +292,7 @@ function broadcastAll(event, payload) {
 }
 
 function sendJson(res, status, payload) {
+  if (res.headersSent || res.writableEnded) return;
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
 }
@@ -379,6 +380,34 @@ function ensureUploadRoot() {
 function safeUploadFileName(name) {
   const base = path.basename(String(name || '').trim()).replace(/[^a-zA-Z0-9._-]/g, '_');
   return base.slice(0, 80) || 'file.bin';
+}
+
+function checkFileMagicBytes(buf) {
+  if (buf.length < 4) return false;
+  // JPEG: FF D8 FF
+  if (buf[0]===0xFF && buf[1]===0xD8 && buf[2]===0xFF) return true;
+  // PNG: 89 50 4E 47
+  if (buf[0]===0x89 && buf[1]===0x50 && buf[2]===0x4E && buf[3]===0x47) return true;
+  // GIF: 47 49 46 38
+  if (buf[0]===0x47 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x38) return true;
+  // WebP: 52 49 46 46 ... 57 45 42 50
+  if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true;
+  // BMP: 42 4D
+  if (buf[0]===0x42 && buf[1]===0x4D) return true;
+  // OGG audio: 4F 67 67 53
+  if (buf[0]===0x4F && buf[1]===0x67 && buf[2]===0x67 && buf[3]===0x53) return true;
+  // MP3: FF FB / FF F3 / FF F2 / ID3
+  if (buf[0]===0xFF && (buf[1]===0xFB || buf[1]===0xF3 || buf[1]===0xF2)) return true;
+  if (buf[0]===0x49 && buf[1]===0x44 && buf[2]===0x33) return true;
+  // WAV: 52 49 46 46 ... 57 41 56 45
+  if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x41 && buf[10]===0x56 && buf[11]===0x45) return true;
+  // AAC: FF F1 / FF F9
+  if (buf[0]===0xFF && (buf[1]===0xF1 || buf[1]===0xF9)) return true;
+  // M4A/MP4: ftyp at offset 4
+  if (buf.length >= 8 && buf[4]===0x66 && buf[5]===0x74 && buf[6]===0x79 && buf[7]===0x70) return true;
+  // WebM (EBML header): 1A 45 DF A3
+  if (buf[0]===0x1A && buf[1]===0x45 && buf[2]===0xDF && buf[3]===0xA3) return true;
+  return false;
 }
 
 function fileExtFromType(contentType, originalName = '') {
@@ -706,35 +735,7 @@ const server = http.createServer(async (req, res) => {
       }
       const raw = await parseRawBody(req, UPLOAD_LIMIT);
       if (!raw.length) return sendJson(res, 400, { error: 'empty_upload' });
-      // Validate file magic bytes
-      const magicValid = (function checkMagic(buf) {
-        if (buf.length < 4) return false;
-        // JPEG: FF D8 FF
-        if (buf[0]===0xFF && buf[1]===0xD8 && buf[2]===0xFF) return true;
-        // PNG: 89 50 4E 47
-        if (buf[0]===0x89 && buf[1]===0x50 && buf[2]===0x4E && buf[3]===0x47) return true;
-        // GIF: 47 49 46 38
-        if (buf[0]===0x47 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x38) return true;
-        // WebP: 52 49 46 46 ... 57 45 42 50
-        if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true;
-        // BMP: 42 4D
-        if (buf[0]===0x42 && buf[1]===0x4D) return true;
-        // OGG audio: 4F 67 67 53
-        if (buf[0]===0x4F && buf[1]===0x67 && buf[2]===0x67 && buf[3]===0x53) return true;
-        // MP3: FF FB / FF F3 / FF F2 / ID3
-        if (buf[0]===0xFF && (buf[1]===0xFB || buf[1]===0xF3 || buf[1]===0xF2)) return true;
-        if (buf[0]===0x49 && buf[1]===0x44 && buf[2]===0x33) return true;
-        // WAV: 52 49 46 46 ... 57 41 56 45
-        if (buf.length >= 12 && buf[0]===0x52 && buf[1]===0x49 && buf[2]===0x46 && buf[3]===0x46 && buf[8]===0x57 && buf[9]===0x41 && buf[10]===0x56 && buf[11]===0x45) return true;
-        // AAC: FF F1 / FF F9
-        if (buf[0]===0xFF && (buf[1]===0xF1 || buf[1]===0xF9)) return true;
-        // M4A/MP4: ftyp at offset 4
-        if (buf.length >= 8 && buf[4]===0x66 && buf[5]===0x74 && buf[6]===0x79 && buf[7]===0x70) return true;
-        // WebM (EBML header): 1A 45 DF A3
-        if (buf[0]===0x1A && buf[1]===0x45 && buf[2]===0xDF && buf[3]===0xA3) return true;
-        return false;
-      })(raw);
-      if (!magicValid) return sendJson(res, 400, { error: 'file_type_mismatch' });
+      if (!checkFileMagicBytes(raw)) return sendJson(res, 400, { error: 'file_type_mismatch' });
       ensureUploadRoot();
       const originalName = safeUploadFileName(req.headers['x-file-name'] || 'upload.bin');
       const ext = fileExtFromType(contentType, originalName);
@@ -767,17 +768,21 @@ const server = http.createServer(async (req, res) => {
       res.write(':ping\n\n');
       sendSse(res, 'ready', {});
       addSseClient(authUser.id, res);
-      req.on('close', () => removeSseClient(authUser.id, res));
-      res.on('close', () => removeSseClient(authUser.id, res));
+      let cleaned = false;
+      const cleanup = () => { if (cleaned) return; cleaned = true; removeSseClient(authUser.id, res); };
+      req.on('close', cleanup);
+      res.on('close', cleanup);
       return;
     }
 
     if (matchRoute(pathname, '/api/users') && req.method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return;
-      const users = db.users
-        .filter((u) => u.id !== authUser.id)
-        .map((u) => ({ id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, appNumberId: u.appNumberId }));
+      const users = [];
+      for (let i = 0; i < db.users.length; i++) {
+        const u = db.users[i];
+        if (u.id !== authUser.id) users.push({ id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, appNumberId: u.appNumberId });
+      }
       return sendJson(res, 200, { users });
     }
 
