@@ -151,7 +151,15 @@ function loadDb() {
     ensureWalFile();
     return db;
   }
-  const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  let loaded;
+  try {
+    loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  } catch (e) {
+    console.error(`[STARTUP] Failed to parse ${DB_FILE}, backing up and starting fresh:`, e.message);
+    const backupPath = `${DB_FILE}.corrupt.${Date.now()}`;
+    try { fs.renameSync(DB_FILE, backupPath); } catch (_) {}
+    return defaultDb();
+  }
   return { users: [], friendships: [], friendRequests: [], conversations: [], messages: [], orders: [], systemMessages: [], ...loaded };
 }
 
@@ -687,6 +695,7 @@ const handleChatRoutes = createChatRoutes(routeCtx);
 const handleOrderRoutes = createOrderRoutes(routeCtx);
 
 const server = http.createServer(async (req, res) => {
+  try {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   const { pathname, searchParams } = requestUrl;
   const origin = req.headers.origin || '';
@@ -709,8 +718,6 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 403, { error: 'csrf_token_invalid' });
     }
   }
-
-  try {
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
       runCleanupAuthState();
       return sendJson(res, 200, {

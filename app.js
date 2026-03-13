@@ -5407,7 +5407,7 @@ function bindChatEvents() {
       this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';
       const hasText = this.value.trim().length > 0;
       if($("toggleActionsBtn")) $("toggleActionsBtn").classList.toggle("hidden", hasText); if($("sendMsgBtn")) $("sendMsgBtn").classList.toggle("hidden", !hasText);
-      if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: conversationPeerId(state.activeConversation), signal: {type:'typing'} }) }); typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }
+      if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { const _peerId = conversationPeerId(state.activeConversation); if (_peerId) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: _peerId, signal: {type:'typing'} }) }); } typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }
   });
 
   on("voiceToggleBtn", "click", () => {

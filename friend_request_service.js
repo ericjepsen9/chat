@@ -111,6 +111,7 @@ function rejectFriendRequest({ requestId, authUser, db, index, rebuildIndexes, s
   rebuildIndexes();
   schedulePersist('friend_reject', { requestId: request.id, userId: authUser.id });
   broadcastToUser(authUser.id, 'friend_request_updated', {});
+  broadcastToUser(request.userId, 'friend_request_updated', {});
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
