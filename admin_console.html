@@ -35,6 +35,9 @@
       <a class="nav-item" data-tab="products"><span class="nav-ico">🏪</span>商品管理</a>
       <a class="nav-item" data-tab="conversations"><span class="nav-ico">💬</span>会话消息</a>
       <a class="nav-item" data-tab="broadcast"><span class="nav-ico">📢</span>广播中心</a>
+      <a class="nav-item" data-tab="friends"><span class="nav-ico">🤝</span>好友关系</a>
+      <a class="nav-item" data-tab="sessions"><span class="nav-ico">🔐</span>会话/在线</a>
+      <a class="nav-item" data-tab="system"><span class="nav-ico">⚙️</span>系统信息</a>
     </nav>
     <div class="sidebar-footer">
       <div class="admin-info" id="adminInfo"></div>
@@ -68,6 +71,8 @@
         <input id="userSearch" class="search-input" placeholder="搜索用户名/昵称/手机号/APP号...">
         <select id="userStatusFilter" class="filter-sel"><option value="">全部状态</option><option value="active">正常</option><option value="disabled">已禁用</option></select>
         <select id="userRoleFilter" class="filter-sel"><option value="">全部角色</option><option value="admin">管理员</option><option value="user">普通用户</option></select>
+        <button class="btn-primary btn-sm" onclick="showCreateUser()">+ 创建用户</button>
+        <button class="btn-outline btn-sm" onclick="exportUsers()">导出CSV</button>
       </div>
       <div id="usersTable"></div>
       <div id="usersPager" class="pager"></div>
@@ -78,6 +83,7 @@
       <div class="toolbar">
         <input id="orderSearch" class="search-input" placeholder="搜索订单号/买家/卖家...">
         <select id="orderStatusFilter" class="filter-sel"><option value="">全部状态</option><option value="pending">待处理</option><option value="accepted">已接单</option><option value="processing">处理中</option><option value="in_progress">进行中</option><option value="completed">已完成</option></select>
+        <button class="btn-outline btn-sm" onclick="exportOrders()">导出CSV</button>
       </div>
       <div id="ordersTable"></div>
       <div id="ordersPager" class="pager"></div>
@@ -116,6 +122,50 @@
         </div>
       </div>
     </section>
+
+    <!-- Friends -->
+    <section id="tab-friends" class="tab-pane">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">好友关系列表</div>
+          <div class="toolbar"><input id="friendSearch" class="search-input" placeholder="搜索用户名..."></div>
+          <div id="friendsTable"></div>
+          <div id="friendsPager" class="pager"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">好友请求记录</div>
+          <div class="toolbar">
+            <select id="friendReqStatusFilter" class="filter-sel"><option value="">全部状态</option><option value="pending">待处理</option><option value="accepted">已接受</option><option value="rejected">已拒绝</option></select>
+          </div>
+          <div id="friendRequestsTable"></div>
+          <div id="friendRequestsPager" class="pager"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sessions -->
+    <section id="tab-sessions" class="tab-pane">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">活跃会话</div>
+          <div class="toolbar"><input id="sessionSearch" class="search-input" placeholder="搜索用户名..."></div>
+          <div id="sessionsTable"></div>
+          <div id="sessionsPager" class="pager"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">在线用户</div>
+          <div id="onlineUsersPanel"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- System -->
+    <section id="tab-system" class="tab-pane">
+      <div class="card">
+        <div class="card-title">服务器信息</div>
+        <div id="systemInfoPanel"></div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -132,5 +182,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="admin_console.js"></script>
+<script src="admin_console_ext.js"></script>
 </body>
 </html>

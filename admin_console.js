@@ -104,6 +104,7 @@ async function doLogin() {
 const TAB_TITLES = {
   dashboard: '数据概览', users: '用户管理', orders: '订单管理',
   products: '商品管理', conversations: '会话消息', broadcast: '广播中心',
+  friends: '好友关系', sessions: '会话/在线', system: '系统信息',
 };
 
 function switchTab(tab) {
@@ -121,6 +122,7 @@ function loadTabData(tab) {
   else if (tab === 'products') loadProducts();
   else if (tab === 'conversations') loadConversations();
   else if (tab === 'broadcast') loadBroadcastHistory();
+  else if (typeof window._loadTabDataExt === 'function') window._loadTabDataExt(tab);
 }
 
 /* ═══════════════════════════════════════
@@ -277,6 +279,7 @@ function renderUsers() {
     <td class="cell-actions">
       <button class="btn-action primary" onclick="viewUser('${esc(u.id)}')">详情</button>
       <button class="btn-action" onclick="editUser('${esc(u.id)}')">编辑</button>
+      <button class="btn-action danger" onclick="deleteUser('${esc(u.id)}','${esc(u.displayName || u.username)}')">删除</button>
     </td>
   </tr>`);
   renderTable('usersTable', [
@@ -318,7 +321,7 @@ window.viewUser = async function(userId) {
     }
     if (u.blacklist?.length) {
       body += `<div class="detail-section"><div class="detail-section-title">黑名单 (${u.blacklist.length})</div>`;
-      for (const b of u.blacklist.slice(0, 10)) body += `<div class="row-card"><div class="row-sub">${esc(b.displayName)}</div></div>`;
+      for (const b of u.blacklist.slice(0, 10)) body += `<div class="row-card" style="display:flex;justify-content:space-between;align-items:center"><div class="row-sub">${esc(b.displayName)}</div><button class="btn-action danger" onclick="adminRemoveBlacklist('${esc(u.id)}','${esc(b.id)}','${esc(b.displayName)}')">移除</button></div>`;
       body += '</div>';
     }
     openModal('用户详情 - ' + (u.displayName || u.username), body, '');
@@ -385,6 +388,7 @@ function renderOrdersTable() {
     <td class="cell-actions">
       <button class="btn-action primary" onclick="viewOrder('${esc(o.id)}')">详情</button>
       <button class="btn-action" onclick="changeOrderStatus('${esc(o.id)}','${esc(o.status)}')">改状态</button>
+      <button class="btn-action danger" onclick="deleteOrder('${esc(o.id)}')">删除</button>
     </td>
   </tr>`);
   renderTable('ordersTable', [
@@ -677,6 +681,9 @@ function initApp() {
   // Modal close
   $('modalCloseBtn').addEventListener('click', closeModal);
   $('detailModal').addEventListener('click', (e) => { if (e.target === $('detailModal')) closeModal(); });
+
+  // Init extension bindings
+  if (typeof window._initExtBindings === 'function') window._initExtBindings();
 
   // Load initial data
   switchTab('dashboard');

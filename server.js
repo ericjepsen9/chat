@@ -45,6 +45,7 @@ const createOrderRoutes = require('./server_routes_orders');
 const createUserRoutes = require('./server_routes_users');
 const createProductRoutes = require('./server_routes_products');
 const createAdminRoutes = require('./server_routes_admin');
+const createAdminExtRoutes = require('./server_routes_admin_ext');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -729,6 +730,7 @@ const routeCtx = {
   updateUserProfile, buildUserProfileView, buildUserStoreItems,
   createProduct, deleteProduct, updateProduct, queryMallItems,
   createBroadcastMessage, buildAdminDashboardData, requireAdmin,
+  sseClientsByUser,
 };
 const handleAuthRoutes = createAuthRoutes(routeCtx);
 const handleSocialRoutes = createSocialRoutes(routeCtx);
@@ -737,6 +739,7 @@ const handleOrderRoutes = createOrderRoutes(routeCtx);
 const handleUserRoutes = createUserRoutes(routeCtx);
 const handleProductRoutes = createProductRoutes(routeCtx);
 const handleAdminRoutes = createAdminRoutes(routeCtx);
+const handleAdminExtRoutes = createAdminExtRoutes(routeCtx);
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -834,6 +837,7 @@ const server = http.createServer(async (req, res) => {
 
     // Admin & system message routes
     if (await handleAdminRoutes(pathname, req.method, req, res, searchParams)) return;
+    if (await handleAdminExtRoutes(pathname, req.method, req, res, searchParams)) return;
 
     // Product, mall & broadcast routes
     if (await handleProductRoutes(pathname, req.method, req, res, searchParams)) return;
