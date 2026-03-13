@@ -406,6 +406,29 @@ function formatConversationTime(timestamp) {
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// Signature memoization: returns true if sig changed, false if same (skip render)
+const _sigCache = {};
+function sigChanged(key, newSig) {
+  if (_sigCache[key] === newSig) return false;
+  _sigCache[key] = newSig;
+  return true;
+}
+
+// Build a profile-order-card element with title and subtitle
+function buildProfileCard(titleText, subText, tagName) {
+  const card = document.createElement(tagName || 'div');
+  card.className = 'profile-order-card';
+  if (tagName === 'button') card.type = 'button';
+  const title = document.createElement('div');
+  title.className = 'profile-order-title';
+  title.textContent = titleText;
+  const sub = document.createElement('div');
+  sub.className = 'profile-order-sub';
+  sub.textContent = subText;
+  card.append(title, sub);
+  return card;
+}
+
 // Render an empty-state placeholder inside a container
 function showEmptyState(container, message, className) {
   const empty = document.createElement('div');

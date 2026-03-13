@@ -392,15 +392,13 @@ function buildOrderCard(order, role){
   return card;
 }
 
-let _buyerOrdersSig = '';
 function renderBuyerOrdersManage(){
   const list = $("buyerOrdersManageList");
   if(!list) return;
   syncOrderFilterInputs('buyer');
   const rows = (state.buyerOrders || []).filter((o) => orderMatchesFilters(o, 'buyer'));
   const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.buyerOrderSearch + '|' + state.buyerOrderFrom + '|' + state.buyerOrderTo;
-  if (sig === _buyerOrdersSig) return;
-  _buyerOrdersSig = sig;
+  if (!sigChanged('buyerOrders', sig)) return;
   if(!rows.length){ showEmptyState(list, '🧾 暂无购买订单', 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach(order => frag.appendChild(buildOrderCard(order, 'buyer')));
@@ -408,15 +406,13 @@ function renderBuyerOrdersManage(){
 }
 
 
-let _sellerOrdersSig = '';
 function renderSellerOrdersManage(){
   const list = $("sellerOrdersList");
   if(!list) return;
   syncOrderFilterInputs('seller');
   const rows = (state.sellerOrders || []).filter((o) => orderMatchesFilters(o, 'seller'));
   const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state.sellerOrderSearch + '|' + state.sellerOrderFrom + '|' + state.sellerOrderTo;
-  if (sig === _sellerOrdersSig) return;
-  _sellerOrdersSig = sig;
+  if (!sigChanged('sellerOrders', sig)) return;
   if(!rows.length){ showEmptyState(list, '📋 暂无卖家订单', 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach(order => frag.appendChild(buildOrderCard(order, 'seller')));
@@ -487,7 +483,6 @@ function getFilteredSellerProducts(){
   return visible;
 }
 
-let _sellerProductsSig = '';
 function renderSellerProductsManage(){
   const list = $("sellerProductsList");
   if(!list) return;
@@ -495,8 +490,7 @@ function renderSellerProductsManage(){
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
   const sig = products.map(p => p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||'')).join(';') + '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
-  if (sig === _sellerProductsSig) return;
-  _sellerProductsSig = sig;
+  if (!sigChanged('sellerProducts', sig)) return;
   if(!products.length){ showEmptyState(list, '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布'), 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
   products.forEach(item => {
@@ -605,15 +599,13 @@ function openOrderDetail(order, role = 'buyer'){
   window.openSecondaryPage('orderDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
 
-let _orderDetailSig = '';
 function renderOrderDetailPage(){
   const box = $("orderDetailCard");
   if(!box) return;
   const order = state.selectedOrderDetail;
   const role = state.selectedOrderRole || 'buyer';
   const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.updatedAt||0)+'|'+role) : '';
-  if (sig === _orderDetailSig) return;
-  _orderDetailSig = sig;
+  if (!sigChanged('orderDetail', sig)) return;
   if(!order){
     box.textContent = '暂无订单详情';
     return;
@@ -718,29 +710,18 @@ async function completeSelectedOrder(){
   });
 }
 
-let _broadcastDraftsSig = '';
 function renderBroadcastDrafts(){
   const list = $("broadcastDraftList");
   if(!list) return;
   const sig = state.broadcastDrafts.map(d => (d.id||'')+'|'+(d.title||'')).join(';');
-  if (sig === _broadcastDraftsSig) return;
-  _broadcastDraftsSig = sig;
+  if (!sigChanged('broadcastDrafts', sig)) return;
   if(!state.broadcastDrafts.length){
     showEmptyState(list, '暂无广播草稿');
     return;
   }
   const frag = document.createDocumentFragment();
   state.broadcastDrafts.forEach((item) => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = item.title || '未命名广播';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = item.summary || '-';
-    card.append(title, sub);
+    const card = buildProfileCard(item.title || '未命名广播', item.summary || '-', 'button');
     card.addEventListener('click', () => {
       state.selectedBroadcastDraft = item;
       openBroadcastDetail(item.title, item.summary);
@@ -844,15 +825,13 @@ function adjustProfileStoreItemQuantity(item, delta){
   renderProfileStore();
 }
 
-let _profileStoreSig = '';
 function renderProfileStore(){
   const list = $("profileStoreList");
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
   const sig = (state.profileStoreItems||[]).map(i => i.id+'|'+(i.listed?'1':'0')+'|'+i.stock+'|'+(i.createdAt||0)).join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
-  if (sig === _profileStoreSig) return;
-  _profileStoreSig = sig;
+  if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Pre-parse categories once for reuse in tabs + filtering
   const parsedCats = new Map();
@@ -1259,14 +1238,12 @@ function renderProfileCartPage(){
 }
 
 
-let _cartHubSig = '';
 function renderCartHubPage(){
   const list = $("cartHubList");
   if(!list) return;
   const groups = Object.entries(state.profileCartBySeller || {}).filter(([,arr]) => Array.isArray(arr) && arr.length);
   const sig = groups.map(([sid, arr]) => sid + ':' + arr.map(i => i.productId + ',' + (i.quantity||0)).join('|')).join(';');
-  if (sig === _cartHubSig) return;
-  _cartHubSig = sig;
+  if (!sigChanged('cartHub', sig)) return;
   if(!groups.length){
     showEmptyState(list, '暂无待结算商品');
     return;
@@ -1384,14 +1361,12 @@ async function loadAdminDashboard(){
   renderAdminReports();
 }
 
-let _adminCenterSig = '';
 function renderAdminCenter(){
   const grid = $("adminDashboardGrid");
   if(!grid) return;
   const stats = state.adminDashboard?.stats || {};
   const sig = (stats.users||0)+','+(stats.products||0)+','+(stats.orders||0)+','+(stats.broadcasts||0)+','+(stats.blacklistLinks||0)+','+(stats.pendingOrders||0);
-  if (sig === _adminCenterSig) return;
-  _adminCenterSig = sig;
+  if (!sigChanged('adminCenter', sig)) return;
   const items = [
     ['用户总数', stats.users || 0],
     ['商品总数', stats.products || 0],
@@ -1416,126 +1391,77 @@ function renderAdminCenter(){
   grid.replaceChildren(frag);
 }
 
-let _adminOrdersSig = '';
 function renderAdminOrders(){
   const list = $("adminOrdersList");
   if(!list) return;
   const rows = state.adminDashboard?.recentOrders || [];
   const sig = rows.map(o => o.id+'|'+o.status).join(';');
-  if (sig === _adminOrdersSig) return;
-  _adminOrdersSig = sig;
+  if (!sigChanged('adminOrders', sig)) return;
   if(!rows.length){
     showEmptyState(list, '暂无平台订单');
     return;
   }
   const frag = document.createDocumentFragment();
   rows.forEach((order) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = `订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total || 0)}`;
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`;
+    const card = buildProfileCard(`订单 #${String(order.id || '').slice(-6)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
     const line = document.createElement('div');
     line.className = 'admin-list-line';
     const tag = document.createElement('span');
     tag.className = 'admin-tag' + (order.status === 'completed' ? '' : ' warn');
     tag.textContent = order.status === 'completed' ? '已完成' : '处理中';
     line.appendChild(tag);
-    card.append(title, sub, line);
+    card.appendChild(line);
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
 }
 
-let _adminUsersSig = '';
 function renderAdminUsers(){
   const list = $("adminUsersList");
   if(!list) return;
   const rows = state.adminDashboard?.userList || [];
   const sig = rows.map(u => u.id+'|'+(u.productCount||0)+'|'+(u.blacklistCount||0)).join(';');
-  if (sig === _adminUsersSig) return;
-  _adminUsersSig = sig;
-  if(!rows.length){
-    showEmptyState(list, '暂无用户数据');
-    return;
-  }
+  if (!sigChanged('adminUsers', sig)) return;
+  if(!rows.length){ showEmptyState(list, '暂无用户数据'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach((user) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = user.displayName || user.username || '用户';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = `商品 ${user.productCount || 0} · 卖家订单 ${user.sellerOrderCount || 0}`;
+    const card = buildProfileCard(user.displayName || user.username || '用户', `商品 ${user.productCount || 0} · 卖家订单 ${user.sellerOrderCount || 0}`);
     const line = document.createElement('div');
     line.className = 'admin-list-line';
     const tag = document.createElement('span');
     tag.className = 'admin-tag' + ((user.blacklistCount || 0) ? ' warn' : '');
     tag.textContent = (user.blacklistCount || 0) ? `黑名单 ${user.blacklistCount}` : '正常';
     line.appendChild(tag);
-    card.append(title, sub, line);
+    card.appendChild(line);
     frag.appendChild(card);
   });
   list.replaceChildren(frag);
 }
 
-let _adminProductsSig = '';
 function renderAdminProducts(){
   const list = $("adminProductsList");
   if(!list) return;
   const rows = state.adminDashboard?.productList || [];
   const sig = rows.map(p => p.id+'|'+p.price).join(';');
-  if (sig === _adminProductsSig) return;
-  _adminProductsSig = sig;
-  if(!rows.length){
-    showEmptyState(list, '暂无商品数据');
-    return;
-  }
+  if (!sigChanged('adminProducts', sig)) return;
+  if(!rows.length){ showEmptyState(list, '暂无商品数据'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach((item) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = item.title || '商品';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = `${item.sellerName || '卖家'} · ${formatMoney(item.price || 0)}`;
-    card.append(title, sub);
-    frag.appendChild(card);
+    frag.appendChild(buildProfileCard(item.title || '商品', `${item.sellerName || '卖家'} · ${formatMoney(item.price || 0)}`));
   });
   list.replaceChildren(frag);
 }
 
-let _adminReportsSig = '';
 function renderAdminReports(){
   const list = $("adminReportsList");
   if(!list) return;
   const rows = state.adminDashboard?.reportList || [];
   const sig = rows.map(r => r.title).join(';');
-  if (sig === _adminReportsSig) return;
-  _adminReportsSig = sig;
-  if(!rows.length){
-    showEmptyState(list, '暂无举报与风控提醒');
-    return;
-  }
+  if (!sigChanged('adminReports', sig)) return;
+  if(!rows.length){ showEmptyState(list, '暂无举报与风控提醒'); return; }
   const frag = document.createDocumentFragment();
   rows.forEach((row) => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = row.title || '风险提醒';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = row.summary || '';
-    card.append(title, sub);
-    frag.appendChild(card);
+    frag.appendChild(buildProfileCard(row.title || '风险提醒', row.summary || ''));
   });
   list.replaceChildren(frag);
 }
@@ -1554,28 +1480,19 @@ function openBroadcastDetail(title, summary){
   window.openSecondaryPage('broadcastDetailPage', state.secondaryReturn || 'home');
 }
 
-let _profileOrdersSig = '';
 function renderProfileOrders(){
   const list = $("profileOrdersList");
   if(!list) return;
   const sig = state.profileOrders.map(o => o.id + '|' + o.status + '|' + (o.total||0)).join(';');
-  if (sig === _profileOrdersSig) return;
-  _profileOrdersSig = sig;
+  if (!sigChanged('profileOrders', sig)) return;
   if(!state.profileOrders.length){
     showEmptyState(list, '暂无订单');
     return;
   }
   const frag = document.createDocumentFragment();
   state.profileOrders.forEach(order => {
-    const card = document.createElement('div');
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = `订单 #${String(order.id || '').slice(-6) || '-'} · ${formatMoney(order.total)}`;
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
     const names = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，');
-    sub.textContent = names || '订单内容';
+    const card = buildProfileCard(`订单 #${String(order.id || '').slice(-6) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
     const status = document.createElement('div');
     status.className = 'profile-order-status' + (order.status === 'completed' ? ' done' : '');
     status.textContent = formatOrderStatusLabel(order.status);
@@ -6004,7 +5921,6 @@ function applyLastOutgoingReadState(){
   refreshMessageReadReceipts();
 }
 
-let _messagesSig = '';
 function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
   // Build lightweight signature: id|type|recalled for each message
@@ -6013,7 +5929,7 @@ function renderMessages(preserveScroll = false) {
     const m = state.messages[i];
     sig += m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0) + ';';
   }
-  if (sig === _messagesSig && !preserveScroll) return;
+  if (!sigChanged('messages', sig) && !preserveScroll) return;
   _messagesSig = sig;
   const oldScrollHeight = chatView.scrollHeight;
   chatView.replaceChildren();
@@ -6492,15 +6408,7 @@ function renderSystemMessagesList(){
   }
   const frag = document.createDocumentFragment();
   msgs.forEach(msg => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'profile-order-card';
-    const title = document.createElement('div');
-    title.className = 'profile-order-title';
-    title.textContent = msg.title || '系统通知';
-    const sub = document.createElement('div');
-    sub.className = 'profile-order-sub';
-    sub.textContent = msg.summary || msg.text || '';
+    const card = buildProfileCard(msg.title || '系统通知', msg.summary || msg.text || '', 'button');
     const time = document.createElement('div');
     time.className = 'order-card-time';
     time.style.marginTop = '6px';
