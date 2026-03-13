@@ -150,7 +150,9 @@ function rebuildIndexes() {
   index.usersByAppNumber.clear();
   index.convById.clear();
   index.convByUser.clear();
+  index.directConvByPair.clear();
   index.messagesByConv.clear();
+  index.messagesById.clear();
   index.friendshipsByUser.clear();
   index.friendshipByPair.clear();
   index.friendViewsByUser.clear();

@@ -346,6 +346,13 @@ function parseBody(req) {
       settled = true;
       reject(e);
     });
+    req.on('close', () => {
+      if (settled) return;
+      settled = true;
+      const err = new Error('client_closed');
+      err.statusCode = 499;
+      reject(err);
+    });
   });
 }
 
@@ -377,6 +384,13 @@ function parseRawBody(req, limit = UPLOAD_LIMIT) {
       if (settled) return;
       settled = true;
       reject(e);
+    });
+    req.on('close', () => {
+      if (settled) return;
+      settled = true;
+      const err = new Error('client_closed');
+      err.statusCode = 499;
+      reject(err);
     });
   });
 }
