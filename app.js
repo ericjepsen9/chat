@@ -1509,15 +1509,18 @@ function renderProfileOrders(){
   const list = $("profileOrdersList");
   if(!list) return;
   bindProfileOrdersDelegation(list);
-  const sig = state.profileOrders.map(o => o.id + '|' + o.status + '|' + (o.total||0)).join(';');
+  const _poLen = state.profileOrders.length;
+  const _poParts = new Array(_poLen);
+  for (let i = 0; i < _poLen; i++) { const o = state.profileOrders[i]; _poParts[i] = o.id + '|' + o.status + '|' + (o.total||0); }
+  const sig = _poParts.join(';');
   if (!sigChanged('profileOrders', sig)) return;
-  if(!state.profileOrders.length){
+  if(!_poLen){
     showEmptyState(list, '暂无订单');
     return;
   }
   const frag = document.createDocumentFragment();
   state.profileOrders.forEach(order => {
-    const names = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，');
+    const names = order._itemSummary || (order._itemSummary = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，'));
     const card = buildProfileCard(`订单 #${formatOrderId(order.id) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
     const status = createEl('div', 'profile-order-status' + (order.status === 'completed' ? ' done' : ''));
     status.textContent = formatOrderStatusLabel(order.status);
@@ -6314,33 +6317,44 @@ function scheduleRenderConversationList() {
   if (_renderConvListTimer) return;
   _renderConvListTimer = requestAnimationFrame(() => { _renderConvListTimer = null; renderConversationListFromState(); });
 }
+let _tradeConvCache = null;
+let _tradeConvBuyer = null;
+let _tradeConvSeller = null;
+let _tradeConvReadAt = 0;
+function _buildTradeConv() {
+  const b = state.buyerOrders || [];
+  const s = state.sellerOrders || [];
+  const tradeReadAt = state.tradeAlertReadAt || 0;
+  if (b === _tradeConvBuyer && s === _tradeConvSeller && tradeReadAt === _tradeConvReadAt && _tradeConvCache !== undefined) return _tradeConvCache;
+  _tradeConvBuyer = b; _tradeConvSeller = s; _tradeConvReadAt = tradeReadAt;
+  let count = 0, unread = 0, maxAt = 0;
+  const sources = [b, s];
+  for (let si = 0; si < 2; si++) {
+    const src = sources[si];
+    for (let i = 0; i < src.length; i++) {
+      const o = src[i];
+      if (o && o.status !== 'completed') {
+        count++;
+        const at = Number(o.updatedAt || o.createdAt || 0);
+        if (at > tradeReadAt) unread++;
+        if (at > maxAt) maxAt = at;
+      }
+    }
+  }
+  _tradeConvCache = count ? {
+    id: '__trade_alert__', title: '交易提醒',
+    preview: `待处理 ${count} 单（拉黑不影响交易提醒）`,
+    unread, muted: false, pinned: true, peerAvatarUrl: '',
+    lastMessageAt: maxAt || Date.now(), synthetic: true, syntheticType: 'trade',
+  } : null;
+  return _tradeConvCache;
+}
+
 const renderConversationListFromState = safeRender(function renderConversationListFromState() {
   bindConversationSwipeDismiss();
   let filteredConvs = state.conversations || [];
 
-  const tradeReadAt = state.tradeAlertReadAt || 0;
-  let tradeUnread = 0;
-  const tradeOrders = [];
-  const _orderSources = [state.buyerOrders, state.sellerOrders];
-  for (let s = 0; s < 2; s++) {
-    const src = _orderSources[s] || [];
-    for (let i = 0; i < src.length; i++) {
-      const o = src[i];
-      if (o && o.status !== 'completed') { tradeOrders.push(o); if (Number(o.updatedAt || o.createdAt || 0) > tradeReadAt) tradeUnread++; }
-    }
-  }
-  const tradeConv = tradeOrders.length ? {
-    id: '__trade_alert__',
-    title: '交易提醒',
-    preview: `待处理 ${tradeOrders.length} 单（拉黑不影响交易提醒）`,
-    unread: tradeUnread,
-    muted: false,
-    pinned: true,
-    peerAvatarUrl: '',
-    lastMessageAt: tradeOrders.reduce((max, o) => Math.max(max, Number(o.updatedAt || o.createdAt || 0)), Date.now()),
-    synthetic: true,
-    syntheticType: 'trade',
-  } : null;
+  const tradeConv = _buildTradeConv();
   const latestSystem = (state.systemMessages || [])[0];
   const systemHasNew = latestSystem && Number(latestSystem.createdAt || 0) > (state.systemMessagesReadAt || 0);
   const systemConv = latestSystem ? {
