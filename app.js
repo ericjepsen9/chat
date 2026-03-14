@@ -587,7 +587,7 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
     const imgUrl = normalizeMediaUrl(item.image || item.imageUrl) || '';
     if (imgUrl) {
       const img = createEl('img', 'sp-card-img');
-      img.src = imgUrl;
+      lazyImg(img, imgUrl);
       img.alt = item.title || '商品';
       hideOnError(img);
       card.appendChild(img);
@@ -724,7 +724,7 @@ function renderOrderDetailPage(){
     const imgUrl = normalizeMediaUrl(item.imageUrl || item.image || '');
     if (imgUrl) {
       const img = createEl('img', 'od-item-img');
-      img.src = imgUrl;
+      lazyImg(img, imgUrl);
       img.alt = '';
       row.appendChild(img);
     }
@@ -1015,7 +1015,7 @@ const renderProfileStore = safeRender(function renderProfileStore(){
     // Card click handled via delegation on profileStoreList
 
     const img = createEl('img', '');
-    img.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
+    lazyImg(img, normalizeMediaUrl(item.image || item.imageUrl) || '');
     img.alt = item.title || '商品';
 
     const info = createEl('div', 'profile-store-info');
@@ -1237,7 +1237,7 @@ function renderProfileCartPage(){
     const imgUrl = normalizeMediaUrl(item.image || '');
     if(imgUrl){
       const img = createEl('img', 'checkout-item-img');
-      img.src = imgUrl;
+      lazyImg(img, imgUrl);
       img.alt = item.title || '';
       row.appendChild(img);
     }
@@ -1830,7 +1830,7 @@ async function renderProductCardPicker(){
     card.type = 'button';
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
     const img = createEl('img', 'picker-product-img');
-    img.src = imgUrl;
+    lazyImg(img, imgUrl);
     img.alt = '';
     const info = createEl('div', 'picker-product-info');
     info.append(createEl('div', 'picker-product-name', p.title || '商品'), createEl('div', 'picker-product-price', formatMoney(p.price)));
@@ -2922,7 +2922,7 @@ function patchMallCard(card, product) {
   const safeImage = normalizeMediaUrl(product.image);
   if (safeImage) {
     const img = createEl('img', '');
-    img.src = safeImage;
+    lazyImg(img, safeImage);
     img.alt = product.title || '商品图';
     replacement.appendChild(img);
   } else {

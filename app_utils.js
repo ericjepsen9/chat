@@ -563,6 +563,24 @@ function debounce(fn, ms) {
   return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
 }
 
+/**
+ * Cached API wrapper: returns cached response if within TTL.
+ * Usage: const loadXyz = cachedApi('/api/xyz', 30000);
+ *        const data = await loadXyz();
+ */
+function cachedApi(path, ttlMs) {
+  let cached = null;
+  let cachedAt = 0;
+  return async function() {
+    const now = Date.now();
+    if (cached && (now - cachedAt) < ttlMs) return cached;
+    const data = await api(path);
+    cached = data;
+    cachedAt = now;
+    return data;
+  };
+}
+
 /* ═══════════════════════════════════════
    GLOBAL ERROR HANDLERS
    ═══════════════════════════════════════ */
@@ -626,6 +644,42 @@ window.addEventListener('online', () => {
    SSE CONNECTION STATUS
    ═══════════════════════════════════════ */
 let _sseStatusEl = null;
+
+/* ═══════════════════════════════════════
+   IMAGE LAZY LOADING (IntersectionObserver)
+   ═══════════════════════════════════════ */
+let _lazyImageObserver = null;
+
+function _getLazyImageObserver() {
+  if (_lazyImageObserver) return _lazyImageObserver;
+  if (typeof IntersectionObserver === 'undefined') return null;
+  _lazyImageObserver = new IntersectionObserver((entries) => {
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].isIntersecting) {
+        const img = entries[i].target;
+        const src = img.dataset.src;
+        if (src) { img.src = src; img.removeAttribute('data-src'); }
+        _lazyImageObserver.unobserve(img);
+      }
+    }
+  }, { rootMargin: '200px' });
+  return _lazyImageObserver;
+}
+
+/**
+ * Set image src with lazy loading. If observer available, defers loading
+ * until image is near viewport. Falls back to immediate load.
+ */
+function lazyImg(img, src) {
+  if (!src) return;
+  const obs = _getLazyImageObserver();
+  if (obs) {
+    img.dataset.src = src;
+    obs.observe(img);
+  } else {
+    img.src = src;
+  }
+}
 
 function updateSseStatus(status) {
   // status: 'connected' | 'reconnecting' | 'disconnected'
