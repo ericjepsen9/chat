@@ -349,7 +349,52 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   assert(health.ok === true);
   assert(health.walExists === true);
 
-  console.log('smoke-test: ok');
+  // ── Edge Cases & Security Tests ──
+
+  // Empty/missing fields should fail gracefully
+  await expectHttpError('/api/register', {
+    method: 'POST',
+    body: JSON.stringify({ displayName: '', password: '', phone: '', code: '' }),
+  }, 400);
+
+  // Very long input should not crash
+  const longStr = 'a'.repeat(5000);
+  await expectHttpError('/api/register', {
+    method: 'POST',
+    body: JSON.stringify({ displayName: longStr, password: longStr, phone: longStr, code: '1234' }),
+  }, 400);
+
+  // Non-admin cannot access admin endpoints
+  const nonAdminHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}`, 'X-CSRF-Token': authCsrf };
+  const adminCheckRes = await fetch(`${BASE}/api/admin/users`, { headers: nonAdminHeaders });
+  assert(adminCheckRes.status === 403, 'non-admin should get 403 on admin endpoints');
+
+  // Product with invalid price should fail
+  await expectHttpError('/api/products', {
+    method: 'POST',
+    body: JSON.stringify({ userId: login.user.id, title: 'bad', category: '测试', price: -10, stock: 1, specs: ['默认'] }),
+  }, 400);
+
+  // Product with zero stock should fail
+  await expectHttpError('/api/products', {
+    method: 'POST',
+    body: JSON.stringify({ userId: login.user.id, title: 'bad', category: '测试', price: 10, stock: 0, specs: ['默认'] }),
+  }, 400);
+
+  // Blacklist self should fail
+  await expectHttpError('/api/blacklist', {
+    method: 'POST',
+    body: JSON.stringify({ targetId: login.user.id, action: 'add' }),
+  }, 400);
+
+  // API responses should not contain password fields
+  const selfProfile = await j(`/api/users/${encodeURIComponent(login.user.id)}/profile`);
+  if (selfProfile.user) {
+    assert(selfProfile.user.password === undefined, 'API response should not contain password');
+    assert(selfProfile.user.passwordHash === undefined, 'API response should not contain passwordHash');
+  }
+
+  console.log('smoke-test: ok (with edge cases)');
 })().catch((e) => {
   console.error(e);
   process.exitCode = 1;
