@@ -332,6 +332,9 @@ function openProductDetail(item, fromSeller = false){
   toggleEl("productDetailBuyNowBtn", 'hidden', showSellerControls);
   toggleEl("productDetailAddCartBtn", 'hidden', showSellerControls);
   toggleEl("productDetailChatBtn", 'hidden', showSellerControls);
+  // Hide the entire bottom bar when seller controls are shown to prevent
+  // the sticky bar (with padding) from intercepting touch events on seller action buttons
+  toggleEl("productDetailBottomBar", 'hidden', showSellerControls);
   // Disable buy/cart buttons when out of stock
   const outOfStock = stock <= 0;
   const _pdBuyBtn = $("productDetailBuyNowBtn");
