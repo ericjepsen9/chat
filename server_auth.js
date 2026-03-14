@@ -7,8 +7,11 @@ function purgeUserSessions(sessions, userId) {
 
 function parseAuthToken(req) {
   const auth = req.headers.authorization || '';
-  const match = auth.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] || null;
+  // Fast path: avoid regex for the common "Bearer <token>" format
+  if (auth.length > 7 && (auth[0] === 'B' || auth[0] === 'b') && auth.slice(0, 7).toLowerCase() === 'bearer ') {
+    return auth.slice(7);
+  }
+  return null;
 }
 
 function getAuthUser(req, searchParams, sessions, index) {

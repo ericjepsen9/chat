@@ -44,7 +44,7 @@ body{font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;background:
 
 /* ── Stats ── */
 .stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:20px}
-.stat-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.stat-card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.04);contain:content}
 .stat-label{font-size:12px;color:#64748b;font-weight:600}
 .stat-val{font-size:28px;font-weight:800;margin-top:4px}
 .stat-sub{font-size:11px;color:#94a3b8;margin-top:2px}
@@ -150,7 +150,7 @@ body{font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;background:
 .toast.show{opacity:1}
 
 /* ── Row card ── */
-.row-card{padding:12px 0;border-bottom:1px solid #f1f5f9}
+.row-card{padding:12px 0;border-bottom:1px solid #f1f5f9;contain:content}
 .row-card:last-child{border-bottom:0}
 .row-title{font-size:14px;font-weight:700}
 .row-sub{font-size:12px;color:#64748b;margin-top:3px}

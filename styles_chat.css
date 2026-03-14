@@ -1,7 +1,7 @@
 /* styles_chat.css — Chat, messaging, calls, conversation list */
 /* 聊天气泡 */
 .messages { flex: 1; overflow-y: auto; background: var(--bg); padding: 16px; display: flex; flex-direction: column; gap: 16px; -webkit-overflow-scrolling: touch; }
-.message-row { display: flex; gap: 10px; max-width: 90%; position: relative; }
+.message-row { display: flex; gap: 10px; max-width: 90%; position: relative; contain: content; }
 .message-row.me { margin-left: auto; flex-direction: row-reverse; }
 .message-row.system-msg { margin: 0 auto; max-width: 100%; }
 .message-row .avatar { width: 40px; height: 40px; border-radius: 6px; font-size: var(--font-body);}
@@ -78,7 +78,7 @@
 .call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer; will-change: transform;}
 @media (max-width: 500px) { body { padding: 0; } .mobile-shell { border-radius: 0; height: 100vh; } }
 /* V36 conversation list polish */
-.chat-item{ position:relative; }
+.chat-item{ position:relative; contain:content; }
 .chat-item.is-pinned{ background:#f7f7f8; }
 .chat-item.is-active{ background:#e6f2ff; }
 .chat-item-avatar{ flex-shrink:0; }

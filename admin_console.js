@@ -320,17 +320,19 @@ window.viewUser = async function(userId) {
       <div class="detail-item"><div class="detail-label">好友数</div><div class="detail-value">${data.friendCount}</div></div>
     </div></div>`;
     if (prods.length) {
-      body += `<div class="detail-section"><div class="detail-section-title">商品列表 (${prods.length})</div>`;
+      const parts = [`<div class="detail-section"><div class="detail-section-title">商品列表 (${prods.length})</div>`];
       for (const p of prods.slice(0, 10)) {
-        body += `<div class="row-card"><div class="row-title">${esc(p.title)} · ${money(p.price)}</div><div class="row-sub">库存 ${p.stock} · ${p.listed ? '上架' : '下架'} · ${esc(p.category || '')}</div></div>`;
+        parts.push(`<div class="row-card"><div class="row-title">${esc(p.title)} · ${money(p.price)}</div><div class="row-sub">库存 ${p.stock} · ${p.listed ? '上架' : '下架'} · ${esc(p.category || '')}</div></div>`);
       }
-      if (prods.length > 10) body += `<div class="row-sub">还有 ${prods.length - 10} 件商品...</div>`;
-      body += '</div>';
+      if (prods.length > 10) parts.push(`<div class="row-sub">还有 ${prods.length - 10} 件商品...</div>`);
+      parts.push('</div>');
+      body += parts.join('');
     }
     if (u.blacklist?.length) {
-      body += `<div class="detail-section"><div class="detail-section-title">黑名单 (${u.blacklist.length})</div>`;
-      for (const b of u.blacklist.slice(0, 10)) body += `<div class="row-card" style="display:flex;justify-content:space-between;align-items:center"><div class="row-sub">${esc(b.displayName)}</div><button class="btn-action danger" onclick="adminRemoveBlacklist('${esc(u.id)}','${esc(b.id)}','${esc(b.displayName)}')">移除</button></div>`;
-      body += '</div>';
+      const parts = [`<div class="detail-section"><div class="detail-section-title">黑名单 (${u.blacklist.length})</div>`];
+      for (const b of u.blacklist.slice(0, 10)) parts.push(`<div class="row-card" style="display:flex;justify-content:space-between;align-items:center"><div class="row-sub">${esc(b.displayName)}</div><button class="btn-action danger" onclick="adminRemoveBlacklist('${esc(u.id)}','${esc(b.id)}','${esc(b.displayName)}')">移除</button></div>`);
+      parts.push('</div>');
+      body += parts.join('');
     }
     openModal('用户详情 - ' + (u.displayName || u.username), body, '');
   } catch (e) { toast('加载失败: ' + e.message); }
@@ -553,17 +555,18 @@ window.viewConvMessages = async function(convId) {
     const data = await api(`/api/admin/conversations/${convId}/messages?limit=50`);
     const msgs = data.items || [];
     if (!msgs.length) { openModal('会话消息', '<div class="empty">暂无消息</div>', ''); return; }
-    let body = '';
+    const parts = [];
     for (const m of msgs) {
       const typeLabel = m.type === 'text' ? '' : ` [${esc(m.type)}]`;
-      body += `<div class="row-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      parts.push(`<div class="row-card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div style="flex:1;min-width:0">
           <div class="row-title">${esc(m.senderName)}${typeLabel} <span class="user-cell-sub">${fmtDate(m.createdAt)}</span></div>
           <div class="row-sub" style="word-break:break-all">${esc(m.text || m.imageUrl || m.audioUrl || '[非文本]')}</div>
         </div>
         <button class="btn-action danger" onclick="adminDeleteMsg('${esc(m.id)}','${esc(convId)}')">删除</button>
-      </div>`;
+      </div>`);
     }
+    let body = parts.join('');
     if (data.total > 50) body += `<div class="row-sub" style="text-align:center;padding:8px">还有 ${data.total - 50} 条消息...</div>`;
     openModal(`会话消息 (${data.total})`, body, '');
   } catch (e) { toast('加载失败'); }

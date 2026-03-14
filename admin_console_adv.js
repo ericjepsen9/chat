@@ -116,12 +116,6 @@ function renderMsgSearchResults() {
   el.innerHTML = html;
 }
 
-function highlightText(text, q) {
-  const safe = esc(text);
-  const qEsc = esc(q);
-  const re = new RegExp(`(${qEsc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return safe.replace(re, '<mark style="background:#fef08a;padding:0 2px;border-radius:2px">$1</mark>');
-}
 
 /* ═══════════════════════════════════════
    CONVERSATION DELETE

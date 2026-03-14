@@ -16,7 +16,9 @@ function normalizeUserRole(user) {
 }
 
 function canAccessConversation(userId, conv) {
-  return !!(conv && Array.isArray(conv.members) && conv.members.includes(userId));
+  if (!conv) return false;
+  if (conv._memberSet) return conv._memberSet.has(userId);
+  return Array.isArray(conv.members) && conv.members.includes(userId);
 }
 
 module.exports = {

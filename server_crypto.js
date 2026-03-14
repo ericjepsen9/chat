@@ -3,6 +3,10 @@ const { promisify } = require('util');
 const { normalizeUserRole } = require('./server_roles');
 
 const scryptAsync = promisify(crypto.scrypt);
+// Pre-compiled regexes to avoid re-creation on every call
+const RE_PHONE = /^1\d{10}$/;
+const RE_NON_DIGIT = /\D+/g;
+const RE_IP_CHARS = /^[0-9a-fA-F:.]+$/;
 
 function uid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -69,12 +73,12 @@ const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 function normalizePhone(phone) {
   const raw = String(phone || '').trim();
-  const digits = raw.replace(/\D+/g, '');
+  const digits = raw.replace(RE_NON_DIGIT, '');
   let normalized = digits;
-  if (normalized.startsWith('86') && normalized.length === 13 && normalized[2] === '1') {
+  if (normalized.length === 13 && normalized[0] === '8' && normalized[1] === '6' && normalized[2] === '1') {
     normalized = normalized.slice(2);
   }
-  if (!/^1\d{10}$/.test(normalized)) return '';
+  if (!RE_PHONE.test(normalized)) return '';
   return normalized;
 }
 
@@ -185,7 +189,7 @@ function sanitizePublicUser(user, { includePhone = false } = {}) {
 function normalizeIpForThrottle(raw) {
   const value = String(raw || '').trim().slice(0, 64);
   if (!value) return '';
-  return /^[0-9a-fA-F:.]+$/.test(value) ? value : '';
+  return RE_IP_CHARS.test(value) ? value : '';
 }
 
 function getClientIp(req) {
