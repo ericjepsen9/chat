@@ -4,6 +4,12 @@ const ADMIN_PAGE_LIMIT = 50;
 const AUDIT_LOG_MAX = 200;
 const adminAuditLog = []; // in-memory ring buffer
 
+// CSV helper: escape a field value once (avoids repeated .replace() calls)
+function csvField(val) {
+  const s = String(val ?? '');
+  return s.indexOf('"') !== -1 ? `"${s.replace(/"/g, '""')}"` : s.indexOf(',') !== -1 || s.indexOf('\n') !== -1 ? `"${s}"` : s;
+}
+
 // Pre-compiled route regexes
 const RE_USER_DELETE = /^\/api\/admin\/users\/([^/]+)\/delete$/;
 const RE_BL_REMOVE = /^\/api\/admin\/users\/([^/]+)\/blacklist\/remove$/;
@@ -238,8 +244,11 @@ module.exports = function createAdminExtRoutes(ctx) {
       if (!authUser) return true;
       const { limit, offset } = paginate(searchParams);
       const statusFilter = searchParams.get('status') || '';
-      let requests = (db.friendRequests || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      // Filter first, then sort only the smaller filtered set
+      let requests = db.friendRequests || [];
       if (statusFilter) requests = requests.filter(r => r.status === statusFilter);
+      else requests = requests.slice();
+      requests.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const result = slicePage(requests, offset, limit);
       result.items = result.items.map(r => {
         const sender = index.usersById.get(r.userId);
@@ -261,9 +270,11 @@ module.exports = function createAdminExtRoutes(ctx) {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
       const reqId = frDeleteMatch[1];
-      const ri = (db.friendRequests || []).findIndex(r => r.id === reqId);
-      if (ri === -1) return sendJson(res, 404, { error: 'not_found' });
-      db.friendRequests.splice(ri, 1);
+      const reqObj = index.friendRequestsById.get(reqId);
+      if (!reqObj) return sendJson(res, 404, { error: 'not_found' });
+      // Remove from array using indexOf on the reference (faster than findIndex with predicate)
+      const ri = (db.friendRequests || []).indexOf(reqObj);
+      if (ri !== -1) db.friendRequests.splice(ri, 1);
       rebuildRequestIndexesOnly();
       schedulePersist('admin_friend_request_delete', { requestId: reqId });
       return sendJson(res, 200, { ok: true });
@@ -347,7 +358,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       const rows = [['ID', '用户名', '昵称', '手机号', 'APP号', '角色', '状态', '商品数', '注册时间'].join(',')];
       for (const u of db.users) {
         rows.push([
-          u.id, u.username, `"${(u.displayName || '').replace(/"/g, '""')}"`,
+          u.id, u.username, csvField(u.displayName),
           u.phone || '', u.appNumberId || '', u.role || 'user', u.status || 'active',
           Array.isArray(u.products) ? u.products.length : 0,
           u.createdAt ? new Date(u.createdAt).toISOString() : '',
@@ -372,12 +383,14 @@ module.exports = function createAdminExtRoutes(ctx) {
         if (buyerName === undefined) { const u = index.usersById.get(o.buyerId); buyerName = u?.displayName || o.buyerId; exportNameCache.set(o.buyerId, buyerName); }
         let sellerName = exportNameCache.get(o.sellerId);
         if (sellerName === undefined) { const u = index.usersById.get(o.sellerId); sellerName = u?.displayName || o.sellerId; exportNameCache.set(o.sellerId, sellerName); }
-        const summary = (o.items || []).map(i => `${i.title}×${i.quantity}`).join('; ');
+        const items = o.items || [];
+        const parts = new Array(items.length);
+        for (let j = 0; j < items.length; j++) parts[j] = `${items[j].title}×${items[j].quantity}`;
         rows.push([
           o.id, buyerName, sellerName,
           Number(o.total) || 0, o.status || '',
-          `"${summary.replace(/"/g, '""')}"`,
-          `"${(o.remark || '').replace(/"/g, '""')}"`,
+          csvField(parts.join('; ')),
+          csvField(o.remark),
           o.createdAt ? new Date(o.createdAt).toISOString() : '',
           o.updatedAt ? new Date(o.updatedAt).toISOString() : '',
         ].join(','));

@@ -75,6 +75,8 @@ function initSchema(db) {
       json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_products_time ON products(created_at);
+    CREATE INDEX IF NOT EXISTS idx_products_seller_id ON products(seller_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
   `);
 }
 

@@ -8,6 +8,7 @@ const DEFAULT_GROUP = '我的好友';
 const MAX_GROUPS = 20;
 const MAX_GROUP_NAME_LEN = 20;
 const MAX_PAYMENT_CODE_LEN = 512;
+const CATEGORY_SPLIT_RE = /[\/,、]/;
 
 function normalizePaymentCodes(codes) {
   if (!codes || typeof codes !== 'object') return { wechat: '', alipay: '', cloudpay: '' };
@@ -48,7 +49,9 @@ function rebuildMallIndex() {
   const items = [];
   const allProducts = [];
   const ownerMap = index.productOwnerMap;
+  const byId = index.productById;
   ownerMap.clear();
+  byId.clear();
   const users = db.users;
   for (let u = 0; u < users.length; u++) {
     const user = users[u];
@@ -66,6 +69,7 @@ function rebuildMallIndex() {
       product.sellerAvatarUrl = sellerAvatarUrl;
       product.sellerAppNumberId = sellerAppNumberId;
       ownerMap.set(product.id, user);
+      byId.set(product.id, product);
       allProducts.push(product);
       if (product.listed === false) continue;
       if (Number(product.stock || 0) <= 0) continue;
@@ -201,7 +205,7 @@ function rebuildIndexes() {
       const cats = needCats ? new Set() : null;
       const specs = needSpecs ? new Set() : null;
       for (const p of user.products) {
-        if (cats && p.category) { const parts = p.category.split(/[\/,、]/); for (let j = 0; j < parts.length; j++) { const c = parts[j].trim(); if (c) cats.add(c); } }
+        if (cats && p.category) { const parts = p.category.split(CATEGORY_SPLIT_RE); for (let j = 0; j < parts.length; j++) { const c = parts[j].trim(); if (c) cats.add(c); } }
         if (specs && Array.isArray(p.specs)) { for (let j = 0; j < p.specs.length; j++) { if (p.specs[j]) specs.add(p.specs[j]); } }
       }
       if (cats) user.categoryPresets = [...cats].slice(0, 50);

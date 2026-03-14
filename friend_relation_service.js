@@ -1,10 +1,15 @@
+function hasCustomGroup(authUser, groupName, defaultGroup) {
+  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
+  // Small array: Set is overkill, but for consistency use indexOf which V8 optimizes for small arrays
+  return authUser.customGroups.indexOf(groupName) !== -1;
+}
+
 function updateFriendRemark({ authUser, friendId, group, remark, friendshipByPair, rebuildFriendViewsIndex, rebuildConversationBaseIndex, schedulePersist, broadcastToUser, defaultGroup }) {
   const rel = friendshipByPair.get(`${authUser.id}:${friendId}`);
   if (!rel) return { ok: false, status: 404, error: 'not_found' };
   if (group !== undefined) {
     const nextGroup = String(group || '').trim() || defaultGroup;
-    if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
-    if (!authUser.customGroups.includes(nextGroup)) return { ok: false, status: 400, error: 'invalid_group' };
+    if (!hasCustomGroup(authUser, nextGroup, defaultGroup)) return { ok: false, status: 400, error: 'invalid_group' };
     rel.group = nextGroup;
   }
   if (remark !== undefined) rel.remark = String(remark || '').trim().slice(0, 40);
@@ -20,8 +25,7 @@ function updateFriendGroup({ authUser, friendId, groupRaw, friendshipByPair, nor
   const rel = friendshipByPair.get(`${authUser.id}:${friendId}`);
   if (!rel) return { ok: false, status: 404, error: 'not_found' };
   const nextGroup = normalizeSingleGroupName(groupRaw) || defaultGroup;
-  if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
-  if (!authUser.customGroups.includes(nextGroup)) return { ok: false, status: 400, error: 'invalid_group' };
+  if (!hasCustomGroup(authUser, nextGroup, defaultGroup)) return { ok: false, status: 400, error: 'invalid_group' };
   rel.group = nextGroup;
   rebuildFriendViewsIndex();
   rebuildConversationBaseIndex();

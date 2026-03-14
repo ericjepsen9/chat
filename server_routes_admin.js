@@ -2,6 +2,7 @@
 
 const SYSTEM_MSG_LIMITS = { TITLE: 80, SUMMARY: 240, COVER: 512, LIST_MAX: 30, STORE_MAX: 100 };
 const ADMIN_PAGE_LIMIT = 50;
+const VALID_ORDER_STATUSES = new Set(['pending', 'accepted', 'processing', 'in_progress', 'completed']);
 
 // Pre-compiled route regexes
 const RE_SYS_DEL = /^\/api\/admin\/system\/messages\/([^/]+)\/delete$/;
@@ -260,15 +261,12 @@ module.exports = function createAdminRoutes(ctx) {
       if (!order) return sendJson(res, 404, { error: 'not_found' });
       const buyer = index.usersById.get(order.buyerId);
       const seller = index.usersById.get(order.sellerId);
-      return sendJson(res, 200, {
-        order: {
-          ...order,
-          buyerName: buyer?.displayName || order.buyerId,
-          sellerName: seller?.displayName || order.sellerId,
-          buyerAvatar: buyer?.avatarUrl || '',
-          sellerAvatar: seller?.avatarUrl || '',
-        },
-      });
+      // Attach view-only fields directly instead of spread-copying entire order
+      order.buyerName = buyer?.displayName || order.buyerId;
+      order.sellerName = seller?.displayName || order.sellerId;
+      order.buyerAvatar = buyer?.avatarUrl || '';
+      order.sellerAvatar = seller?.avatarUrl || '';
+      return sendJson(res, 200, { order });
     }
 
     // Update order status (admin force)
@@ -279,8 +277,7 @@ module.exports = function createAdminRoutes(ctx) {
       const order = index.ordersById.get(orderStatusMatch[1]);
       if (!order) return sendJson(res, 404, { error: 'not_found' });
       const nextStatus = String(context.body.status || '').trim();
-      const validStatuses = ['pending', 'accepted', 'processing', 'in_progress', 'completed'];
-      if (!validStatuses.includes(nextStatus)) return sendJson(res, 400, { error: 'invalid_status' });
+      if (!VALID_ORDER_STATUSES.has(nextStatus)) return sendJson(res, 400, { error: 'invalid_status' });
       order.status = nextStatus;
       order.updatedAt = Date.now();
       schedulePersist('admin_order_status', { orderId: order.id, status: nextStatus });
@@ -323,8 +320,7 @@ module.exports = function createAdminRoutes(ctx) {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
       const productId = productUpdateMatch[1];
-      const owner = index.productOwnerMap.get(productId);
-      const found = owner ? (owner.products || []).find(p => p.id === productId) : null;
+      const found = index.productById.get(productId);
       if (!found) return sendJson(res, 404, { error: 'not_found' });
       const b = context.body;
       if (b.price !== undefined) found.price = String(b.price || '').trim().slice(0, 24);
@@ -344,9 +340,10 @@ module.exports = function createAdminRoutes(ctx) {
       const productId = productDeleteMatch[1];
       const delOwner = index.productOwnerMap.get(productId);
       if (!delOwner) return sendJson(res, 404, { error: 'not_found' });
-      const delIdx = (delOwner.products || []).findIndex(p => p.id === productId);
-      if (delIdx === -1) return sendJson(res, 404, { error: 'not_found' });
-      delOwner.products.splice(delIdx, 1);
+      const delProduct = index.productById.get(productId);
+      if (!delProduct) return sendJson(res, 404, { error: 'not_found' });
+      const delIdx = (delOwner.products || []).indexOf(delProduct);
+      if (delIdx !== -1) delOwner.products.splice(delIdx, 1);
       rebuildMallIndex();
       broadcastAll('mall_updated', {});
       schedulePersist('admin_product_delete', { productId });
@@ -365,8 +362,8 @@ module.exports = function createAdminRoutes(ctx) {
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const typeFilter = searchParams.get('type') || '';
       const rawConvs = db.conversations || [];
-      // Sort copy directly — no index indirection needed
-      let convs = rawConvs.slice().sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
+      // Filter first to reduce sort input size, then sort the smaller result
+      let convs = rawConvs;
       if (typeFilter) convs = convs.filter(c => c.type === typeFilter);
       if (q) {
         // Pre-build user name cache for conversation member name lookups
@@ -387,6 +384,9 @@ module.exports = function createAdminRoutes(ctx) {
           return false;
         });
       }
+      // Sort filtered copy by lastMessageAt descending; only copy if we haven't already
+      if (convs === rawConvs) convs = convs.slice();
+      convs.sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
       const result = slicePage(convs, offset, limit);
       result.items = result.items.map(c => {
         const memberInfo = (c.members || []).map(mid => {

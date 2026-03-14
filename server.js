@@ -204,6 +204,7 @@ const index = {
   mallItems: [],
   allProductsSorted: [],   // cached all-products list for admin (sorted by createdAt desc)
   productOwnerMap: new Map(), // productId → user (for O(1) admin lookups)
+  productById: new Map(),    // productId → product object (for O(1) product lookups)
 };
 
 // Index manager — all index rebuild/management functions
@@ -980,14 +981,36 @@ function cleanupExpiredMessages() {
   const before = msgs.length;
   // In-place compact avoids allocating a new array for potentially large message lists
   let write = 0;
+  const removed = [];
   for (let i = 0; i < msgs.length; i++) {
     if (msgs[i].createdAt > cutoff) msgs[write++] = msgs[i];
+    else removed.push(msgs[i]);
   }
   msgs.length = write;
-  if (write < before) {
-    rebuildMessageIndexes();
+  if (removed.length) {
+    // Targeted index cleanup: remove expired entries without full rebuild
+    for (let i = 0; i < removed.length; i++) {
+      const msg = removed[i];
+      index.messagesById.delete(msg.id);
+      if (msg.clientMessageId && msg.senderId) {
+        index.messageByClientKey.delete(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`);
+      }
+    }
+    // Rebuild only the affected messagesByConv entries
+    const affectedConvs = new Set();
+    for (let i = 0; i < removed.length; i++) affectedConvs.add(removed[i].conversationId);
+    for (const convId of affectedConvs) {
+      const arr = index.messagesByConv.get(convId);
+      if (!arr) continue;
+      let w = 0;
+      for (let j = 0; j < arr.length; j++) {
+        if (arr[j].createdAt > cutoff) arr[w++] = arr[j];
+      }
+      arr.length = w;
+      if (!w) index.messagesByConv.delete(convId);
+    }
     schedulePersist('message_retention_cleanup', {});
-    console.log(`[retention] cleaned ${before - write} messages older than ${MESSAGE_RETENTION_DAYS} days`);
+    console.log(`[retention] cleaned ${removed.length} messages older than ${MESSAGE_RETENTION_DAYS} days`);
   }
 }
 setInterval(cleanupExpiredMessages, CLEANUP_INTERVAL_MS).unref();
