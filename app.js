@@ -350,7 +350,7 @@ function applyOrderQuickRange(role = 'buyer', days = 0){
 async function deleteOrderRecord(orderId){
   if(!orderId) return;
   try{
-    await api(`/api/orders/${orderId}/delete`, { method:'POST', body: JSON.stringify({}) });
+    await api(`/api/orders/${orderId}/delete`, { method:'POST', body: '{}' });
     await refreshAllOrderData();
     showToast('订单已删除');
   }catch(e){
@@ -634,8 +634,9 @@ function openProductDetail(item, fromSeller = false){
   toggleEl("productDetailSellerActions", 'hidden', !showSellerControls);
   const _pdListedBtn = $("productDetailListedBtn");
   if(showSellerControls && _pdListedBtn) {
-    _pdListedBtn.textContent = item.listed === false ? '上架' : '下架';
-    _pdListedBtn.className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
+    const isUnlisted = item.listed === false;
+    _pdListedBtn.textContent = isUnlisted ? '上架' : '下架';
+    _pdListedBtn.classList.toggle('accent', isUnlisted);
   }
   window.openSecondaryPage('productDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
@@ -1757,27 +1758,7 @@ function renderContactCardPicker(keyword){
       const info = createEl('div', 'ccp-friend-info');
       info.append(createEl('div', 'ccp-friend-name', f.remark || f.displayName || f.username || '好友'), createEl('div', 'ccp-friend-id', 'ID: ' + (f.appNumberId || f.username || '-')));
       row.appendChild(info);
-      const check = createEl('div', 'ccp-check');
-      row.appendChild(check);
-
-      row.addEventListener('click', () => {
-        // Deselect previous
-        list.querySelectorAll('.ccp-friend-row.selected').forEach(el => {
-          el.classList.remove('selected');
-          const c = el.querySelector('.ccp-check');
-          if (c) c.textContent = '';
-        });
-        // Select this one
-        row.classList.add('selected');
-        check.textContent = '✓';
-        state._ccpSelectedFriend = f;
-        // Update confirm bar
-        showEl("ccpConfirmBar");
-        if ($("ccpSelectedName")) $("ccpSelectedName").textContent = f.remark || f.displayName || f.username || '好友';
-        const avatarWrap = $("ccpSelectedAvatar");
-        if (avatarWrap) { avatarWrap.replaceChildren(); avatarWrap.appendChild(createAvatarNode(f, f.displayName || f.username || '友')); }
-      });
-
+      row.appendChild(createEl('div', 'ccp-check'));
       content.appendChild(row);
     });
 
@@ -1786,6 +1767,30 @@ function renderContactCardPicker(keyword){
   });
 
   list.replaceChildren(frag);
+  // Single delegated click handler instead of per-row listeners
+  list.onclick = (e) => {
+    const row = e.target.closest('.ccp-friend-row');
+    if (!row) return;
+    const friendId = row.dataset.friendId;
+    // Deselect previous
+    const prev = list.querySelector('.ccp-friend-row.selected');
+    if (prev && prev !== row) { prev.classList.remove('selected'); const c = prev.querySelector('.ccp-check'); if (c) c.textContent = ''; }
+    // Select this one
+    row.classList.add('selected');
+    const check = row.querySelector('.ccp-check');
+    if (check) check.textContent = '✓';
+    // Look up the friend object from state
+    const entry = state.friendsById.get(friendId);
+    const f = entry?.friend || entry;
+    if (f) {
+      state._ccpSelectedFriend = f;
+      showEl("ccpConfirmBar");
+      const nameEl = $("ccpSelectedName");
+      if (nameEl) nameEl.textContent = f.remark || f.displayName || f.username || '好友';
+      const avatarWrap = $("ccpSelectedAvatar");
+      if (avatarWrap) { avatarWrap.replaceChildren(); avatarWrap.appendChild(createAvatarNode(f, f.displayName || f.username || '友')); }
+    }
+  };
 }
 
 async function renderProductCardPicker(){
@@ -3599,12 +3604,13 @@ function bindAuthEvents() {
     const container = $(containerId);
     if (!container) return;
     const boxes = container.querySelectorAll('.auth-code-box');
-    boxes.forEach((box, i) => {
+    const boxArray = Array.from(boxes); // Pre-convert once instead of per-input event
+    boxArray.forEach((box, i) => {
       box.addEventListener('input', () => {
         const v = box.value.replace(/\D/g, '');
         box.value = v.slice(0, 1);
-        if (v && i < boxes.length - 1) boxes[i + 1].focus();
-        const code = Array.from(boxes).map(b => b.value).join('');
+        if (v && i < boxArray.length - 1) boxArray[i + 1].focus();
+        const code = boxArray.map(b => b.value).join('');
         if (code.length === 4) onComplete(code);
       });
       box.addEventListener('keydown', (e) => {
@@ -4497,9 +4503,10 @@ function bindProfileEvents() {
     await window.toggleSellerProductListed(item.id, nextListed);
     // Update the in-memory detail so the button reflects the new state
     state.selectedProductDetail.listed = nextListed;
-    if ($("productDetailListedBtn")) {
-      $("productDetailListedBtn").textContent = nextListed ? '下架' : '上架';
-      $("productDetailListedBtn").className = 'sp-action-btn' + (!nextListed ? ' accent' : '');
+    const _listedBtn = $("productDetailListedBtn");
+    if (_listedBtn) {
+      _listedBtn.textContent = nextListed ? '下架' : '上架';
+      _listedBtn.classList.toggle('accent', !nextListed);
     }
   });
   on("productDetailDeleteBtn", "click", async () => {
