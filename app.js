@@ -460,7 +460,7 @@ function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
   if (!sigChanged(ordersKey, sig)) return;
   if(!rows.length){ showEmptyState(list, emptyMsg, 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
-  rows.forEach(order => frag.appendChild(buildOrderCard(order, role)));
+  for (let i = 0; i < rows.length; i++) frag.appendChild(buildOrderCard(rows[i], role));
   list.replaceChildren(frag);
 }
 const renderBuyerOrdersManage = safeRender(function renderBuyerOrdersManage() { renderOrdersManage('buyer', 'buyerOrdersManageList', 'buyerOrders', '🧾 暂无购买订单'); });
@@ -1732,19 +1732,20 @@ function renderContactCardPicker(keyword){
   // Group friends
   const grouped = new Map();
   const customGroups = getCustomGroups();
-  customGroups.forEach(g => grouped.set(g, []));
-  allFriends.forEach(item => {
+  for (let gi = 0; gi < customGroups.length; gi++) grouped.set(customGroups[gi], []);
+  for (let fi = 0; fi < allFriends.length; fi++) {
+    const item = allFriends[fi];
     const f = item.friend;
-    if (!f) return;
-    if (search && !(f._lcName || (f._lcName = (f.displayName || '').toLowerCase())).includes(search) && !(f._lcRemark || (f._lcRemark = (f.remark || '').toLowerCase())).includes(search) && !(f._lcUser || (f._lcUser = (f.username || '').toLowerCase())).includes(search)) return;
+    if (!f) continue;
+    if (search && !(f._lcName || (f._lcName = (f.displayName || '').toLowerCase())).includes(search) && !(f._lcRemark || (f._lcRemark = (f.remark || '').toLowerCase())).includes(search) && !(f._lcUser || (f._lcUser = (f.username || '').toLowerCase())).includes(search)) continue;
     const groupName = item.group || DEFAULT_GROUP;
     if (!grouped.has(groupName)) grouped.set(groupName, []);
     grouped.get(groupName).push(f);
-  });
+  }
 
   // Count total visible
   let totalVisible = 0;
-  grouped.forEach(members => { totalVisible += members.length; });
+  for (const [, members] of grouped) totalVisible += members.length;
   if (totalVisible === 0) {
     showEmptyState(list, search ? '未找到匹配的好友' : '通讯录暂无好友可发送', 'ccp-empty');
     return;
@@ -1811,13 +1812,18 @@ function renderContactCardPicker(keyword){
 async function renderProductCardPicker(){
   const list = $("productCardPickerList");
   if(!list) return;
-  const products = Array.isArray(state.currentUser?.products) ? state.currentUser.products.filter(Boolean) : [];
-  if(!products.length){
+  const srcProducts = Array.isArray(state.currentUser?.products) ? state.currentUser.products : [];
+  // Count valid products first to check emptiness without allocating a filtered array
+  let hasProducts = false;
+  for (let i = 0; i < srcProducts.length; i++) { if (srcProducts[i]) { hasProducts = true; break; } }
+  if(!hasProducts){
     showEmptyState(list, '暂无可发送商品，请先发布');
     return;
   }
   const frag = document.createDocumentFragment();
-  products.forEach((p) => {
+  for (let i = 0; i < srcProducts.length; i++) {
+    const p = srcProducts[i];
+    if (!p) continue;
     const card = createEl('button', 'picker-product-card');
     card.type = 'button';
     const imgUrl = normalizeMediaUrl(p.image || p.imageUrl) || '';
@@ -1832,7 +1838,7 @@ async function renderProductCardPicker(){
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
-  });
+  }
   list.replaceChildren(frag);
 }
 
@@ -1848,24 +1854,34 @@ async function renderOrderCardPicker(filterTab){
   // Update tab active states
   const tabBar = $("orderPickerTabs");
   if(tabBar){
-    tabBar.querySelectorAll('.picker-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.tab === tab);
-    });
+    const tabs = tabBar.querySelectorAll('.picker-tab');
+    for (let i = 0; i < tabs.length; i++) tabs[i].classList.toggle('active', tabs[i].dataset.tab === tab);
   }
-  const orders = allOrders.filter(o => {
-    if(tab === 'bought') return o.buyerId === state.currentUser?.id;
-    return o.sellerId === state.currentUser?.id;
-  });
+  const uid = state.currentUser?.id;
+  const orders = [];
+  for (let i = 0; i < allOrders.length; i++) {
+    const o = allOrders[i];
+    if (tab === 'bought' ? o.buyerId === uid : o.sellerId === uid) orders.push(o);
+  }
   if(!orders.length){
     showEmptyState(list, tab === 'bought' ? '暂无从对方购买的订单' : '暂无卖给对方的订单');
     return;
   }
   const frag = document.createDocumentFragment();
-  orders.forEach((o) => {
-    const isBuyer = o.buyerId === state.currentUser?.id;
+  for (let j = 0; j < orders.length; j++) {
+    const o = orders[j];
+    const isBuyer = o.buyerId === uid;
     const role = isBuyer ? 'buyer' : 'seller';
     const roleLabel = isBuyer ? '买家' : '卖家';
-    const itemsSummary = (o.items||[]).map(i=>`${i.title}(${i.spec||'默认'})x${i.quantity||1}`).join('，') || '订单内容';
+    // Build items summary without .map().join()
+    const oItems = o.items || [];
+    let itemsSummary = '';
+    for (let k = 0; k < oItems.length; k++) {
+      const it = oItems[k];
+      if (k > 0) itemsSummary += '，';
+      itemsSummary += `${it.title}(${it.spec||'默认'})x${it.quantity||1}`;
+    }
+    if (!itemsSummary) itemsSummary = '订单内容';
     const card = createEl('button', 'picker-order-card');
     card.type = 'button';
     const top = createEl('div', 'picker-order-top');
@@ -1874,11 +1890,14 @@ async function renderOrderCardPicker(filterTab){
     bottom.append(createEl('span', 'picker-order-total', formatMoney(o.total)), createEl('span', 'picker-order-status', formatOrderStatusLabel(o.status)));
     card.append(top, createEl('div', 'picker-order-items', itemsSummary), bottom);
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl:(o.items||[]).find(i=>i && i.imageUrl)?.imageUrl || '', pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
+      // Find first item imageUrl without .find()
+      let orderImgUrl = '';
+      for (let k = 0; k < oItems.length; k++) { if (oItems[k] && oItems[k].imageUrl) { orderImgUrl = oItems[k].imageUrl; break; } }
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl: orderImgUrl, pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);
-  });
+  }
   list.replaceChildren(frag);
 }
 
@@ -2548,8 +2567,8 @@ function bindConversationSwipeDismiss(){
       state.tradeAlertReadAt = Date.now();
       renderConversationListFromState();
       Promise.all([loadBuyerOrders(), loadSellerOrders()]).then(() => {
-        const pendingSeller = (state.sellerOrders || []).filter(o => o && o.status !== 'completed');
-        if (pendingSeller.length) window.openSecondaryPage('sellerOrdersPage', 'home');
+        const hasPendingSeller = (state.sellerOrders || []).some(o => o && o.status !== 'completed');
+        if (hasPendingSeller) window.openSecondaryPage('sellerOrdersPage', 'home');
         else window.openSecondaryPage('buyerOrdersManagePage', 'home');
       });
     } else if (convId === '__system_message__') {
@@ -3070,8 +3089,11 @@ window.copyText = (enc) => { if (navigator.clipboard) { navigator.clipboard.writ
 window.deleteLocalMsg = async (id) => {
   if (!state.activeConversation?.id) return;
   const conversationId = state.activeConversation.id;
-  const prevMessages = [...state.messages];
-  state.messages = state.messages.filter(m => m.id !== id);
+  // Find and splice instead of .filter() + spread copy
+  let removedMsg = null, removedIdx = -1;
+  for (let i = 0; i < state.messages.length; i++) {
+    if (state.messages[i].id === id) { removedIdx = i; removedMsg = state.messages[i]; state.messages.splice(i, 1); break; }
+  }
   rebuildMessagesById();
   if (!removeMessageFromView(id)) renderMessages();
   applyLastOutgoingReadState();
@@ -3080,7 +3102,7 @@ window.deleteLocalMsg = async (id) => {
     syncAndRenderConvList();
     loadConversations();
   } catch(e) {
-    state.messages = prevMessages;
+    if (removedMsg !== null) { state.messages.splice(removedIdx, 0, removedMsg); }
     rebuildMessagesById();
     renderMessages();
     applyLastOutgoingReadState();
@@ -3165,13 +3187,14 @@ window.forwardMsg = (msgId) => {
   const list = $("forwardList");
   if(list) {
     list.replaceChildren();
-    state.conversations.forEach(c => {
+    for (let i = 0; i < state.conversations.length; i++) {
+      const c = state.conversations[i];
       const btn = createEl('button', 'chat-item');
       btn.type = 'button';
       btn.dataset.convId = c.id;
       appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
       list.appendChild(btn);
-    });
+    }
     list.addEventListener('click', (e) => {
       const item = e.target.closest('.chat-item');
       if (item?.dataset.convId) window.confirmForward(item.dataset.convId);
@@ -6382,12 +6405,14 @@ const renderConversationListFromState = safeRender(function renderConversationLi
   } : null;
 
   let totalUnread = 0;
-  const visible = filteredConvs.filter((conv) => {
+  const visible = [];
+  for (let i = 0; i < filteredConvs.length; i++) {
+    const conv = filteredConvs[i];
     const clearedAt = getConversationClearedAt(conv);
-    if (clearedAt && (conv.lastMessageAt || 0) <= clearedAt && !(conv.unread > 0)) return false;
+    if (clearedAt && (conv.lastMessageAt || 0) <= clearedAt && !(conv.unread > 0)) continue;
     if (conv.unread && !isConversationMuted(conv)) totalUnread += conv.unread;
-    return true;
-  });
+    visible.push(conv);
+  }
   if (tradeConv) visible.unshift(tradeConv);
   if (systemConv) visible.unshift(systemConv);
 
