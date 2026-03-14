@@ -2364,34 +2364,34 @@ function applyIncomingConversationMeta(conversationId, message) {
   sortConversationsInPlace();
 }
 function buildConversationSignature(visible, totalUnread) {
-  let s = totalUnread + ':';
+  const parts = [totalUnread, ':'];
   for (const conv of visible) {
-    s += conv.id + '|' + (conv.title || '') + '|' + (conv.preview || '') + '|' + (conv.unread || 0)
-      + '|' + (conv.muted ? 1 : 0) + '|' + (conv.pinned ? 1 : 0)
-      + '|' + (conv.peerAvatarUrl || '') + '|' + (conv.clearedAt || 0)
-      + '|' + (conv.lastMessageAt || 0) + ';';
+    parts.push(conv.id, '|', conv.title || '', '|', conv.preview || '', '|', conv.unread || 0,
+      '|', conv.muted ? 1 : 0, '|', conv.pinned ? 1 : 0,
+      '|', conv.peerAvatarUrl || '', '|', conv.clearedAt || 0,
+      '|', conv.lastMessageAt || 0, ';');
   }
-  return s;
+  return parts.join('');
 }
 function buildFriendListSignature(customGroups, grouped) {
-  let s = '';
+  const parts = [];
   for (const groupName of customGroups) {
-    s += groupName + ':';
+    parts.push(groupName, ':');
     for (const item of (grouped.get(groupName) || [])) {
-      s += item.friend.id + '|' + (item.friend.displayName || '') + '|' + (item.friend.remark || '') + '|' + (item.friend.avatarUrl || '') + ',';
+      parts.push(item.friend.id, '|', item.friend.displayName || '', '|', item.friend.remark || '', '|', item.friend.avatarUrl || '', ',');
     }
-    s += ';';
+    parts.push(';');
   }
-  return s;
+  return parts.join('');
 }
 function buildMallSignature(products) {
-  let s = '';
+  const parts = [];
   for (const p of products) {
-    s += p.id + '|' + (p.title || '') + '|' + p.price + '|' + (p.image || '')
-      + '|' + (p.sellerId || '') + '|' + (p.sellerName || '')
-      + '|' + (p.location || '') + '|' + (p.distance ?? '') + ';';
+    parts.push(p.id, '|', p.title || '', '|', p.price, '|', p.image || '',
+      '|', p.sellerId || '', '|', p.sellerName || '',
+      '|', p.location || '', '|', p.distance ?? '', ';');
   }
-  return s;
+  return parts.join('');
 }
 function isConversationMuted(conv) {
   if (!conv) return false;
@@ -5345,12 +5345,14 @@ function bindSearchAndEmojiEvents() {
     const cv = $("chatView");
     if (!cv) return;
     const marks = cv.querySelectorAll('.search-highlight');
+    const parents = new Set();
     for (let i = marks.length - 1; i >= 0; i--) {
       const el = marks[i];
       const parent = el.parentNode;
       parent.replaceChild(document.createTextNode(el.textContent), el);
-      parent.normalize();
+      parents.add(parent);
     }
+    for (const p of parents) p.normalize();
     state._chatSearchResults = [];
     state._chatSearchIdx = -1;
   }
@@ -5362,36 +5364,39 @@ function bindSearchAndEmojiEvents() {
   on("chatSearchInput", "input", () => {
     clearTimeout(_chatSearchTimer);
     _chatSearchTimer = setTimeout(() => {
-      const keyword = ($("chatSearchInput")?.value || '').trim().toLowerCase();
+      const searchInput = $("chatSearchInput");
+      const keyword = (searchInput?.value || '').trim().toLowerCase();
       clearSearchHighlights();
-      if (!keyword) { if ($("chatSearchCount")) $("chatSearchCount").textContent = ''; return; }
+      const countEl = $("chatSearchCount");
+      if (!keyword) { if (countEl) countEl.textContent = ''; return; }
       // Search in loaded messages DOM
       const chatView = $("chatView");
       if (!chatView) return;
       const bubbles = chatView.querySelectorAll('.message-row:not(.system-msg) .bubble:not(.audio-bubble):not(.image-bubble)');
+      const kwLen = keyword.length;
       const matches = [];
       bubbles.forEach(bubble => {
         const text = (bubble.textContent || '').toLowerCase();
-        if (text.includes(keyword)) {
-          // Highlight occurrences in this bubble
-          const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
-          const textNodes = [];
-          while (walker.nextNode()) textNodes.push(walker.currentNode);
-          textNodes.forEach(node => {
-            const idx = node.textContent.toLowerCase().indexOf(keyword);
-            if (idx === -1) return;
-            const range = document.createRange();
-            range.setStart(node, idx);
-            range.setEnd(node, idx + keyword.length);
-            const mark = createEl('span', 'search-highlight');
-            range.surroundContents(mark);
-            matches.push(mark);
-          });
+        if (!text.includes(keyword)) return;
+        // Highlight occurrences in this bubble
+        const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        for (let ti = 0; ti < textNodes.length; ti++) {
+          const node = textNodes[ti];
+          const idx = node.textContent.toLowerCase().indexOf(keyword);
+          if (idx === -1) continue;
+          const range = document.createRange();
+          range.setStart(node, idx);
+          range.setEnd(node, idx + kwLen);
+          const mark = createEl('span', 'search-highlight');
+          range.surroundContents(mark);
+          matches.push(mark);
         }
       });
       state._chatSearchResults = matches;
       state._chatSearchIdx = matches.length > 0 ? 0 : -1;
-      if ($("chatSearchCount")) $("chatSearchCount").textContent = matches.length > 0 ? `1/${matches.length}` : '0';
+      if (countEl) countEl.textContent = matches.length > 0 ? `1/${matches.length}` : '0';
       if (matches.length > 0) {
         matches[0].classList.add('search-active');
         matches[0].scrollIntoView({ behavior: 'smooth', block: 'center' });

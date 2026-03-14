@@ -40,7 +40,11 @@ function deleteConversationMessage({ conversationId, messageId, authUser, index,
   const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
   if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
-  if (!msg.deletedBy.includes(authUser.id)) msg.deletedBy.push(authUser.id);
+  if (!msg.deletedBy.includes(authUser.id)) {
+    msg.deletedBy.push(authUser.id);
+    if (!msg._deletedBySet) msg._deletedBySet = new Set(msg.deletedBy);
+    else msg._deletedBySet.add(authUser.id);
+  }
   schedulePersist(persistEvent, { conversationId, messageId: msg.id, userId: authUser.id });
   broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
   return { ok: true, status: 200, payload: { ok: true } };
@@ -100,7 +104,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
 
   if (action === 'mute') {
     const uid = authUser.id;
-    const muted = !(conv._mutedBySet ? conv._mutedBySet.has(uid) : conv.mutedBy.indexOf(uid) !== -1);
+    const muted = !conv._mutedBySet.has(uid);
     if (muted) {
       conv.mutedBy.push(uid);
       if (conv._mutedBySet) conv._mutedBySet.add(uid);
@@ -116,7 +120,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
 
   if (action === 'pin') {
     const uid = authUser.id;
-    const pinned = !(conv._pinnedBySet ? conv._pinnedBySet.has(uid) : conv.pinnedBy.indexOf(uid) !== -1);
+    const pinned = !conv._pinnedBySet.has(uid);
     if (pinned) {
       conv.pinnedBy.push(uid);
       if (conv._pinnedBySet) conv._pinnedBySet.add(uid);
@@ -142,7 +146,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   if (action === 'signal') {
     const targetUserId = body.targetUserId;
     if (!targetUserId) return { ok: false, status: 400, error: 'target_user_required' };
-    const isMember = conv._memberSet ? conv._memberSet.has(targetUserId) : conv.members.includes(targetUserId);
+    const isMember = conv._memberSet.has(targetUserId);
     if (!isMember) return { ok: false, status: 403, error: 'forbidden' };
     if (body.signal?.type === 'typing') {
       broadcastToUser(targetUserId, 'typing_indicator', { conversationId, senderId: authUser.id });
@@ -166,7 +170,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
     const targetUserId = body.targetUserId;
     if (!targetUserId) return { ok: false, status: 400, error: 'target_user_required' };
     if (!body.callId) return { ok: false, status: 400, error: 'call_id_required' };
-    if (!(conv._memberSet ? conv._memberSet.has(targetUserId) : conv.members.includes(targetUserId))) return { ok: false, status: 403, error: 'forbidden' };
+    if (!conv._memberSet.has(targetUserId)) return { ok: false, status: 403, error: 'forbidden' };
     const text = buildCallHistoryText(body);
     if (text) {
       const msg = {

@@ -14,6 +14,7 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
   let scanned = 0;
   // Cache peer info per conversation to avoid repeated Map lookups
   const peerCache = new Map();
+  const kwLower = keyword.toLowerCase();
   outer:
   for (let c = 0; c < userConvs.length; c++) {
     const conv = userConvs[c];
@@ -34,7 +35,7 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
       const msg = msgs[i];
       if (msg.type !== 'text' || !msg.text) continue;
       if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
-      if (msg.text.toLowerCase().includes(keyword)) {
+      if ((msg._lcText || (msg._lcText = msg.text.toLowerCase())).includes(kwLower)) {
         results.push({
           messageId: msg.id, conversationId: conv.id, senderId: msg.senderId,
           text: msg.text, createdAt: msg.createdAt,
@@ -58,11 +59,12 @@ function searchMessagesInConversation({ conv, keyword, limit, offset, authUserId
   const msgs = index.messagesByConv.get(conv.id) || [];
   const results = [];
   let total = 0;
+  const kwLower = keyword.toLowerCase();
   for (let i = msgs.length - 1; i >= 0; i--) {
     const msg = msgs[i];
     if (msg.type !== 'text' || !msg.text) continue;
     if (!isMessageVisibleToUser(msg, conv, authUserId)) continue;
-    if (msg.text.toLowerCase().includes(keyword)) {
+    if ((msg._lcText || (msg._lcText = msg.text.toLowerCase())).includes(kwLower)) {
       if (total >= offset && results.length < limit) {
         results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
       }

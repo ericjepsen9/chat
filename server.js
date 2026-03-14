@@ -82,6 +82,7 @@ const BODY_LIMIT = 2 * 1024 * 1024;
 const UPLOAD_LIMIT = 8 * 1024 * 1024;
 const UPLOAD_ROOT = path.join(ROOT, 'uploads');
 const SSE_HEARTBEAT_MS = 15 * 1000;
+const SSE_PING = ':ping\n\n';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
@@ -233,7 +234,7 @@ function _ensureSseHeartbeat() {
   _sseHeartbeatTimer = setInterval(() => {
     for (const conns of sseClientsByUser.values()) {
       for (const res of conns) {
-        try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
+        try { if (!res.destroyed && !res.writableEnded) res.write(SSE_PING); } catch (_) {}
       }
     }
   }, SSE_HEARTBEAT_MS);
@@ -456,6 +457,7 @@ function fileExtFromType(contentType, originalName = '') {
 function isMessageVisibleToUser(msg, conv, userId) {
   const clearedAt = conv.clearedAt?.[userId] || 0;
   if (msg.createdAt <= clearedAt) return false;
+  if (msg._deletedBySet) return !msg._deletedBySet.has(userId);
   const deletedBy = msg.deletedBy;
   return !deletedBy || !deletedBy.length || !deletedBy.includes(userId);
 }
@@ -486,6 +488,7 @@ function invalidateConvMeta(convId) {
   _convMetaVersion.set(convId, (_convMetaVersion.get(convId) || 0) + 1);
 }
 
+const _previewByType = { image: '[图片]', audio: '[语音]', order_card: '[订单]', broadcast_card: '[系统消息]' };
 function buildConversationMeta(conv, userId) {
   const ver = _convMetaVersion.get(conv.id) || 0;
   const lastRead = conv.lastRead?.[userId] || 0;
@@ -503,15 +506,11 @@ function buildConversationMeta(conv, userId) {
     if (!isMessageVisibleToUser(msg, conv, userId)) continue;
     if (!foundPreview) {
       lastMessageAt = msg.createdAt || 0;
-      if (msg.type === 'image') preview = '[图片]';
-      else if (msg.type === 'audio') preview = '[语音]';
-      else if (msg.type === 'order_card') preview = '[订单]';
-      else if (msg.type === 'broadcast_card') preview = '[系统消息]';
+      const quick = _previewByType[msg.type];
+      if (quick) preview = quick;
       else if (msg.type === 'card') {
         const cardType = String(msg.card?.cardType || '').trim();
-        if (cardType === '名片') preview = '[名片]';
-        else if (cardType === '收款码') preview = '[收款码]';
-        else preview = '[商品卡片]';
+        preview = cardType === '名片' ? '[名片]' : cardType === '收款码' ? '[收款码]' : '[商品卡片]';
       } else preview = msg.text || '[消息]';
       foundPreview = true;
     }
@@ -580,10 +579,10 @@ function consumeUserBySseSessionToken(token) {
 
 // Wrap cleanupAuthState to pass server-local maps; also prune reverse session index
 function runCleanupAuthState() {
-  const beforeTokens = new Set(sessions.keys());
+  const sizeBefore = sessions.size;
   cleanupAuthState({ sessions, sseSessionTokens });
-  // Prune sessionsByUserId for tokens removed by cleanup
-  if (sessions.size < beforeTokens.size) {
+  // Prune sessionsByUserId only if tokens were actually removed
+  if (sessions.size < sizeBefore) {
     for (const [userId, tokens] of sessionsByUserId.entries()) {
       for (const token of tokens) {
         if (!sessions.has(token)) tokens.delete(token);

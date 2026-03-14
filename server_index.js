@@ -238,6 +238,7 @@ function rebuildIndexes() {
   }
   for (const msg of db.messages) {
     if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
+    if (msg.deletedBy.length) msg._deletedBySet = new Set(msg.deletedBy);
     addToMapArray(index.messagesByConv, msg.conversationId, msg);
     index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
@@ -343,6 +344,7 @@ function rebuildMessageIndexes() {
   index.messagesById.clear();
   for (const msg of db.messages) {
     if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
+    if (msg.deletedBy.length) msg._deletedBySet = new Set(msg.deletedBy);
     addToMapArray(index.messagesByConv, msg.conversationId, msg);
     index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
