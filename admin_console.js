@@ -4,7 +4,8 @@ const SESSION_KEY = 'chattrade_api_session_user';
 const ADMIN_SESSION_KEY = 'chattrade_admin_session';
 
 /* ── Helpers ── */
-function esc(v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const _adminEscMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'};
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"]/g, t => _adminEscMap[t]); }
 function money(v) { return '¥' + (Number(v) || 0).toFixed(2); }
 function fmtDate(ts) { if (!ts) return '-'; const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
 function fmtDateShort(ts) { if (!ts) return '-'; const d = new Date(ts); return String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }

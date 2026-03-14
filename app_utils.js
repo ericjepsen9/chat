@@ -28,18 +28,26 @@ function writeSession(user, token, csrfToken) {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, csrfToken: nextCsrf, savedAt: Date.now(), loginAt }));
   state.sessionToken = nextToken;
   state.csrfToken = nextCsrf;
+  _sessionLoginAt = loginAt;
   startSessionExpiryCheck();
 }
 // Session expiry: auto-logout after 7 days or on 401
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 let _sessionExpiryTimer = null;
+let _sessionLoginAt = 0;
 function checkSessionExpiry() {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) { stopSessionExpiryCheck(); return; }
-    const parsed = JSON.parse(raw);
-    if (parsed && (parsed.loginAt || parsed.savedAt) && (Date.now() - (parsed.loginAt || parsed.savedAt) > SESSION_MAX_AGE_MS)) {
+    if (!state.sessionToken) { stopSessionExpiryCheck(); return; }
+    // Read loginAt from localStorage only once, then cache it
+    if (!_sessionLoginAt) {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) { stopSessionExpiryCheck(); return; }
+      const parsed = JSON.parse(raw);
+      _sessionLoginAt = (parsed && (parsed.loginAt || parsed.savedAt)) || 0;
+    }
+    if (_sessionLoginAt && (Date.now() - _sessionLoginAt > SESSION_MAX_AGE_MS)) {
       localStorage.removeItem(SESSION_KEY);
+      _sessionLoginAt = 0;
       stopSessionExpiryCheck();
       showToast('登录已过期，请重新登录');
       setTimeout(() => location.reload(), 1500);
@@ -93,7 +101,8 @@ async function api(p, o={}) {
     if(!r.ok) throw new Error(d.error || `http_${r.status}`);
     return d;
 }
-function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[t])); }
+const _escMap = {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'};
+function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>_escMap[t]); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
 // Safe DOM setters — avoid repeated null-check + property-set patterns
 function setText(id, val) { const el = $(id); if (el) el.textContent = val; }
@@ -350,20 +359,28 @@ function canvasToBlob(canvas, type = 'image/jpeg', quality = 0.7) {
   });
 }
 async function resizeImageFile(file, max = 1080, quality = 0.7) {
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('file_read_failed'));
-    reader.readAsDataURL(file);
-  });
-  const img = await new Promise((resolve, reject) => {
-    const instance = new Image();
-    instance.onload = () => resolve(instance);
-    instance.onerror = () => reject(new Error('image_load_failed'));
-    instance.src = dataUrl;
-  });
-  let w = img.width;
-  let h = img.height;
+  let img, w, h;
+  if (typeof createImageBitmap === 'function') {
+    // Fast path: decode directly from blob, no base64 DataURL round-trip
+    img = await createImageBitmap(file);
+    w = img.width;
+    h = img.height;
+  } else {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('file_read_failed'));
+      reader.readAsDataURL(file);
+    });
+    img = await new Promise((resolve, reject) => {
+      const instance = new Image();
+      instance.onload = () => resolve(instance);
+      instance.onerror = () => reject(new Error('image_load_failed'));
+      instance.src = dataUrl;
+    });
+    w = img.width;
+    h = img.height;
+  }
   if (w > max || h > max) {
     if (w > h) {
       h = Math.round(h * max / w);
@@ -377,6 +394,7 @@ async function resizeImageFile(file, max = 1080, quality = 0.7) {
   canvas.width = w;
   canvas.height = h;
   canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+  if (img.close) img.close(); // Release ImageBitmap memory
   return canvasToBlob(canvas, 'image/jpeg', quality);
 }
 async function uploadBinary(blob, fileName, contentType) {

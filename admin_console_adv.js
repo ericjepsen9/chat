@@ -58,8 +58,13 @@ async function updateNavBadges() {
   } catch (_) {}
 }
 
+const _badgeNavCache = {};
 function setBadge(tab, count) {
-  const navItem = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+  let navItem = _badgeNavCache[tab];
+  if (!navItem) {
+    navItem = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+    if (navItem) _badgeNavCache[tab] = navItem;
+  }
   if (!navItem) return;
   let badge = navItem.querySelector('.nav-badge');
   if (!count) { if (badge) badge.remove(); return; }
@@ -95,16 +100,20 @@ function renderMsgSearchResults() {
   const el = $('msgSearchResults');
   if (!el) return;
   if (!s.items.length) { el.innerHTML = '<div class="empty">无匹配消息</div>'; return; }
-  el.innerHTML = s.items.map(m => `
+  // Precompile highlight regex once per render pass instead of per row
+  const qEsc = esc(s.q);
+  const hlRe = new RegExp(`(${qEsc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  let html = s.items.map(m => `
     <div class="row-card">
       <div class="row-title">${esc(m.senderName)} <span class="badge badge-gray">${esc(m.type)}</span> <span class="user-cell-sub">${fmtDate(m.createdAt)}</span></div>
-      <div class="row-sub" style="word-break:break-all">${highlightText(m.text, s.q)}</div>
+      <div class="row-sub" style="word-break:break-all">${esc(m.text).replace(hlRe, '<mark style="background:#fef08a;padding:0 2px;border-radius:2px">$1</mark>')}</div>
       <div class="user-cell-sub" style="margin-top:4px">会话: ${esc(m.conversationName)}</div>
     </div>
   `).join('');
   if (s.total > PAGE_SIZE) {
-    el.innerHTML += `<div class="pager" style="margin-top:8px"><span>共 ${s.total} 条</span></div>`;
+    html += `<div class="pager" style="margin-top:8px"><span>共 ${s.total} 条</span></div>`;
   }
+  el.innerHTML = html;
 }
 
 function highlightText(text, q) {
@@ -246,7 +255,7 @@ window._initExtBindings = function() {
   // Message search binding
   bindSearch('msgSearchInput', 'msgSearch', loadMessageSearch);
 
-  // Load nav badges on init and periodically
+  // Load nav badges on init and periodically (skip when tab is hidden)
   updateNavBadges();
-  setInterval(updateNavBadges, 60000);
+  setInterval(() => { if (!document.hidden) updateNavBadges(); }, 60000);
 };

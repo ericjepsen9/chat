@@ -6,6 +6,8 @@ const _dp = {
   cols: { year: null, month: null, day: null, hour: null, minute: null },
   ranges: { year: [], month: [], day: [], hour: [], minute: [] },
   selected: { year: 0, month: 0, day: 0, hour: 0, minute: 0 },
+  // Cached non-pad item nodes per column (avoids querySelectorAll on each scroll)
+  itemNodes: { year: [], month: [], day: [], hour: [], minute: [] },
 };
 
 function dpInit() {
@@ -17,15 +19,16 @@ function dpInit() {
   _dp.cols.minute = $('dpColMinute');
 }
 
-function dpBuildItems(col, items, selectedVal) {
+function dpBuildItems(col, items, selectedVal, key) {
   if (!col) return;
   const ITEM_H = 44;
   const padCount = 2; // blank items top/bottom for centering
-  col.textContent = '';
+  const frag = document.createDocumentFragment();
+  const nodeCache = [];
   for (let i = 0; i < padCount; i++) {
     const pad = document.createElement('div');
     pad.className = 'dp-item dp-pad';
-    col.appendChild(pad);
+    frag.appendChild(pad);
   }
   items.forEach((item) => {
     const el = document.createElement('div');
@@ -33,13 +36,17 @@ function dpBuildItems(col, items, selectedVal) {
     el.textContent = item.label;
     el.dataset.value = item.value;
     if (item.value === selectedVal) el.classList.add('selected');
-    col.appendChild(el);
+    frag.appendChild(el);
+    nodeCache.push(el);
   });
   for (let i = 0; i < padCount; i++) {
     const pad = document.createElement('div');
     pad.className = 'dp-item dp-pad';
-    col.appendChild(pad);
+    frag.appendChild(pad);
   }
+  col.textContent = '';
+  col.appendChild(frag);
+  if (key) _dp.itemNodes[key] = nodeCache;
   // Scroll to selected
   const idx = items.findIndex(i => i.value === selectedVal);
   if (idx >= 0) col.scrollTop = idx * ITEM_H;
@@ -51,9 +58,9 @@ function dpGetSelectedIndex(col) {
   return Math.round(scrollTop / ITEM_H);
 }
 
-function dpHighlight(col, items) {
+function dpHighlight(col, items, key) {
   const idx = dpGetSelectedIndex(col);
-  const allItems = col.querySelectorAll('.dp-item:not(.dp-pad)');
+  const allItems = key ? (_dp.itemNodes[key] || []) : Array.from(col.querySelectorAll('.dp-item:not(.dp-pad)'));
   allItems.forEach((el, i) => {
     el.classList.toggle('selected', i === idx);
   });
@@ -72,7 +79,7 @@ function dpRebuildDays() {
   for (let d = 1; d <= maxD; d++) days.push({ value: d, label: d + '日' });
   _dp.ranges.day = days;
   if (_dp.selected.day > maxD) _dp.selected.day = maxD;
-  dpBuildItems(_dp.cols.day, days, _dp.selected.day);
+  dpBuildItems(_dp.cols.day, days, _dp.selected.day, 'day');
 }
 
 // Store scroll handler references for cleanup
@@ -87,7 +94,7 @@ function dpSetupScroll(col, key, items, onChange) {
   const handler = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
-      const val = dpHighlight(col, items());
+      const val = dpHighlight(col, items(), key);
       if (val !== undefined) {
         _dp.selected[key] = val;
         if (onChange) onChange();
@@ -134,20 +141,19 @@ function openDatePicker(role, which, currentVal) {
   _dp.selected.minute = Math.round(_dp.selected.minute / 5) * 5;
   if (_dp.selected.minute >= 60) { _dp.selected.minute = 0; _dp.selected.hour = (_dp.selected.hour + 1) % 24; }
 
-  dpBuildItems(_dp.cols.year, years, _dp.selected.year);
-  dpBuildItems(_dp.cols.month, months, _dp.selected.month);
+  dpBuildItems(_dp.cols.year, years, _dp.selected.year, 'year');
+  dpBuildItems(_dp.cols.month, months, _dp.selected.month, 'month');
   dpRebuildDays();
-  dpBuildItems(_dp.cols.hour, hours, _dp.selected.hour);
-  dpBuildItems(_dp.cols.minute, minutes, _dp.selected.minute);
+  dpBuildItems(_dp.cols.hour, hours, _dp.selected.hour, 'hour');
+  dpBuildItems(_dp.cols.minute, minutes, _dp.selected.minute, 'minute');
 
   // Re-attach scroll listeners (reuse elements, no cloning)
+  // Note: dpBuildItems already sets scrollTop, so no need to set it again here
   ['year', 'month', 'day', 'hour', 'minute'].forEach(key => {
     const col = _dp.cols[key];
     const getItems = () => _dp.ranges[key];
     const onChange = (key === 'year' || key === 'month') ? dpRebuildDays : null;
     dpSetupScroll(col, key, getItems, onChange);
-    const idx = _dp.ranges[key].findIndex(i => i.value === _dp.selected[key]);
-    if (idx >= 0) col.scrollTop = idx * 44;
   });
 
   _dp.overlay.classList.remove('hidden');

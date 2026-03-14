@@ -79,11 +79,15 @@ function renderFriendRequestsTable() {
   renderPager('friendRequestsPager', s.total, s.offset, off => { s.offset = off; loadFriendRequests(); });
 }
 
-window.adminDeleteFriendReq = async function(reqId) {
-  if (!confirm('确定要删除此好友请求吗？')) return;
+window.adminDeleteFriendReq = function(reqId) {
+  const body = '<p>确定要删除此好友请求吗？</p>';
+  const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" style="background:#dc2626" onclick="doDeleteFriendReq('${esc(reqId)}')">确认删除</button>`;
+  openModal('删除好友请求', body, footer);
+};
+window.doDeleteFriendReq = async function(reqId) {
   try {
     await api(`/api/admin/friend-requests/${reqId}/delete`, { method: 'POST', body: '{}' });
-    toast('请求已删除'); loadFriendRequests();
+    closeModal(); toast('请求已删除'); loadFriendRequests();
   } catch (e) { toast('删除失败: ' + e.message); }
 };
 
@@ -120,11 +124,15 @@ function renderSessionsTable() {
   renderPager('sessionsPager', s.total, s.offset, off => { s.offset = off; loadSessions(); });
 }
 
-window.adminRevokeSession = async function(userId, name) {
-  if (!confirm(`确定要强制下线用户「${name}」的所有会话吗？`)) return;
+window.adminRevokeSession = function(userId, name) {
+  const body = `<p>确定要强制下线用户「${esc(name)}」的所有会话吗？</p>`;
+  const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" style="background:#dc2626" onclick="doRevokeSession('${esc(userId)}')">确认下线</button>`;
+  openModal('强制下线', body, footer);
+};
+window.doRevokeSession = async function(userId) {
   try {
     await api(`/api/admin/sessions/${userId}/revoke`, { method: 'POST', body: '{}' });
-    toast('已强制下线'); loadSessions();
+    closeModal(); toast('已强制下线'); loadSessions();
   } catch (e) { toast('操作失败: ' + e.message); }
 };
 
@@ -250,11 +258,15 @@ window.doDeleteOrder = async function(orderId) {
 /* ═══════════════════════════════════════
    BLACKLIST REMOVE (from user detail)
    ═══════════════════════════════════════ */
-window.adminRemoveBlacklist = async function(userId, targetId, targetName) {
-  if (!confirm(`确定要将「${targetName}」从黑名单中移除吗？`)) return;
+window.adminRemoveBlacklist = function(userId, targetId, targetName) {
+  const body = `<p>确定要将「${esc(targetName)}」从黑名单中移除吗？</p>`;
+  const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" onclick="doRemoveBlacklist('${esc(userId)}','${esc(targetId)}')">确认移除</button>`;
+  openModal('移除黑名单', body, footer);
+};
+window.doRemoveBlacklist = async function(userId, targetId) {
   try {
     await api(`/api/admin/users/${userId}/blacklist/remove`, { method: 'POST', body: JSON.stringify({ targetId }) });
-    toast('已从黑名单移除');
+    closeModal(); toast('已从黑名单移除');
     viewUser(userId); // refresh modal
   } catch (e) { toast('操作失败: ' + e.message); }
 };

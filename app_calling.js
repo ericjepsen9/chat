@@ -1,6 +1,23 @@
 /* app_calling.js — WebRTC calling & native bridge extracted from app.js */
 
 let callTimer = null; let callStartTime = 0; let outgoingTimeoutTimer = null; let incomingTimeoutTimer = null; let connectTimeoutTimer = null; let lastCallAttemptAt = 0;
+// Cached call-panel DOM elements (populated lazily, cleared on stopCall)
+let _callEls = null;
+function _getCallEls() {
+  if (_callEls) return _callEls;
+  _callEls = {
+    callDuration: $("callDuration"), callTitle: $("callTitle"), callName: $("callName"),
+    callAvatar: $("callAvatar"), callPanel: $("callPanel"), callInfo: $("callInfo"),
+    videoContainer: $("videoContainer"), callControls: $("callControls"),
+    acceptCallBtn: $("acceptCallBtn"), rejectCallBtn: $("rejectCallBtn"),
+    hangupBtn: $("hangupBtn"), toggleCameraBtn: $("toggleCameraBtn"),
+    toggleMuteBtn: $("toggleMuteBtn"), muteText: $("muteText"),
+    cameraText: $("cameraText"), localVideo: $("localVideo"),
+    remoteVideo: $("remoteVideo"), chatSubtitle: $("chatSubtitle"),
+  };
+  return _callEls;
+}
+function _clearCallEls() { _callEls = null; }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && callTimer && !hasActiveCallSession()) {
     clearInterval(callTimer); callTimer = null;
@@ -10,7 +27,7 @@ document.addEventListener('visibilitychange', () => {
     callTimer = setInterval(updateCallDuration, 1000);
   }
 });
-function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); if($("callDuration")) $("callDuration").textContent = `${m}:${s}`; }
+function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); const el = _getCallEls().callDuration; if(el) el.textContent = `${m}:${s}`; }
 function scheduleConnectTimeout(){
   clearTimeout(connectTimeoutTimer);
   connectTimeoutTimer = setTimeout(() => {
@@ -119,34 +136,32 @@ async function flushQueuedRemoteCandidates() {
   }
 }
 function updateCallUIInfo(peerId, mode, statusText) {
-  if($("callTitle")) $("callTitle").textContent = statusText;
+  const els = _getCallEls();
+  if(els.callTitle) els.callTitle.textContent = statusText;
   const meta = resolveCallPeerMeta(peerId, peerId);
-  if($("callName")) $("callName").textContent = meta.name || peerId || '';
-  setAvatarContainer($("callAvatar"), {avatarUrl: meta.avatarUrl, displayName: meta.name}, meta.name || peerId || '');
-  if($("toggleCameraBtn")) mode === 'video' ? $("toggleCameraBtn").classList.remove('hidden') : $("toggleCameraBtn").classList.add('hidden');
+  if(els.callName) els.callName.textContent = meta.name || peerId || '';
+  setAvatarContainer(els.callAvatar, {avatarUrl: meta.avatarUrl, displayName: meta.name}, meta.name || peerId || '');
+  if(els.toggleCameraBtn) els.toggleCameraBtn.classList.toggle('hidden', mode !== 'video');
 }
 window.setCallActionLayout = (layout) => {
-  if($("acceptCallBtn")) $("acceptCallBtn").classList.toggle('hidden', layout !== 'incoming');
-  if($("rejectCallBtn")) $("rejectCallBtn").classList.toggle('hidden', layout !== 'incoming');
-  if($("hangupBtn")) $("hangupBtn").classList.toggle('hidden', layout === 'incoming');
-  if($("callControls")) $("callControls").classList.toggle('hidden', layout !== 'connected');
+  const els = _getCallEls();
+  if(els.acceptCallBtn) els.acceptCallBtn.classList.toggle('hidden', layout !== 'incoming');
+  if(els.rejectCallBtn) els.rejectCallBtn.classList.toggle('hidden', layout !== 'incoming');
+  if(els.hangupBtn) els.hangupBtn.classList.toggle('hidden', layout === 'incoming');
+  if(els.callControls) els.callControls.classList.toggle('hidden', layout !== 'connected');
 
   if (layout === 'connected') {
-      if (state.rtc.mode === 'video') {
-          if($("callInfo")) $("callInfo").classList.add('hidden');
-          if($("videoContainer")) $("videoContainer").classList.remove('hidden');
-      } else {
-          if($("callInfo")) $("callInfo").classList.remove('hidden');
-          if($("videoContainer")) $("videoContainer").classList.add('hidden');
-      }
+      const isVideo = state.rtc.mode === 'video';
+      if(els.callInfo) els.callInfo.classList.toggle('hidden', isVideo);
+      if(els.videoContainer) els.videoContainer.classList.toggle('hidden', !isVideo);
       callStartTime = Date.now();
-      if($("callDuration")) $("callDuration").classList.remove('hidden');
+      if(els.callDuration) els.callDuration.classList.remove('hidden');
       if(callTimer) clearInterval(callTimer);
       callTimer = setInterval(updateCallDuration, 1000);
   } else {
-      if($("callInfo")) $("callInfo").classList.remove('hidden');
-      if($("videoContainer")) $("videoContainer").classList.add('hidden');
-      if($("callDuration")) $("callDuration").classList.add('hidden');
+      if(els.callInfo) els.callInfo.classList.remove('hidden');
+      if(els.videoContainer) els.videoContainer.classList.add('hidden');
+      if(els.callDuration) els.callDuration.classList.add('hidden');
   }
 };
 
@@ -165,7 +180,8 @@ function isSameIncomingCall(payload) {
 function markCallConnecting(peerId, mode, statusText = '建立连接中...') {
   setRtcPhase('connecting');
   updateCallUIInfo(peerId, mode, statusText);
-  if ($('callPanel')) $('callPanel').classList.remove('hidden');
+  const els = _getCallEls();
+  if (els.callPanel) els.callPanel.classList.remove('hidden');
   setCallActionLayout('outgoing');
 }
 function setRtcPhase(phase) {
@@ -194,7 +210,8 @@ function syncCallConversationState(conversationId, peerId, fallbackName = '') {
     if (state.activeConversation && state.activeConversation.id === conversationId) {
       state.activeConversation.title = conv?.title || meta.name || state.activeConversation.title || '';
       state.activeConversation.peerAvatarUrl = conv?.peerAvatarUrl || meta.avatarUrl || state.activeConversation.peerAvatarUrl || '';
-      if ($("chatTitle")) $("chatTitle").textContent = state.activeConversation.title || '会话';
+      const chatTitleEl = $("chatTitle");
+      if (chatTitleEl) chatTitleEl.textContent = state.activeConversation.title || '会话';
     }
   } catch(_) {}
 }
@@ -282,14 +299,17 @@ window.stopCall = () => {
     state.rtc.pc.close();
   }
   if (state.rtc.localStream) state.rtc.localStream.getTracks().forEach(t => t.stop()); if (state.rtc.remoteStream) state.rtc.remoteStream.getTracks().forEach(t => t.stop());
+  const convId = state.activeConversation?.id || state.rtc?.conversationId || null;
   state.rtc = { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: endedCallId, incomingShownKey: null, localStream: null, remoteStream: null, remoteCandidateQueue: [], _accepting: false, _starting: false };
-  if($("localVideo")) $("localVideo").srcObject = null; if($("remoteVideo")) $("remoteVideo").srcObject = null; if($("callPanel")) $("callPanel").classList.add('hidden');
+  const els = _getCallEls();
+  if(els.localVideo) els.localVideo.srcObject = null; if(els.remoteVideo) els.remoteVideo.srcObject = null; if(els.callPanel) els.callPanel.classList.add('hidden');
   isMuted = false; isCameraOff = false; isSpeaker = true;
-  if($("toggleMuteBtn")) { $("toggleMuteBtn").classList.add('active'); $("toggleMuteBtn").style.color = '#fff'; } if($("muteText")) $("muteText").textContent = "静音";
-  if($("toggleCameraBtn")) { $("toggleCameraBtn").classList.add('active'); $("toggleCameraBtn").style.color = '#fff'; } if($("cameraText")) $("cameraText").textContent = "镜头";
+  if(els.toggleMuteBtn) { els.toggleMuteBtn.classList.add('active'); els.toggleMuteBtn.style.color = '#fff'; } if(els.muteText) els.muteText.textContent = "静音";
+  if(els.toggleCameraBtn) { els.toggleCameraBtn.classList.add('active'); els.toggleCameraBtn.style.color = '#fff'; } if(els.cameraText) els.cameraText.textContent = "镜头";
   clearInterval(callTimer); callTimer = null; callStartTime = 0; clearAllCallTimers();
-  if($("callDuration")) { $("callDuration").classList.add('hidden'); $("callDuration").textContent = "00:00"; }
-  refreshAfterCallStateChange(state.activeConversation?.id || state.rtc?.conversationId || null);
+  if(els.callDuration) { els.callDuration.classList.add('hidden'); els.callDuration.textContent = "00:00"; }
+  _clearCallEls(); // Invalidate cache for next call session
+  refreshAfterCallStateChange(convId);
 };
 
 async function createPeerConnection(mode) {
@@ -302,8 +322,9 @@ async function createPeerConnection(mode) {
   }
   const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
   state.rtc.pc = pc; state.rtc.mode = mode; state.rtc.remoteStream = new MediaStream(); state.rtc.remoteCandidateQueue = []; state.rtc.localStream = stream;
-  if($("remoteVideo")) $("remoteVideo").srcObject = state.rtc.remoteStream;
-  if($("localVideo")) $("localVideo").srcObject = stream;
+  const _pcEls = _getCallEls();
+  if(_pcEls.remoteVideo) _pcEls.remoteVideo.srcObject = state.rtc.remoteStream;
+  if(_pcEls.localVideo) _pcEls.localVideo.srcObject = stream;
   stream.getTracks().forEach((track) => pc.addTrack(track, stream));
   pc.onicecandidate = async (e) => {
     if (e.candidate && state.rtc.peerId && state.rtc.conversationId) {
@@ -316,7 +337,7 @@ async function createPeerConnection(mode) {
       clearTimeout(connectTimeoutTimer); connectTimeoutTimer = null;
       setRtcPhase('connected');
       updateCallUIInfo(state.rtc.peerId, state.rtc.mode, '通话中');
-      if($("chatSubtitle")) $("chatSubtitle").textContent = state.rtc.mode === 'video' ? '视频通话中' : '语音通话中';
+      if(_getCallEls().chatSubtitle) _getCallEls().chatSubtitle.textContent = state.rtc.mode === 'video' ? '视频通话中' : '语音通话中';
       setCallActionLayout('connected');
     }
   };
@@ -374,8 +395,9 @@ window.startCall = async (mode) => {
     const peerMeta = resolveCallPeerMeta(peerId, state.activeConversation?.title || peerId);
     syncCallConversationState(state.rtc.conversationId, peerId, peerMeta.name || peerId);
     updateCallUIInfo(peerId, mode, "等待对方接听...");
-    if($("callName")) $("callName").textContent = peerMeta.name; if($("callPanel")) $("callPanel").classList.remove('hidden'); setCallActionLayout('outgoing');
-    if($("chatSubtitle")) $("chatSubtitle").textContent = mode === 'video' ? '视频通话邀请中…' : '语音通话邀请中…';
+    const _startEls = _getCallEls();
+    if(_startEls.callName) _startEls.callName.textContent = peerMeta.name; if(_startEls.callPanel) _startEls.callPanel.classList.remove('hidden'); setCallActionLayout('outgoing');
+    if(_startEls.chatSubtitle) _startEls.chatSubtitle.textContent = mode === 'video' ? '视频通话邀请中…' : '语音通话邀请中…';
     api(`/api/conversations/${state.rtc.conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: peerId, event: 'start', mode, callId, senderName: state.currentUser.displayName }) }).catch(() => {});
     enqueueSignal(state.rtc.conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: peerId, mode, callId, signal: { type: 'offer', sdp: offer } });
     outgoingTimeoutTimer = setTimeout(() => { finalizeCall({ alertText: "对方无应答", event: 'cancel', reason: 'timeout' }); }, 30000);
@@ -454,8 +476,8 @@ window.__onNativeCallAction = (action, callerId, callerName, conversationId, cal
     // blocking on network; messages will load lazily in the background.
     window.openConversation(conversationId, { skipFetch: true }).then(() => {
       // If the pendingOffer already arrived via SSE, auto-click accept now
-      if (state.rtc.pendingOffer && state.rtc.pendingAccept && $("acceptCallBtn")) {
-        $("acceptCallBtn").click();
+      if (state.rtc.pendingOffer && state.rtc.pendingAccept && _getCallEls().acceptCallBtn) {
+        _getCallEls().acceptCallBtn.click();
       }
     }).catch(() => {});
   } else if (action === 'reject_call') {
