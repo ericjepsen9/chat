@@ -1030,7 +1030,163 @@ if __name__ == "__main__":
     asyncio.run(server.run())
 ```
 
-### 4.3 模块三：异常处理与自动恢复
+### 4.3 模块三：弹窗检测与自动关闭
+
+接单操作后，可能出现以下弹窗需要自动处理：
+
+| 弹窗类型 | 标题文本 | 含义 | 处理方式 |
+|---|---|---|---|
+| **抢单失败** | 「無法預約此行程」 | 订单已被其他司机接走或乘客取消 | 点击「確定」关闭 → 回到等待 |
+| **网络错误** | 「連線錯誤」或类似 | 网络异常 | 点击关闭 → 等待重试 |
+| **系统更新** | 「更新」或类似 | App 需要更新 | 点击「稍後」→ 发 Telegram 告警 |
+
+**检测方案**：每次执行接单点击后，等待 2-3 秒，截图检查是否出现弹窗。
+
+```python
+import subprocess
+import re
+
+class DialogHandler:
+    """
+    弹窗检测与自动关闭
+
+    流程：
+    1. 接单点击后等待 2-3 秒
+    2. 通过 uiautomator dump 获取当前 UI 层级
+    3. 检测是否存在已知弹窗
+    4. 如果有，用 sendevent 点击对应按钮关闭
+    """
+
+    # 已知弹窗模式：(标题关键词, 按钮文本, 处理后动作)
+    KNOWN_DIALOGS = [
+        {
+            "keywords": ["無法預約此行程", "无法预约此行程", "Unable to reserve"],
+            "button_text": ["確定", "确定", "OK"],
+            "action": "dismiss",       # 关闭后继续等待下一单
+            "alert": False,            # 不需要告警，正常现象
+        },
+        {
+            "keywords": ["連線錯誤", "连线错误", "Connection error", "網路錯誤"],
+            "button_text": ["確定", "确定", "OK", "重試", "Retry"],
+            "action": "dismiss",
+            "alert": True,             # 告警：可能网络有问题
+        },
+        {
+            "keywords": ["更新", "Update"],
+            "button_text": ["稍後", "稍后", "Later", "不是現在", "Not now"],
+            "action": "dismiss",
+            "alert": True,             # 告警：需要手动处理更新
+        },
+    ]
+
+    def __init__(self, touch_simulator, alerter=None):
+        self.touch = touch_simulator   # sendevent 触控仿真器
+        self.alerter = alerter         # Telegram 告警
+
+    def dump_ui(self) -> str:
+        """通过 uiautomator dump 获取当前 UI 层级 XML"""
+        subprocess.run(
+            ["adb", "shell", "uiautomator", "dump", "/sdcard/ui_dump.xml"],
+            capture_output=True, timeout=5
+        )
+        result = subprocess.run(
+            ["adb", "shell", "cat", "/sdcard/ui_dump.xml"],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout
+
+    def detect_dialog(self, ui_xml: str) -> dict | None:
+        """检测 UI 中是否存在已知弹窗"""
+        for dialog in self.KNOWN_DIALOGS:
+            for keyword in dialog["keywords"]:
+                if keyword in ui_xml:
+                    return dialog
+        return None
+
+    def find_button_bounds(self, ui_xml: str, button_texts: list[str]) -> tuple[int, int] | None:
+        """
+        在 UI XML 中查找按钮坐标
+
+        uiautomator dump 格式示例：
+        <node ... text="確定" bounds="[36,2550][684,2700]" .../>
+        """
+        for text in button_texts:
+            # 匹配 text="確定" ... bounds="[x1,y1][x2,y2]"
+            pattern = rf'text="{re.escape(text)}"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
+            match = re.search(pattern, ui_xml)
+            if match:
+                x1, y1, x2, y2 = map(int, match.groups())
+                # 返回按钮中心坐标
+                return ((x1 + x2) // 2, (y1 + y2) // 2)
+        return None
+
+    async def check_and_dismiss(self) -> bool:
+        """
+        检测弹窗并自动关闭
+
+        Returns: True 如果发现并处理了弹窗
+        """
+        try:
+            ui_xml = self.dump_ui()
+            dialog = self.detect_dialog(ui_xml)
+
+            if dialog is None:
+                return False  # 没有弹窗
+
+            logging.info(f"检测到弹窗: {dialog['keywords'][0]}")
+
+            # 查找关闭按钮坐标
+            button_pos = self.find_button_bounds(ui_xml, dialog["button_text"])
+            if button_pos is None:
+                logging.warning("找到弹窗但未定位到按钮，尝试截图告警")
+                if self.alerter:
+                    await self.alerter.send_alert(f"弹窗无法自动关闭: {dialog['keywords'][0]}")
+                return False
+
+            # 随机短延迟后点击按钮（模拟人类阅读弹窗内容）
+            await asyncio.sleep(random.uniform(0.8, 2.0))
+            self.touch.humanized_tap(*button_pos)
+
+            logging.info(f"已关闭弹窗，点击位置: {button_pos}")
+
+            # 需要告警的弹窗类型
+            if dialog["alert"] and self.alerter:
+                await self.alerter.send_alert(f"出现弹窗已自动关闭: {dialog['keywords'][0]}")
+
+            return True
+
+        except Exception as e:
+            logging.error(f"弹窗检测异常: {e}")
+            return False
+```
+
+**集成到主流程**：
+
+```python
+async def accept_order(notification, touch_simulator, dialog_handler):
+    """接单主流程"""
+    # 1. 随机延迟（10 秒内）
+    delay = get_humanized_delay()
+    await asyncio.sleep(delay)
+
+    # 2. 点击接单按钮
+    touch_simulator.humanized_tap(accept_button_x, accept_button_y)
+
+    # 3. 等待 2-3 秒，检查是否出现弹窗
+    await asyncio.sleep(random.uniform(2.0, 3.0))
+    was_dialog = await dialog_handler.check_and_dismiss()
+
+    if was_dialog:
+        logging.info("抢单失败（已被接走），继续等待下一单")
+        # 不做额外处理，系统自动回到轮询等待状态
+    else:
+        logging.info("接单成功！")
+        # 可选：发送 Telegram 通知
+```
+
+> **注意**：`uiautomator dump` 比截图+OCR 更可靠——它直接返回 UI 元素的文本和坐标，无需图像识别。但执行速度稍慢（~1-2 秒），仅在接单点击后使用，不影响通知轮询性能。
+
+### 4.4 模块四：系统健康监控与自动恢复
 
 ```python
 class SystemHealthMonitor:
