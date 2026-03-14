@@ -106,17 +106,19 @@ module.exports = function createAdminRoutes(ctx) {
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const statusFilter = searchParams.get('status') || '';
       const roleFilter = searchParams.get('role') || '';
-      let filtered = db.users;
-      if (statusFilter) filtered = filtered.filter(u => (u.status || 'active') === statusFilter);
-      if (roleFilter) filtered = filtered.filter(u => (u.role || 'user') === roleFilter);
-      if (q) {
-        filtered = filtered.filter(u =>
+      // Single-pass filter: combine status, role, and search into one iteration
+      const needFilter = statusFilter || roleFilter || q;
+      const filtered = needFilter ? db.users.filter(u => {
+        if (statusFilter && (u.status || 'active') !== statusFilter) return false;
+        if (roleFilter && (u.role || 'user') !== roleFilter) return false;
+        if (q && !(
           (u.username || '').toLowerCase().includes(q) ||
           (u.displayName || '').toLowerCase().includes(q) ||
           (u.phone || '').includes(q) ||
           (u.appNumberId || '').toLowerCase().includes(q)
-        );
-      }
+        )) return false;
+        return true;
+      }) : db.users;
       const result = slicePage(filtered, offset, limit);
       result.items = result.items.map(u => ({
         id: u.id, username: u.username, displayName: u.displayName,
@@ -363,11 +365,8 @@ module.exports = function createAdminRoutes(ctx) {
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const typeFilter = searchParams.get('type') || '';
       const rawConvs = db.conversations || [];
-      // Build lightweight index-sorted view: [index, lastMessageAt] sorted desc
-      const sortedIndices = [];
-      for (let ci = 0; ci < rawConvs.length; ci++) sortedIndices.push(ci);
-      sortedIndices.sort((a, b) => (rawConvs[b].lastMessageAt || 0) - (rawConvs[a].lastMessageAt || 0));
-      let convs = sortedIndices.map(i => rawConvs[i]);
+      // Sort copy directly — no index indirection needed
+      let convs = rawConvs.slice().sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
       if (typeFilter) convs = convs.filter(c => c.type === typeFilter);
       if (q) {
         // Pre-build user name cache for conversation member name lookups

@@ -182,6 +182,7 @@ input, textarea { font-size: var(--font-body); }
 .msg-search-time { font-size: var(--font-mini); color: #bbb; white-space: nowrap; margin-left: 8px; }
 .msg-search-count { padding: 12px; text-align: center; font-size: var(--font-caption); color: var(--brand); }
 .search-highlight { background: #b4efc8; padding: 0 1px; border-radius: 2px; }
+.search-highlight.search-active { background: #f5c518; }
 
 /* Group manage inline styles → classes */
 .group-manage-row { justify-content: space-between; gap: 8px; }

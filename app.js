@@ -9,6 +9,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', COMPLETED: 'completed', PROCESSING: 'processing', IN_PROGRESS: 'in_progress' };
 const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
 const DEFAULT_GROUP = '我的好友';
+// Hoisted regex constants — avoid recompilation on every call
+const _RE_CT_ID = /CT\d{5,}/i;
+const _RE_CTID_EXTRACT = /(?:^|chattrade:|ctid:)([A-Za-z0-9_-]{4,})$/i;
 
 // Safe render wrapper — prevents a single render error from crashing the entire page
 function safeRender(fn) {
@@ -1616,7 +1619,7 @@ function extractContactCardUserId(card = {}){
   const desc = String(card.description || '').trim();
   const meta = String(card.meta || '').trim();
   const fromText = [appIdRaw, desc, meta].join(' ');
-  const appMatch = fromText.match(/CT\d{5,}/i);
+  const appMatch = fromText.match(_RE_CT_ID);
   const appId = appMatch ? appMatch[0].toUpperCase() : '';
 
   const srcFriends = state.friends || [];
@@ -1903,6 +1906,9 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
   const node = createEl('article', `message-row ${msg.senderId === state.currentUser?.id ? 'me' : ''}`);
   node.dataset.id = msg.id;
   if (msg.clientMessageId) node.dataset.clientMessageId = msg.clientMessageId;
+  // Register in element cache for O(1) lookups
+  if (msg.id) _msgElCache.set(String(msg.id), node);
+  if (msg.clientMessageId) _msgElCacheByClient.set(String(msg.clientMessageId), node);
   let userObj = state.currentUser; let finalName = '我';
   if (msg.senderId !== state.currentUser?.id) {
     const friend = findFriendEntry(msg.senderId);
@@ -2197,11 +2203,13 @@ function prependMessagesToView(messages, oldFirstMessage = null) {
 function replaceMessageInView(msg) {
   const chatView = $('chatView');
   if (!chatView || !msg) return false;
-  const existing = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(msg.id || ''))}"]`)
-    || (msg.clientMessageId ? chatView.querySelector(`article.message-row[data-client-message-id="${CSS.escape(String(msg.clientMessageId))}"]`) : null);
+  const existing = _lookupMsgEl(chatView, msg);
   if (!existing) return false;
   const index = findMessageIndex(msg);
   const prev = index > 0 ? state.messages[index - 1] : null;
+  // Remove old cache entries before replacement
+  if (msg.id) _msgElCache.delete(String(msg.id));
+  if (msg.clientMessageId) _msgElCacheByClient.delete(String(msg.clientMessageId));
   existing.replaceWith(buildMessageChunk(msg, prev?.createdAt || 0));
   refreshMessageReadReceipts();
   applyLastOutgoingReadState();
@@ -2210,8 +2218,10 @@ function replaceMessageInView(msg) {
 function removeMessageFromView(messageId) {
   const chatView = $('chatView');
   if (!chatView || !messageId) return false;
-  const existing = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(messageId))}"]`);
+  const existing = _lookupMsgElById(chatView, messageId);
   if (!existing) return false;
+  // Remove from cache
+  _msgElCache.delete(String(messageId));
   const prev = existing.previousElementSibling;
   const next = existing.nextElementSibling;
   const hadPrevStamp = !!(prev && prev.classList && prev.classList.contains('time-stamp'));
@@ -2259,6 +2269,25 @@ function summarizeMessagePreview(msg) {
   return String(msg.text || '');
 }
 
+// O(1) message element lookup caches — populated by buildMessageChunk, cleared on full re-render
+const _msgElCache = new Map();
+const _msgElCacheByClient = new Map();
+function _lookupMsgEl(chatView, msg) {
+  if (!msg) return null;
+  const byId = msg.id ? _msgElCache.get(String(msg.id)) : null;
+  if (byId && chatView.contains(byId)) return byId;
+  const byCid = msg.clientMessageId ? _msgElCacheByClient.get(String(msg.clientMessageId)) : null;
+  if (byCid && chatView.contains(byCid)) return byCid;
+  // Fallback to DOM query (shouldn't happen normally)
+  return chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(msg.id || ''))}"]`)
+    || (msg.clientMessageId ? chatView.querySelector(`article.message-row[data-client-message-id="${CSS.escape(String(msg.clientMessageId))}"]`) : null);
+}
+function _lookupMsgElById(chatView, messageId) {
+  if (!messageId) return null;
+  const cached = _msgElCache.get(String(messageId));
+  if (cached && chatView.contains(cached)) return cached;
+  return chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(messageId))}"]`);
+}
 let _lastReceiptKey = '';
 let _lastReceiptEl = null;
 function refreshMessageReadReceipts() {
@@ -2286,7 +2315,7 @@ function refreshMessageReadReceipts() {
     break;
   }
   if (!target) return;
-  const row = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(target.id || ''))}"]`) || (target.clientMessageId ? chatView.querySelector(`article.message-row[data-client-message-id="${CSS.escape(String(target.clientMessageId))}"]`) : null);
+  const row = _lookupMsgEl(chatView, target);
   if (!row) return;
   const wrap = row.querySelector('.content-wrap');
   if (!wrap) return;
@@ -2813,9 +2842,10 @@ function patchMallCard(card, product) {
 
 // ---- WeChat-style auth step navigation ----
 window._authState = { loginPhone: '', regPhone: '', regCode: '' };
+let _cachedAuthSteps = null;
 window.authGotoStep = (stepId) => {
-  const allSteps = document.querySelectorAll('#authScreen .auth-step');
-  allSteps.forEach(s => { if (!s.classList.contains('hidden')) s.classList.add('hidden'); });
+  if (!_cachedAuthSteps) _cachedAuthSteps = document.querySelectorAll('#authScreen .auth-step');
+  _cachedAuthSteps.forEach(s => { if (!s.classList.contains('hidden')) s.classList.add('hidden'); });
   const target = $(stepId);
   if (target) target.classList.remove('hidden');
 };
@@ -3229,7 +3259,7 @@ async function decodeScanFromImageFile(file){
     bitmap.close && bitmap.close();
     if (codes && codes.length) {
       const raw = String(codes[0].rawValue || '').trim();
-      const mm = raw.match(/(?:^|chattrade:|ctid:)([A-Za-z0-9_-]{4,})$/i);
+      const mm = raw.match(_RE_CTID_EXTRACT);
       const value = (mm ? mm[1] : raw).trim();
       if (value && $('scanIdInput')) {
         $('scanIdInput').value = value;
@@ -3290,7 +3320,7 @@ async function startScanCamera(){
           const codes = await detector.detect(video);
           if (codes && codes.length) {
             const raw = String(codes[0].rawValue || '').trim();
-            const mm = raw.match(/(?:^|chattrade:|ctid:)([A-Za-z0-9_-]{4,})$/i);
+            const mm = raw.match(_RE_CTID_EXTRACT);
             const value = (mm ? mm[1] : raw).trim();
             if (value && $('scanIdInput')) {
               $('scanIdInput').value = value;
@@ -5274,7 +5304,7 @@ function bindSearchAndEmojiEvents() {
             setTimeout(() => {
               const chatView = $("chatView");
               if (!chatView) return;
-              const target = chatView.querySelector(`article.message-row[data-id="${CSS.escape(String(msgId))}"]`);
+              const target = _lookupMsgElById(chatView, msgId);
               if (target) {
                 target.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 target.style.transition = 'background 0.3s';
@@ -5353,7 +5383,7 @@ function bindSearchAndEmojiEvents() {
       state._chatSearchIdx = matches.length > 0 ? 0 : -1;
       if ($("chatSearchCount")) $("chatSearchCount").textContent = matches.length > 0 ? `1/${matches.length}` : '0';
       if (matches.length > 0) {
-        matches[0].style.background = '#f5c518';
+        matches[0].classList.add('search-active');
         matches[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 250);
@@ -5362,10 +5392,10 @@ function bindSearchAndEmojiEvents() {
     const results = state._chatSearchResults || [];
     if (!results.length) return;
     const old = state._chatSearchIdx;
-    if (old >= 0 && old < results.length) results[old].style.background = '#b4efc8';
+    if (old >= 0 && old < results.length) results[old].classList.remove('search-active');
     state._chatSearchIdx = (old + dir + results.length) % results.length;
     const cur = results[state._chatSearchIdx];
-    cur.style.background = '#f5c518';
+    cur.classList.add('search-active');
     cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
     if ($("chatSearchCount")) $("chatSearchCount").textContent = `${state._chatSearchIdx + 1}/${results.length}`;
   };
@@ -5579,14 +5609,12 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
     state.friendRequests = data.requests || [];
     let pendingCount = 0;
     for (let i = 0; i < state.friendRequests.length; i++) { if (state.friendRequests[i].status === 'pending') pendingCount++; }
-    if($("friendsTabBadge")) {
-      $("friendsTabBadge").classList.toggle("hidden", pendingCount === 0);
-      $("friendsTabBadge").textContent = pendingCount > 99 ? '99+' : (pendingCount ? String(pendingCount) : '');
-    }
-    if($("friendRequestBadge")) {
-      $("friendRequestBadge").classList.toggle("hidden", pendingCount === 0);
-      $("friendRequestBadge").textContent = pendingCount > 99 ? '99+' : (pendingCount ? String(pendingCount) : '');
-    }
+    state._pendingFriendCount = pendingCount;
+    const badgeText = pendingCount > 99 ? '99+' : (pendingCount ? String(pendingCount) : '');
+    const tabBadge = $("friendsTabBadge");
+    if (tabBadge) { tabBadge.classList.toggle("hidden", pendingCount === 0); tabBadge.textContent = badgeText; }
+    const reqBadge = $("friendRequestBadge");
+    if (reqBadge) { reqBadge.classList.toggle("hidden", pendingCount === 0); reqBadge.textContent = badgeText; }
     if($("requestsList")) {
       const container = $("requestsList");
       bindRequestsListDelegation();
@@ -5729,16 +5757,17 @@ function bindChatViewDelegation(chatView) {
 const renderMessages = safeRender(function renderMessages(preserveScroll = false) {
   const chatView = $("chatView"); if(!chatView) return;
   bindChatViewDelegation(chatView);
-  // Build lightweight signature: id|type|createdAt per message — single string, no array alloc
-  let sig = state.messages.length + ':';
-  for (let i = 0; i < state.messages.length; i++) {
-    const m = state.messages[i];
-    sig += m.id + '|' + (m.type || '') + '|' + (m.createdAt || 0) + ';';
-  }
+  // Cheap O(1) signature: count + first/last id+type+time — avoids O(n) string concat
+  const _ml = state.messages.length;
+  const _mf = _ml ? state.messages[0] : null;
+  const _mlast = _ml > 1 ? state.messages[_ml - 1] : _mf;
+  const sig = _ml + ':' + (_mf ? _mf.id + '|' + (_mf.type || '') + '|' + (_mf.createdAt || 0) : '') +
+    ';' + (_mlast ? _mlast.id + '|' + (_mlast.type || '') + '|' + (_mlast.createdAt || 0) : '');
   if (!sigChanged('messages', sig) && !preserveScroll) return;
   _messagesSig = sig;
   const oldScrollHeight = chatView.scrollHeight;
   chatView.replaceChildren();
+  _msgElCache.clear(); _msgElCacheByClient.clear();
   const fragment = document.createDocumentFragment();
   let lastTime = 0;
   for (let i = 0; i < state.messages.length; i++) {
