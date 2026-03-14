@@ -19,10 +19,15 @@ function buildAdminDashboardData(db, index) {
         return _fallbackUserById.get(id);
       };
 
-  // Single-pass product collection without spread
+  // Combined single-pass over users: collect products + blacklist stats
   const products = [];
+  let blacklistLinks = 0;
+  const blacklistCountByUser = new Map();
   for (let u = 0; u < users.length; u++) {
     const user = users[u];
+    const bl = Array.isArray(user.blacklist) ? user.blacklist.length : 0;
+    blacklistLinks += bl;
+    blacklistCountByUser.set(user.id, bl);
     const userProducts = user.products;
     if (!Array.isArray(userProducts)) continue;
     const sellerName = user.displayName || user.nickname || user.username;
@@ -45,14 +50,6 @@ function buildAdminDashboardData(db, index) {
     const order = orders[i];
     if (order.sellerId) orderCountBySeller.set(order.sellerId, (orderCountBySeller.get(order.sellerId) || 0) + 1);
     if (order.status !== 'completed') pendingOrders++;
-  }
-
-  let blacklistLinks = 0;
-  const blacklistCountByUser = new Map();
-  for (let i = 0; i < users.length; i++) {
-    const outgoing = Array.isArray(users[i].blacklist) ? users[i].blacklist.length : 0;
-    blacklistLinks += outgoing;
-    blacklistCountByUser.set(users[i].id, outgoing);
   }
 
   let broadcastCount = 0;

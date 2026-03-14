@@ -252,17 +252,20 @@ module.exports = function createAdminExtRoutes(ctx) {
         : rawRequests.slice();
       requests.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const result = slicePage(requests, offset, limit);
-      result.items = result.items.map(r => {
+      // Transform in-place to avoid allocating a new array via .map()
+      const items = result.items;
+      for (let i = 0; i < items.length; i++) {
+        const r = items[i];
         const sender = index.usersById.get(r.userId);
         const target = index.usersById.get(r.targetId);
-        return {
+        items[i] = {
           id: r.id, status: r.status, greeting: r.greeting || '',
           userId: r.userId, targetId: r.targetId,
           senderName: sender?.displayName || r.userId,
           targetName: target?.displayName || r.targetId,
           createdAt: r.createdAt,
         };
-      });
+      }
       return sendJson(res, 200, result);
     }
 
@@ -453,7 +456,9 @@ module.exports = function createAdminExtRoutes(ctx) {
       for (let i = allMsgs.length - 1; i >= 0 && results.length < maxScan; i--) {
         const m = allMsgs[i];
         if (!m.text || m.type === 'system') continue;
-        if (m.text.toLowerCase().includes(q)) {
+        // Use pre-cached _lcText when available to avoid repeated toLowerCase()
+        const lcText = m._lcText || m.text.toLowerCase();
+        if (lcText.includes(q)) {
           let senderName = nameCache.get(m.senderId);
           if (senderName === undefined) {
             const sender = index.usersById.get(m.senderId);

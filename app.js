@@ -797,14 +797,27 @@ function sumCartTotals(items) {
   return { count, total };
 }
 
+// Cached cart quantity map: productId → totalQuantity (invalidated on cart change)
+let _cartQtyCache = null;
+let _cartQtyCacheSellerId = '';
+function _buildCartQtyCache(sellerId) {
+  const cart = getCurrentSellerCart(sellerId);
+  const m = new Map();
+  for (let i = 0; i < cart.length; i++) {
+    const pid = String(cart[i].productId);
+    m.set(pid, (m.get(pid) || 0) + (Number(cart[i].quantity) || 0));
+  }
+  _cartQtyCache = m;
+  _cartQtyCacheSellerId = sellerId;
+  return m;
+}
+function invalidateCartQtyCache() { _cartQtyCache = null; }
+
 function getProfileStoreItemCartQuantity(item){
   if(!item) return 0;
-  const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
-  if(!cart.length) return 0;
-  const pid = String(item.id);
-  let sum = 0;
-  for (let i = 0; i < cart.length; i++) { if (String(cart[i].productId) === pid) sum += (Number(cart[i].quantity) || 0); }
-  return sum;
+  const sellerId = item.sellerId || state.currentProfileUser?.id || '';
+  const cache = (_cartQtyCache && _cartQtyCacheSellerId === sellerId) ? _cartQtyCache : _buildCartQtyCache(sellerId);
+  return cache.get(String(item.id)) || 0;
 }
 
 function getItemAvailableStock(item){
@@ -815,6 +828,7 @@ function getItemAvailableStock(item){
 
 function adjustProfileStoreItemQuantity(item, delta){
   if(!item || !delta) return;
+  invalidateCartQtyCache();
   const cart = getCurrentSellerCart(item.sellerId || state.currentProfileUser?.id || '');
   const defaultSpec = (Array.isArray(item.specs) && item.specs.length ? item.specs[0] : '默认规格') || '默认规格';
   const key = `${item.id}__${defaultSpec}`;
@@ -1223,7 +1237,7 @@ function renderProfileCartPage(){
     });
     plusBtn.addEventListener('click', () => {
       const currentQty = Number(item.quantity) || 1;
-      const productInStore = (state.profileStoreItems || []).find(p => String(p.id) === String(item.productId));
+      const productInStore = (state._storeItemsById || new Map()).get(String(item.productId));
       const availableStock = productInStore ? getItemAvailableStock(productInStore) : Infinity;
       if (currentQty >= availableStock) { showToast('库存不足'); return; }
       item.quantity = currentQty + 1;

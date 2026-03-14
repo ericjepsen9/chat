@@ -1,6 +1,7 @@
 const { normalizeText } = require('./order_utils');
 
 const RE_HTTP_URL = /^https?:\/\//i;
+const RE_CATEGORY_SPLIT = /[\/,、]/;
 
 function isValidMediaUrl(value) {
   const url = String(value || '').trim();
@@ -69,7 +70,7 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   if (!Array.isArray(authUser.specPresets)) authUser.specPresets = [];
   if (category) {
     const existingCats = new Set(authUser.categoryPresets);
-    const parts = category.split(/[\/,、]/);
+    const parts = category.split(RE_CATEGORY_SPLIT);
     for (let i = 0; i < parts.length; i++) { const c = parts[i].trim(); if (c && !existingCats.has(c) && authUser.categoryPresets.length < 50) { authUser.categoryPresets.push(c); existingCats.add(c); } }
   }
   if (specs.length) {

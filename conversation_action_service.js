@@ -107,11 +107,11 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
     const muted = !conv._mutedBySet.has(uid);
     if (muted) {
       conv.mutedBy.push(uid);
-      if (conv._mutedBySet) conv._mutedBySet.add(uid);
+      conv._mutedBySet.add(uid);
     } else {
-      const idx = conv.mutedBy.indexOf(uid);
-      if (idx !== -1) conv.mutedBy.splice(idx, 1);
-      if (conv._mutedBySet) conv._mutedBySet.delete(uid);
+      conv._mutedBySet.delete(uid);
+      // Rebuild array from Set to avoid indexOf scan
+      conv.mutedBy = [...conv._mutedBySet];
     }
     schedulePersist('conversation_mute', { conversationId, userId: uid });
     broadcastToUser(uid, 'conversation_updated', { conversationId });
@@ -123,11 +123,11 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
     const pinned = !conv._pinnedBySet.has(uid);
     if (pinned) {
       conv.pinnedBy.push(uid);
-      if (conv._pinnedBySet) conv._pinnedBySet.add(uid);
+      conv._pinnedBySet.add(uid);
     } else {
-      const idx = conv.pinnedBy.indexOf(uid);
-      if (idx !== -1) conv.pinnedBy.splice(idx, 1);
-      if (conv._pinnedBySet) conv._pinnedBySet.delete(uid);
+      conv._pinnedBySet.delete(uid);
+      // Rebuild array from Set to avoid indexOf scan
+      conv.pinnedBy = [...conv._pinnedBySet];
     }
     schedulePersist('conversation_pin', { conversationId, userId: uid });
     broadcastToUser(uid, 'conversation_updated', { conversationId });
