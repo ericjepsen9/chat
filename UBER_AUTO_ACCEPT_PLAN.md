@@ -70,64 +70,55 @@
 ### 2.2 行为节奏拟人化
 
 ```python
-# 反应时间模型 — 模拟人类被通知唤醒后的操作节奏
+# 反应时间模型 — 10 秒以内随机延迟
 def get_humanized_delay():
     """
-    人类被推送通知唤醒 → 看手机 → 阅读内容 → 做出判断 → 点击
-    整个过程通常需要 3-8 秒，不可能 1 秒完成
+    控制在 10 秒以内的随机延迟。
+    使用多段组合使分布更自然（避免均匀分布的机械感）。
     """
     # 基础延迟：模拟"看到通知 → 拿起手机"
-    wake_delay = random.uniform(1.5, 4.0)
+    wake_delay = random.uniform(1.0, 4.0)
 
-    # 阅读延迟：模拟"阅读订单信息"
-    read_delay = random.uniform(0.8, 2.5)
+    # 阅读+决策延迟
+    action_delay = random.uniform(0.5, 3.0)
 
-    # 决策延迟：模拟"考虑是否接单"
-    decide_delay = random.uniform(0.3, 1.0)
+    total = wake_delay + action_delay
 
-    # 偶尔出现更长的犹豫（10% 概率）
-    if random.random() < 0.10:
-        decide_delay += random.uniform(2.0, 5.0)
-
-    return wake_delay + read_delay + decide_delay
-    # 总计约 2.6 ~ 12.5 秒，平均约 5 秒
+    # 确保不超过 10 秒
+    return min(total, 10.0)
+    # 总计约 1.5 ~ 7.0 秒，偶尔接近 10 秒
 ```
 
-> **重要**：原方案追求"1-2 秒延迟"是危险的。凌晨时段能在 1 秒内响应预约单通知是明显的非人类行为。建议将目标延迟调整为 **3-8 秒**，牺牲少量抢单速度换取安全性。
+> **设计思路**：系统只在特定时段运行、只对符合筛选条件的订单响应，因此收到推送后全部接单（接受率 100%）。随机延迟控制在 10 秒以内即可。
 
-### 2.3 接单率管理 — 避免选择性过高
+### 2.3 接单策略 — 符合条件即接，100% 接受率
 
 > **Uber 接受率机制**（来自官方文档）：
 > - 计算窗口：**最近 100 个独占派单请求**（Trip Radar 群发单不计入）
 > - 拒绝或超时未接都会降低接受率
-> - 低接受率**不会导致永久停用**，但会：
->   - 丢失 Uber Pro 等级（Gold/Platinum/Diamond）及相关福利（油费折扣、学费补贴、机场优先排队等）
->   - 降低获得奖励/促销活动的资格
->   - 可能被算法降低派单优先级
-> - 预约单在接受率计算中**与普通单一视同仁**
+> - 低接受率不会永久封号，但会失去 Uber Pro 等级福利
+> - 预约单在接受率计算中与普通单一视同仁
+
+**本系统策略**：不做接受率管理。系统只在特定时段运行，只对符合筛选条件（评分、区域、价格）的订单做出响应。不符合条件的订单直接忽略（自然超时），符合条件的全部接下。
 
 ```python
-# 不能只接"极品单"，需要偶尔接一些普通单维持正常的 acceptance rate
-class AcceptanceRateManager:
-    def __init__(self):
-        self.total_offers = 0
-        self.accepted = 0
-        self.target_rate = 0.75  # Uber Pro Gold 门槛约 85%，我们至少维持 75%
+class OrderFilter:
+    """订单筛选器 — 通过筛选的订单全部接单"""
 
-    def should_force_accept(self):
-        """当接受率过低时，强制接受下一单（即使不够优质）"""
-        if self.total_offers < 5:
+    def __init__(self, config):
+        self.min_rating = config.get("min_rating", 4.8)
+        self.whitelisted_areas = config.get("whitelisted_areas", [])
+        self.min_fare = config.get("min_fare", 0)
+
+    def should_accept(self, order_info: dict) -> bool:
+        """符合条件就接，不符合就让它自然超时"""
+        if order_info.get("rating", 5.0) < self.min_rating:
             return False
-        current_rate = self.accepted / self.total_offers
-        if current_rate < 0.65:
-            return True  # 接受率太低，必须接
-        return False
-
-    def should_force_ignore(self):
-        """偶尔故意忽略一个好单，制造 '真人犹豫后错过' 的假象"""
-        if random.random() < 0.05:  # 5% 概率故意放弃好单
-            return True
-        return False
+        if self.whitelisted_areas and order_info.get("area") not in self.whitelisted_areas:
+            return False
+        if order_info.get("fare", 0) < self.min_fare:
+            return False
+        return True  # 通过筛选 → 100% 接单
 ```
 
 ### 2.4 作息时间仿真
@@ -1273,11 +1264,11 @@ adb shell dumpsys notification --noredact | grep -A 20 "ubercab"
 
 | 维度 | 原方案 v1 | 改进方案 v2 | 改进原因 |
 |---|---|---|---|
-| 目标延迟 | 1-2 秒 | **3-8 秒** | 1 秒响应在凌晨极不自然，是最大封号风险 |
+| 目标延迟 | 1-2 秒 | **10 秒以内随机** | 随机分布避免机械感 |
 | 触控方式 | `adb input tap` | **`adb shell sendevent` 完整事件** | input tap 缺少 pressure/size，一检测一个准 |
 | 文字提取 | VLM 视觉大模型 | **`dumpsys notification` 直接读文本（无需安装 APK）** | 快 100 倍、准确率 100%、零 GPU 开销、对 Uber 完全不可见 |
 | 设备指纹 | 未考虑 | **零设备侵入：不安装 APK、不 Root、不解锁 Bootloader** | NotificationListenerService 可被 Uber 检测到，dumpsys 不会 |
-| 接单策略 | 只接极品单 | **接受率管理 + 偶尔接普通单 + 偶尔故意放弃好单** | 防止选择性过高触发风控 |
+| 接单策略 | 只接极品单 | **符合筛选条件即 100% 接单，不符合的自然超时** | 系统只在特定时段运行，看到的单本身就有限 |
 | 运行时段 | 全天候 | **模拟真人作息的时间窗口** | 凌晨持续活跃是明显的机器人特征 |
 | GPU 使用 | Moondream2 常驻推理 | **仅通知文本不足时回退到 PaddleOCR** | 99% 场景不需要 GPU，省电省资源 |
 | 异常处理 | 无 | **完整的健康检查 + 自动恢复 + 远程告警** | 无人值守必备 |
