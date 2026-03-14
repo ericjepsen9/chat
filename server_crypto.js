@@ -72,14 +72,14 @@ function validateCsrf(req, sessionToken) {
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 function normalizePhone(phone) {
-  const raw = String(phone || '').trim();
-  const digits = raw.replace(RE_NON_DIGIT, '');
+  if (!phone) return '';
+  const digits = String(phone).trim().replace(RE_NON_DIGIT, '');
+  if (digits.length < 11) return '';
   let normalized = digits;
-  if (normalized.length === 13 && normalized[0] === '8' && normalized[1] === '6' && normalized[2] === '1') {
-    normalized = normalized.slice(2);
+  if (digits.length === 13 && digits[0] === '8' && digits[1] === '6' && digits[2] === '1') {
+    normalized = digits.slice(2);
   }
-  if (!RE_PHONE.test(normalized)) return '';
-  return normalized;
+  return RE_PHONE.test(normalized) ? normalized : '';
 }
 
 // Shared cleanup helpers
@@ -96,11 +96,12 @@ function isRateLimitEntryStale(_key, state, now) {
 }
 
 function cleanupExpiredPhoneCodeState() {
-  cleanupExpiredMap(phoneCodeStore, (_k, r, n) => !r || r.expiresAt < n);
-  cleanupExpiredMap(phoneCodeCooldownStore, (_k, v, n) => !v || v < n);
-  cleanupExpiredMap(phoneCodeIpCooldownStore, (_k, v, n) => !v || v < n);
-  cleanupExpiredMap(phoneCodeVerifyAttempts, isRateLimitEntryStale);
-  cleanupExpiredMap(phoneCodeVerifyIpAttempts, isRateLimitEntryStale);
+  const now = Date.now();
+  for (const [k, r] of phoneCodeStore.entries()) { if (!r || r.expiresAt < now) phoneCodeStore.delete(k); }
+  for (const [k, v] of phoneCodeCooldownStore.entries()) { if (!v || v < now) phoneCodeCooldownStore.delete(k); }
+  for (const [k, v] of phoneCodeIpCooldownStore.entries()) { if (!v || v < now) phoneCodeIpCooldownStore.delete(k); }
+  for (const [k, s] of phoneCodeVerifyAttempts.entries()) { if (isRateLimitEntryStale(k, s, now)) phoneCodeVerifyAttempts.delete(k); }
+  for (const [k, s] of phoneCodeVerifyIpAttempts.entries()) { if (isRateLimitEntryStale(k, s, now)) phoneCodeVerifyIpAttempts.delete(k); }
 }
 
 function issuePhoneCode(phone, scene = 'login') {

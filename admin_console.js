@@ -170,7 +170,8 @@ function renderDashboard(data) {
 
 function renderTrendChart(trend) {
   if (!trend.length) { $('trendChart').innerHTML = '<div class="empty">暂无数据</div>'; return; }
-  const maxVal = Math.max(1, ...trend.map(t => Math.max(t.users, t.orders, t.messages)));
+  let maxVal = 1;
+  for (const t of trend) { const v = Math.max(t.users, t.orders, t.messages); if (v > maxVal) maxVal = v; }
   const barH = 160;
   const barContentH = barH - 30;
   const parts = [`<div style="display:flex;align-items:flex-end;gap:4px;width:100%;height:${barH}px;padding-bottom:20px">`];

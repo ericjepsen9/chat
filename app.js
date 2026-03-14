@@ -489,8 +489,7 @@ function getFilteredSellerProducts(){
       if (!item._parsedCats.includes(catFilter)) return false;
     }
     if (keyword) {
-      const hay = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase();
-      if (!hay.includes(keyword)) return false;
+      if (!(item._searchText || (item._searchText = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase())).includes(keyword)) return false;
     }
     return true;
   });

@@ -501,10 +501,12 @@ function showEmptyState(container, message, className) {
 // Returns the new signatures map { key -> sig }.
 // opts: { selector, keyFn(item), sigFn(item), buildFn(item), patchFn(existingNode, item), sigStore }
 function reconcileList(container, items, opts) {
-  const existingNodes = new Map(Array.from(container.querySelectorAll(opts.selector)).map(n => [n.dataset[opts.dataKey], n]));
+  const existingNodes = new Map();
+  for (const n of container.querySelectorAll(opts.selector)) existingNodes.set(n.dataset[opts.dataKey], n);
   const nextSigs = {};
   const orderedNodes = [];
-  items.forEach(item => {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     const key = opts.keyFn(item);
     const sig = opts.sigFn(item);
     nextSigs[key] = sig;
@@ -514,8 +516,14 @@ function reconcileList(container, items, opts) {
     else if (opts.sigStore[key] !== sig) node = opts.patchFn(existing, item);
     orderedNodes.push(node);
     existingNodes.delete(key);
-  });
-  const needsOrderUpdate = orderedNodes.length !== container.childElementCount || orderedNodes.some((n, i) => container.children[i] !== n);
+  }
+  let needsOrderUpdate = orderedNodes.length !== container.childElementCount;
+  if (!needsOrderUpdate) {
+    const children = container.children;
+    for (let i = 0; i < orderedNodes.length; i++) {
+      if (children[i] !== orderedNodes[i]) { needsOrderUpdate = true; break; }
+    }
+  }
   if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
   else existingNodes.forEach(n => n.remove());
   return nextSigs;

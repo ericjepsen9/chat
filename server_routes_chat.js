@@ -163,7 +163,7 @@ module.exports = function createChatRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const context = await getAuthedBody(req, res);
       if (!context) return true;
-      if (!conv.members.includes(context.authUser.id)) return sendJson(res, 403, { error: 'forbidden' });
+      if (!(conv._memberSet ? conv._memberSet.has(context.authUser.id) : conv.members.includes(context.authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
 
       const result = applyConversationAction({
         action,
