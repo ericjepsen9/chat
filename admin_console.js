@@ -111,12 +111,16 @@ const TAB_TITLES = {
 };
 
 let _navItems = null, _tabPanes = null;
+// Called once from initApp to cache nav/tab DOM references
+function _initNavCache() {
+  _navItems = document.querySelectorAll('.nav-item');
+  _tabPanes = document.querySelectorAll('.tab-pane');
+}
 function switchTab(tab) {
   state.tab = tab;
-  if (!_navItems) _navItems = document.querySelectorAll('.nav-item');
-  if (!_tabPanes) _tabPanes = document.querySelectorAll('.tab-pane');
-  _navItems.forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
-  _tabPanes.forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+  if (!_navItems) _initNavCache();
+  for (let i = 0; i < _navItems.length; i++) _navItems[i].classList.toggle('active', _navItems[i].dataset.tab === tab);
+  for (let i = 0; i < _tabPanes.length; i++) _tabPanes[i].classList.toggle('active', _tabPanes[i].id === `tab-${tab}`);
   $('pageTitle').textContent = TAB_TITLES[tab] || tab;
   loadTabData(tab);
 }
@@ -660,6 +664,7 @@ function bindFilter(selectId, stateKey, filterKey, loader) {
    ═══════════════════════════════════════ */
 function initApp() {
   $('adminInfo').textContent = '管理员已登录';
+  _initNavCache();
 
   // Tab navigation
   // Delegated tab navigation — single listener on parent instead of per-item

@@ -448,11 +448,13 @@ module.exports = function createAdminRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const { limit, offset } = paginate(searchParams);
       const msgs = index.messagesByConv.get(convId) || [];
-      // Messages are stored chronologically; use slice+reverse for newest-first (avoids per-element loop)
+      // Messages are stored chronologically; iterate backward to build newest-first page (single pass, no .reverse())
       const total = msgs.length;
       const endIdx = total - offset;           // exclusive upper bound
       const startIdx = Math.max(0, endIdx - limit);  // inclusive lower bound
-      const pageItems = endIdx > 0 ? msgs.slice(startIdx, endIdx).reverse() : [];
+      const pageLen = Math.max(0, endIdx - startIdx);
+      const pageItems = new Array(pageLen);
+      for (let i = 0; i < pageLen; i++) pageItems[i] = msgs[endIdx - 1 - i];
       const result = { items: pageItems, total, hasMore: startIdx > 0 };
       // Transform in-place to avoid .map() allocation
       const mItems = result.items;

@@ -440,6 +440,15 @@ function formatTime(timestamp) {
 }
 
 const _WEEKDAYS = ['周日','周一','周二','周三','周四','周五','周六'];
+// Cached current year — refreshed alongside _cachedTodayStart (at most once per minute)
+let _cachedCurrentYear = 0;
+function _getCurrentYear() {
+  _getTodayStart(); // ensures _cachedTodayTs is fresh
+  if (!_cachedCurrentYear || Date.now() - _cachedTodayTs > 60000) {
+    _cachedCurrentYear = new Date().getFullYear();
+  }
+  return _cachedCurrentYear;
+}
 function formatConversationTime(timestamp) {
   if (!timestamp) return '';
   const d = new Date(timestamp);
@@ -449,7 +458,7 @@ function formatConversationTime(timestamp) {
   if (diffDays <= 0) return hhmm;
   if (diffDays === 1) return '昨天';
   if (diffDays < 7) return _WEEKDAYS[d.getDay()];
-  if (d.getFullYear() === new Date().getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
+  if (d.getFullYear() === _getCurrentYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
 }
 

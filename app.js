@@ -118,12 +118,14 @@ function invalidateCartSummary() { _cachedCartSummary = null; }
 function getCartSummary() {
   if (_cachedCartSummary) return _cachedCartSummary;
   let count = 0, total = 0;
-  for (const arr of Object.values(state.profileCartBySeller || {})) {
+  const cartBySeller = state.profileCartBySeller || {};
+  for (const sellerId in cartBySeller) {
+    const arr = cartBySeller[sellerId];
     if (!Array.isArray(arr)) continue;
-    for (const item of arr) {
-      const qty = Number(item.quantity) || 0;
+    for (let i = 0; i < arr.length; i++) {
+      const qty = Number(arr[i].quantity) || 0;
       count += qty;
-      total += (Number(item.unitPrice) || 0) * qty;
+      total += (Number(arr[i].unitPrice) || 0) * qty;
     }
   }
   _cachedCartSummary = { count, total };
@@ -222,7 +224,8 @@ function _rebuildSellerProductsById() {
   state._sellerProductsById = m;
 }
 function syncSellerProducts(){
-  state.sellerProducts = Array.isArray(state.currentUser?.products) ? [...state.currentUser.products] : [];
+  // Reference directly — syncSellerProducts is always re-called after mutations, no need for defensive copy
+  state.sellerProducts = Array.isArray(state.currentUser?.products) ? state.currentUser.products : [];
   _rebuildSellerProductsById();
   renderSellerProductsManage();
 }
@@ -2072,7 +2075,14 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
           const cardSellerId = c.sellerId || '';
           // Try to fetch real product from seller's store (or try both members for old cards)
           if (c.productId) {
-            const candidateIds = cardSellerId ? [cardSellerId] : [msg.senderId, ...members.filter(m => m !== msg.senderId)].filter(Boolean);
+            // Single-pass: build candidate list without two .filter() calls
+            let candidateIds;
+            if (cardSellerId) { candidateIds = [cardSellerId]; }
+            else {
+              candidateIds = [];
+              if (msg.senderId) candidateIds.push(msg.senderId);
+              for (let mi = 0; mi < members.length; mi++) { if (members[mi] && members[mi] !== msg.senderId) candidateIds.push(members[mi]); }
+            }
             for (const candidateId of candidateIds) {
               try {
                 const storeData = await api(`/api/users/${candidateId}/store`);
@@ -5451,9 +5461,10 @@ function bindSearchAndEmojiEvents() {
       const bubbles = chatView.querySelectorAll('.message-row:not(.system-msg) .bubble:not(.audio-bubble):not(.image-bubble)');
       const kwLen = keyword.length;
       const matches = [];
-      bubbles.forEach(bubble => {
+      for (let bi = 0; bi < bubbles.length; bi++) {
+        const bubble = bubbles[bi];
         const text = (bubble.textContent || '').toLowerCase();
-        if (!text.includes(keyword)) return;
+        if (!text.includes(keyword)) continue;
         // Highlight occurrences in this bubble
         const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
         const textNodes = [];
@@ -5469,7 +5480,7 @@ function bindSearchAndEmojiEvents() {
           range.surroundContents(mark);
           matches.push(mark);
         }
-      });
+      }
       state._chatSearchResults = matches;
       state._chatSearchIdx = matches.length > 0 ? 0 : -1;
       if (countEl) countEl.textContent = matches.length > 0 ? `1/${matches.length}` : '0';
