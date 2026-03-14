@@ -256,6 +256,8 @@ function rebuildIndexes() {
     if (!('pendingPrice' in order)) order.pendingPrice = null;
     if (!('pendingPriceRequestedBy' in order)) order.pendingPriceRequestedBy = null;
     if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
+    if (order.deletedBy.length) order._deletedBySet = new Set(order.deletedBy);
+    else delete order._deletedBySet;
     index.ordersById.set(order.id, order);
     if (order.buyerId) addToMapArray(index.ordersByBuyer, order.buyerId, order);
     if (order.sellerId) addToMapArray(index.ordersBySeller, order.sellerId, order);

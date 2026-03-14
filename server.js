@@ -456,7 +456,7 @@ function fileExtFromType(contentType, originalName = '') {
 function isMessageVisibleToUser(msg, conv, userId) {
   const clearedAt = conv.clearedAt?.[userId] || 0;
   if (msg.createdAt <= clearedAt) return false;
-  if (msg._deletedBySet) return !msg._deletedBySet.has(userId);
+  if (msg._deletedBySet instanceof Set) return !msg._deletedBySet.has(userId);
   const deletedBy = msg.deletedBy;
   if (!deletedBy || !deletedBy.length) return true;
   // Lazily promote to Set for O(1) subsequent lookups on messages with many deletions

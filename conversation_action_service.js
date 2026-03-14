@@ -40,7 +40,7 @@ function deleteConversationMessage({ conversationId, messageId, authUser, index,
   const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
   if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
-  if (!msg._deletedBySet) msg._deletedBySet = new Set(msg.deletedBy);
+  if (!(msg._deletedBySet instanceof Set)) msg._deletedBySet = new Set(msg.deletedBy);
   if (!msg._deletedBySet.has(authUser.id)) {
     msg.deletedBy.push(authUser.id);
     msg._deletedBySet.add(authUser.id);

@@ -385,7 +385,7 @@ function deleteOrder({ authUser, orderId, db, usersById, schedulePersist, orders
   if (!actor.ok) return actor;
   if (order.status !== 'completed') return { ok: false, status: 409, error: 'order_not_completed' };
   if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
-  if (!order._deletedBySet) order._deletedBySet = new Set(order.deletedBy);
+  if (!(order._deletedBySet instanceof Set)) order._deletedBySet = new Set(order.deletedBy);
   if (!order._deletedBySet.has(authUser.id)) {
     order.deletedBy.push(authUser.id);
     order._deletedBySet.add(authUser.id);
