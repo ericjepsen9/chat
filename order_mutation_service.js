@@ -40,10 +40,11 @@ function assertOrderVersion(order, expectedUpdatedAtRaw) {
 
 function isUserBlockedByCounterparty(userA, userB) {
   if (!userA || !userB) return false;
-  if (userA._blacklistSet) { if (userA._blacklistSet.has(userB.id)) return true; }
-  else if (Array.isArray(userA.blacklist) && userA.blacklist.includes(userB.id)) return true;
-  if (userB._blacklistSet) return userB._blacklistSet.has(userA.id);
-  return Array.isArray(userB.blacklist) && userB.blacklist.includes(userA.id);
+  // Lazily ensure _blacklistSet for O(1) lookups
+  if (!userA._blacklistSet) userA._blacklistSet = new Set(userA.blacklist || []);
+  if (userA._blacklistSet.has(userB.id)) return true;
+  if (!userB._blacklistSet) userB._blacklistSet = new Set(userB.blacklist || []);
+  return userB._blacklistSet.has(userA.id);
 }
 
 function validateOrderActor(order, authUser, usersById, { allowBuyer = true, allowSeller = true } = {}) {

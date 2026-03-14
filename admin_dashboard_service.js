@@ -3,14 +3,21 @@ let _dashboardCache = null;
 let _dashboardCacheExpiry = 0;
 const DASHBOARD_CACHE_TTL_MS = 5000; // 5 seconds
 
-function buildAdminDashboardData(db) {
+function buildAdminDashboardData(db, index) {
   const now = Date.now();
   if (_dashboardCache && now < _dashboardCacheExpiry) return _dashboardCache;
 
   const users = db.users || [];
   const orders = db.orders || [];
-  const userById = new Map();
-  for (let i = 0; i < users.length; i++) userById.set(users[i].id, users[i]);
+  // Reuse index.usersById when available instead of rebuilding a Map
+  const userById = (index && index.usersById) || null;
+  let _fallbackUserById = null;
+  const getUserById = userById
+    ? (id) => userById.get(id)
+    : (id) => {
+        if (!_fallbackUserById) { _fallbackUserById = new Map(); for (let i = 0; i < users.length; i++) _fallbackUserById.set(users[i].id, users[i]); }
+        return _fallbackUserById.get(id);
+      };
 
   // Single-pass product collection without spread
   const products = [];
@@ -66,8 +73,8 @@ function buildAdminDashboardData(db) {
   const recentOrders = new Array(recentCount);
   for (let i = 0; i < recentCount; i++) {
     const order = orders[i];
-    const buyer = userById.get(order.buyerId);
-    const seller = userById.get(order.sellerId);
+    const buyer = getUserById(order.buyerId);
+    const seller = getUserById(order.sellerId);
     const items = order.items || [];
     const summaryParts = new Array(items.length);
     for (let j = 0; j < items.length; j++) summaryParts[j] = items[j].title + ' x' + items[j].quantity;

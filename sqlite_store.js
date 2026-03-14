@@ -128,9 +128,7 @@ function saveSnapshot(db, snapshot) {
       ? snap.products
       : (snap.users || []).flatMap((u) => {
           if (!Array.isArray(u.products)) return [];
-          const sid = u.id;
-          for (let i = 0; i < u.products.length; i++) u.products[i].sellerId = sid;
-          return u.products;
+          return u.products.map((p) => (p.sellerId = u.id, p));
         });
 
     for (const p of prods) { if (p.id) insProd.run(p.id, p.sellerId, p.createdAt || Date.now(), JSON.stringify(p)); }

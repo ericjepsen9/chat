@@ -54,8 +54,13 @@ function createConversationMessage({
     if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
     const peerUser = index.usersById.get(peerId);
-    if (authUser._blacklistSet ? authUser._blacklistSet.has(peerId) : (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId))) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
-    if (peerUser?._blacklistSet ? peerUser._blacklistSet.has(authUser.id) : peerUser?.blacklist?.includes(authUser.id)) return { ok: false, status: 403, error: '消息被对方拒收' };
+    // Lazily ensure _blacklistSet exists for O(1) lookups (avoids O(n) .includes fallback)
+    if (!authUser._blacklistSet) authUser._blacklistSet = new Set(authUser.blacklist || []);
+    if (authUser._blacklistSet.has(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
+    if (peerUser) {
+      if (!peerUser._blacklistSet) peerUser._blacklistSet = new Set(peerUser.blacklist || []);
+      if (peerUser._blacklistSet.has(authUser.id)) return { ok: false, status: 403, error: '消息被对方拒收' };
+    }
     if (!NO_FRIEND_CHECK_TYPES.has(body.type) && !areFriends(peerId, authUser.id)) {
       return { ok: false, status: 403, error: '对方开启了验证，你还不是他(她)的好友。' };
     }
@@ -108,6 +113,8 @@ function createConversationMessage({
     createdAt: now,
   };
 
+  // Pre-lowercase text at creation time for search performance
+  if (msg.type === 'text' && msg.text) msg._lcText = msg.text.toLowerCase();
   db.messages.push(msg);
   addToMapArray(index.messagesByConv, conversationId, msg);
   index.messagesById.set(msg.id, msg);

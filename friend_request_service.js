@@ -17,10 +17,13 @@ function createFriendRequest({
     return { ok: false, status: 404, error: '未找到该用户' };
   }
   // Check blacklist - blocked users cannot send friend requests
-  if (target._blacklistSet ? target._blacklistSet.has(authUser.id) : (Array.isArray(target.blacklist) && target.blacklist.includes(authUser.id))) {
+  // Lazily ensure _blacklistSet for O(1) lookups
+  if (!target._blacklistSet) target._blacklistSet = new Set(target.blacklist || []);
+  if (target._blacklistSet.has(authUser.id)) {
     return { ok: false, status: 403, error: '对方已将你拉黑，无法添加好友' };
   }
-  if (authUser._blacklistSet ? authUser._blacklistSet.has(target.id) : (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(target.id))) {
+  if (!authUser._blacklistSet) authUser._blacklistSet = new Set(authUser.blacklist || []);
+  if (authUser._blacklistSet.has(target.id)) {
     return { ok: false, status: 403, error: '你已将对方拉黑，请先解除' };
   }
   if (areFriends(authUser.id, target.id)) {

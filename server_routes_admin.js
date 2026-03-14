@@ -91,7 +91,7 @@ module.exports = function createAdminRoutes(ctx) {
     if (pathname === '/api/admin/dashboard' && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
-      const data = buildAdminDashboardData(db);
+      const data = buildAdminDashboardData(db, index);
       return sendJson(res, 200, data);
     }
 

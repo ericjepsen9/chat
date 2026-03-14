@@ -10,11 +10,11 @@
 .message-row.me .sender { text-align: right; }
 
 /* 防止系统长按菜单弹出干扰自定义菜单 */
-.bubble { background: var(--bubble-other); color: var(--text-main); padding: 10px 14px; font-size: var(--font-body); line-height: 1.45; border-radius: var(--radius-md); word-break: break-word; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.bubble { background: var(--bubble-other); color: var(--text-main); padding: 10px 14px; font-size: var(--font-body); line-height: 1.45; border-radius: var(--radius-md); word-break: break-word; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; contain: layout style; }
 .message-row.me .bubble { background: var(--bubble-me); }
 .system-msg .bubble { background: rgba(0,0,0,0.06); color: var(--text-muted); font-size: var(--font-micro); padding: 4px 8px; border-radius: 8px; }
 
-.audio-bubble { width: 100px; display:flex; align-items:center; cursor: pointer; transition: opacity 0.2s; height: 40px; padding: 0 14px !important;}
+.audio-bubble { width: 100px; display:flex; align-items:center; cursor: pointer; transition: opacity 0.2s; height: 40px; padding: 0 14px !important; contain: layout style;}
 .message-row.me .audio-bubble { flex-direction: row-reverse; }
 .audio-bubble span { font-size: 16px; margin: 0 4px; }
 .audio-bubble.playing { opacity: 0.5; animation: pulse 1s infinite alternate; will-change: opacity; }
@@ -38,7 +38,7 @@
 .action-panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px 16px; border-top: 1px solid #e5e5ea; }
 .action-panel button { background: #fff; border-radius: var(--radius-card); padding: 16px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: var(--font-caption); color: var(--text-muted); border: none; outline:none; cursor:pointer; font-weight: 500;}
 .emoji-panel { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; padding: 16px; border-top: 1px solid #e5e5ea; max-height: 250px; overflow-y: auto; }
-.emoji-panel span { font-size: 26px; text-align: center; cursor: pointer; user-select: none; transition: transform 0.1s; will-change: transform; }
+.emoji-panel span { font-size: 26px; text-align: center; cursor: pointer; user-select: none; transition: transform 0.1s; }
 .emoji-panel span:active { transform: scale(1.2); }
 
 /* 下拉与上下文菜单 */
@@ -62,7 +62,7 @@
 .call-floating-bubble { position: fixed; top: 100px; left: 8px; z-index: 999; display: flex; align-items: center; gap: 6px; background: var(--brand); color: #fff; border-radius: 24px; padding: 8px 14px 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); cursor: pointer; user-select: none; touch-action: none; transition: box-shadow 0.2s; contain: layout style paint; }
 .call-floating-bubble:active { box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .call-floating-bubble.hidden { display: none !important; }
-.call-floating-icon { display: flex; align-items: center; justify-content: center; animation: callPulse 1.5s ease-in-out infinite; will-change: opacity; }
+.call-floating-icon { display: flex; align-items: center; justify-content: center; animation: callPulse 1.5s ease-in-out infinite; }
 .call-floating-duration { font-size: var(--font-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
 @keyframes callPulse { 0%,100%{ opacity:1; } 50%{ opacity:0.5; } }
 .call-panel { position: absolute; inset: 0; background: #1b1b1b; color: #fff; z-index: 100; display: flex; flex-direction: column; justify-content: space-between; padding: 0; overflow: hidden; contain: layout style paint; }
@@ -75,7 +75,7 @@
 .control-btn { background: transparent; border: none; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: var(--font-caption); opacity: 0.5; transition: all 0.2s; outline:none; cursor:pointer;}
 .control-btn.active { opacity: 1; color: var(--brand); }
 .call-actions { display: flex; justify-content: space-evenly; width: 100%; }
-.call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer; will-change: transform;}
+.call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer;}
 @media (max-width: 500px) { body { padding: 0; } .mobile-shell { border-radius: 0; height: 100vh; } }
 /* V36 conversation list polish */
 .chat-item{ position:relative; contain:content; }

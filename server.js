@@ -87,8 +87,8 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
 const CACHE_MAX_AGE_DEFAULT = 300;       // 5 minutes
-const _staticEtagCache = new Map();      // filePath → etag string (capped at 200 entries)
-const STATIC_ETAG_CACHE_MAX = 200;
+const _staticEtagCache = new Map();      // filePath → etag string (capped at 100 entries)
+const STATIC_ETAG_CACHE_MAX = 100;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = MS_PER_DAY;
 const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
@@ -519,10 +519,11 @@ function buildConversationMeta(conv, userId) {
   }
   const result = { preview, unread, lastMessageAt, _lastRead: lastRead };
   _convMetaCache.set(cacheKey, result);
-  // Keep cache bounded — batch evict oldest entries
-  if (_convMetaCache.size > 5000) {
-    const keys = Array.from(_convMetaCache.keys());
-    for (let i = 0; i < 1000; i++) _convMetaCache.delete(keys[i]);
+  // Incremental eviction: remove small batches starting earlier to avoid sudden large purges
+  if (_convMetaCache.size > 4500) {
+    const excess = _convMetaCache.size - 4000;
+    const iter = _convMetaCache.keys();
+    for (let i = 0; i < excess; i++) { const k = iter.next(); if (k.done) break; _convMetaCache.delete(k.value); }
   }
   return result;
 }
@@ -901,8 +902,9 @@ const server = http.createServer(async (req, res) => {
         const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
         _staticEtagCache.set(filePath, etag);
         if (_staticEtagCache.size > STATIC_ETAG_CACHE_MAX) {
-          const keys = Array.from(_staticEtagCache.keys());
-          for (let ei = 0; ei < 20 && ei < keys.length; ei++) _staticEtagCache.delete(keys[ei]);
+          // Incremental eviction — remove oldest 10 entries
+          const iter = _staticEtagCache.keys();
+          for (let ei = 0; ei < 10; ei++) { const k = iter.next(); if (k.done) break; _staticEtagCache.delete(k.value); }
         }
         // Re-check after stat in case file changed
         if (ifNoneMatch && ifNoneMatch === etag) {

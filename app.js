@@ -215,14 +215,17 @@ async function refreshProductViews(){
   }
 }
 
+// Cached page element refs for visibility checks (avoids repeated DOM queries)
+let _spPageRef = null, _mpPageRef = null, _pdPageRef = null;
+function _isPageVisible(ref) { return ref && !ref.classList.contains('hidden'); }
 async function syncProductViewsIfVisible(){
   const tasks = [];
-  const sellerPageVisible = $("sellerProductsPage") && !$("sellerProductsPage").classList.contains('hidden');
-  const myProductsPageVisible = $("myProductsPage") && !$("myProductsPage").classList.contains('hidden');
-  const selfProfileVisible = $("profileDetailPage") && !$("profileDetailPage").classList.contains('hidden') && state.currentProfileUser?.id === state.currentUser?.id;
-  if (sellerPageVisible) tasks.push(loadSellerProductsManage());
-  if (myProductsPageVisible) tasks.push(loadMyProducts());
-  if (selfProfileVisible) tasks.push(loadProfileStore(state.currentUser.id));
+  if (!_spPageRef) _spPageRef = $("sellerProductsPage");
+  if (!_mpPageRef) _mpPageRef = $("myProductsPage");
+  if (!_pdPageRef) _pdPageRef = $("profileDetailPage");
+  if (_isPageVisible(_spPageRef)) tasks.push(loadSellerProductsManage());
+  if (_isPageVisible(_mpPageRef)) tasks.push(loadMyProducts());
+  if (_isPageVisible(_pdPageRef) && state.currentProfileUser?.id === state.currentUser?.id) tasks.push(loadProfileStore(state.currentUser.id));
   if (tasks.length) await Promise.all(tasks);
 }
 
@@ -5227,12 +5230,17 @@ function bindSearchAndEmojiEvents() {
   // ── Search cooldown utility ──
   const _searchCooldowns = {};
   const SEARCH_COOLDOWN_MS = 3000; // 3 second cooldown between searches
+  let _cooldownToast = null;
+  let _cooldownToastTimer = null;
   function showCooldownToast(seconds) {
-    let toast = document.querySelector('.search-cooldown-toast');
-    if (toast) toast.remove();
-    toast = createEl('div', 'search-cooldown-toast', `搜索太频繁，请 ${seconds} 秒后再试`);
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 1500);
+    if (!_cooldownToast) {
+      _cooldownToast = createEl('div', 'search-cooldown-toast');
+      document.body.appendChild(_cooldownToast);
+    }
+    _cooldownToast.textContent = `搜索太频繁，请 ${seconds} 秒后再试`;
+    _cooldownToast.style.display = '';
+    if (_cooldownToastTimer) clearTimeout(_cooldownToastTimer);
+    _cooldownToastTimer = setTimeout(() => { _cooldownToast.style.display = 'none'; }, 1500);
   }
   function checkSearchCooldown(key) {
     const now = Date.now();
