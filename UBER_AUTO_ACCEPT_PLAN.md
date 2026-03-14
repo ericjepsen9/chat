@@ -19,7 +19,7 @@
 | **设备环境** | Root 检测（SafetyNet / Play Integrity API）、USB 调试状态检测、开发者模式检测 | **中** |
 | **Accessibility Service** | Uber APK 可通过 `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` 枚举当前激活的无障碍服务 | **中** |
 | **NotificationListener 检测** | Uber 同样可通过 `Settings.Secure.getString(cr, "enabled_notification_listeners")` 枚举已启用的通知监听服务，发现非系统白名单应用即可标记 | **中** |
-| **Root 检测（极强）** | Uber 的 Root 检测**超过银行级别**：检测 su/magisk/busybox 二进制文件、读取 `/proc/self/mountinfo` 搜索 "magisk" 字符串、检测 Bootloader 解锁状态、Play Integrity API 验证。即使 Magisk + Shamiko + PIF 全部通过 SafetyNet，Uber 仍可能检测到并进入 "lite mode" 拒绝上线 | **极高** |
+| **Root 检测（极强）** | Uber 的 Root 检测**超过银行级别**：检测 su/magisk/busybox 二进制文件、读取 `/proc/self/mountinfo` 搜索 "magisk" 字符串、检测 Bootloader 解锁状态、Play Integrity API 验证。即使 Magisk + Shamiko + PIF 全部通过 SafetyNet，Uber 仍可能检测到并进入 "lite mode" 限制功能 | **极高** |
 | **操作节奏** | 每次点击的反应时间高度一致（机器人特征）vs 人类的自然波动 | **中** |
 | **屏幕状态** | 通过 PowerManager 或 Display API 检测屏幕是否亮起 | **低** |
 
@@ -174,7 +174,8 @@ ACTIVE_WINDOWS = [
 │                       安卓手机端                              │
 │                                                             │
 │   无需安装任何额外应用                                         │
-│   Uber Driver App 正常运行                                    │
+│   Uber Driver App 保持运行（离线状态，不需要上线）               │
+│   预约单通过系统通知推送，离线即可收到                            │
 │   仅开启 WiFi ADB（开发者选项 → 无线调试）                      │
 │                                                             │
 └──────────────────────┬──────────────────────────────────────┘
@@ -1232,25 +1233,29 @@ class SystemHealthMonitor:
         await self.send_alert("ADB 连接断开且重连失败")
         return False
 
-    async def check_uber_app_foreground(self) -> bool:
-        """检查 Uber App 是否在前台"""
-        result = subprocess.run(
-            ["adb", "shell", "dumpsys", "activity", "activities",
-             "|", "grep", "mResumedActivity"],
-            capture_output=True, text=True, shell=False
-        )
-        # 实际命令需要用 adb shell "dumpsys activity activities | grep mResumedActivity"
-        is_foreground = "com.ubercab.driver" in result.stdout
+    async def check_uber_app_running(self) -> bool:
+        """
+        检查 Uber App 是否在运行（不需要在前台）
 
-        if not is_foreground:
-            logging.warning("Uber App 不在前台，正在拉起...")
+        司机始终保持离线状态，预约单通过系统通知推送，
+        只需确保 Uber App 进程存活即可接收通知。
+        不需要 App 在前台，也不需要司机上线。
+        """
+        result = subprocess.run(
+            ["adb", "shell", "pidof", "com.ubercab.driver"],
+            capture_output=True, text=True
+        )
+        is_running = bool(result.stdout.strip())
+
+        if not is_running:
+            logging.warning("Uber App 未运行，正在启动...")
             subprocess.run([
                 "adb", "shell", "am", "start", "-n",
                 "com.ubercab.driver/.UberDriverActivity"  # 需确认实际 Activity 名
             ])
             await asyncio.sleep(3)
 
-        return is_foreground
+        return is_running
 
     async def check_screen_on(self) -> bool:
         """确保手机屏幕亮着"""
@@ -1293,7 +1298,7 @@ class SystemHealthMonitor:
             try:
                 await self.check_adb_connection()
                 await self.check_screen_on()
-                await self.check_uber_app_foreground()
+                await self.check_uber_app_running()
 
                 # 检查 WebSocket 心跳
                 if self.last_heartbeat:
@@ -1391,10 +1396,9 @@ adb shell dumpsys notification --noredact | grep -A 20 "ubercab"
 ```
 □ 1. 手机充电线插好，电量 > 50%
 □ 2. 关闭手机自动休眠（设置 > 显示 > 屏幕超时 > 永不）
-□ 3. 打开 Uber 司机端，确认已上线
+□ 3. 打开 Uber 司机端（保持离线即可，不需要上线，预约单通过通知推送）
 □ 4. 确认 WiFi ADB 连接正常：adb connect <手机IP>:5555
-□ 5. 启动辅助 APK（"电池优化助手"）
-□ 6. 启动电脑端 Python 服务：python uber_auto_accept.py
+□ 5. 启动电脑端 Python 服务：python uber_auto_accept.py
 □ 7. 确认 Web 监控面板显示"手机已连接"
 □ 8. 降低手机屏幕亮度到最低（省电 + 延长屏幕寿命）
 □ 9. 手机倒扣放置（屏幕朝下，防止光线干扰睡眠）
@@ -1467,12 +1471,9 @@ async def dismiss_system_dialogs():
 
 | 场景 | 检测方法 | 处理 |
 |---|---|---|
-| **App 崩溃** | `dumpsys activity` 中无 Uber Activity | `am start` 重新启动 |
-| **司机状态离线** | 接单通知停止超过预期时间 | 截图 + OCR 检查在线状态；或告警让人工介入 |
+| **App 进程被杀** | `pidof com.ubercab.driver` 无输出 | `am start` 重新启动（无需上线，进程存活即可收通知） |
 | **被强制要求更新** | 全屏更新提示无法跳过 | Telegram 告警 + 暂停系统 |
 | **身份验证弹窗** | Uber 定期要求自拍验证身份 | 无法自动处理 → 立即告警 |
-| **App 被切到后台** | `mResumedActivity` 不含 Uber | `am start` 拉回前台 |
-| **GPS 定位丢失** | Uber 显示"无法获取位置" | 检测 `dumpsys location` → 告警 |
 
 ### 7.4 手机硬件/环境问题
 
@@ -1482,7 +1483,7 @@ async def dismiss_system_dialogs():
 | **手机过热降频** | `dumpsys thermalservice` 或 `cat /sys/class/thermal/*/temp` | 暂停运行，等温度下降 |
 | **存储空间满** | `df /data` | 清理缓存 `pm clear` 非关键应用 |
 | **WiFi 断连后切 4G** | ADB 通过 WiFi 连接会直接断开 | 健康检查已覆盖 ADB 重连 |
-| **手机自动重启** | ADB 连接突然断开 + 一段时间后恢复 | 重连后自动启动 Uber App + 恢复上线状态 |
+| **手机自动重启** | ADB 连接突然断开 + 一段时间后恢复 | 重连后确保 Uber App 已启动（无需上线） |
 | **屏幕自动熄灭** | `dumpsys power` 检查屏幕状态 | 已覆盖（亮屏+解锁） |
 
 ```python
@@ -1594,7 +1595,7 @@ class NotificationParser:
 | 来电/系统弹窗打断 | 中 | 中 | 勿扰模式 + 广播关闭系统弹窗（§7.2） |
 | 预约单时间冲突 | 中 | 中 | ReservationTracker 维护已接时间表（§7.5） |
 | WiFi 断连 / ADB 掉线 | 中 | 中 | 健康检查 + 自动重连 + Telegram 告警 |
-| App 崩溃/被切后台 | 中 | 中 | `dumpsys activity` 检测 + `am start` 恢复 |
+| App 进程被杀 | 中 | 中 | `pidof` 检测 + `am start` 恢复（无需上线） |
 | 手机电量低/过热 | 低 | 中 | 电量检查 + 温度监控 → 暂停接单 |
 | 电脑进程崩溃/睡眠 | 低 | 中 | watchdog 自动重启 + 永不睡眠电源计划 |
 | 一晚接太多单 | 低 | 低 | `max_per_night` 上限控制（§7.5） |
