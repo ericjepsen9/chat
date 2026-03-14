@@ -12,12 +12,14 @@
 
 | 维度 | 检测方式 | 风险等级 |
 |---|---|---|
-| **触控指纹** | MotionEvent 中的 pressure/size/toolType 字段。`adb input tap` 的 pressure=0, size=0, toolType=0，与真实手指（pressure≈0.3-0.8, size≈0.1-0.3, toolType=1）截然不同 | **极高** |
+| **触控指纹** | MotionEvent 中的 pressure/size/toolType 字段。`adb input tap` 的 pressure=**1.0**（固定值）, size=**1.0**（固定值）, touchMajor=**0**, touchMinor=**0**, toolType=**0**（UNKNOWN），与真实手指（pressure≈0.15-0.85 动态变化, size≈0.05-0.3, touchMajor≈20-80px, touchMinor≈15-60px, toolType=**1** FINGER）截然不同 | **极高** |
 | **操作时间模式** | 凌晨 2-6 点持续秒级响应接单，不符合人类睡眠规律 | **高** |
 | **接单选择性** | 长期只接高评分、特定区域订单，拒绝/忽略其余所有订单，acceptance rate 异常 | **高** |
 | **GPS 行为** | 设备 GPS 长时间静止不动（停在家里），但持续接单 | **中** |
 | **设备环境** | Root 检测（SafetyNet / Play Integrity API）、USB 调试状态检测、开发者模式检测 | **中** |
 | **Accessibility Service** | Uber APK 可通过 `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` 枚举当前激活的无障碍服务 | **中** |
+| **NotificationListener 检测** | Uber 同样可通过 `Settings.Secure.getString(cr, "enabled_notification_listeners")` 枚举已启用的通知监听服务，发现非系统白名单应用即可标记 | **中** |
+| **Root 检测（极强）** | Uber 的 Root 检测**超过银行级别**：检测 su/magisk/busybox 二进制文件、读取 `/proc/self/mountinfo` 搜索 "magisk" 字符串、检测 Bootloader 解锁状态、Play Integrity API 验证。即使 Magisk + Shamiko + PIF 全部通过 SafetyNet，Uber 仍可能检测到并进入 "lite mode" 拒绝上线 | **极高** |
 | **操作节奏** | 每次点击的反应时间高度一致（机器人特征）vs 人类的自然波动 | **中** |
 | **屏幕状态** | 通过 PowerManager 或 Display API 检测屏幕是否亮起 | **低** |
 
@@ -52,11 +54,18 @@
 12. SYN_REPORT
 ```
 
+**注意 — Multi-touch Protocol Type A vs Type B**：
+- 大多数现代设备使用 **Type B（slot-based）** 协议
+- 运行 `adb shell getevent -lp` 检查是否有 `ABS_MT_SLOT`：有则为 Type B，无则为 Type A
+- Type B 需要额外发送 `ABS_MT_SLOT` 事件（通常值为 0）
+- Type A 使用 `SYN_MT_REPORT`（type=0, code=2）作为每个触点数据的结束标记
+
 **实施步骤**：
-1. 先在目标手机上运行 `adb shell getevent -lp` 查看触摸设备节点和参数范围
-2. 用手指真实点击几次，`adb shell getevent -lt /dev/input/eventX` 录制真实触摸数据
-3. 分析真实数据中各参数的数值范围，建立随机化参数池
-4. 每次模拟点击时，从参数池中随机采样，注入完整事件序列
+1. 先在目标手机上运行 `adb shell getevent -lp` 查看触摸设备节点、参数范围、和协议类型
+2. 用手指真实点击 10+ 次，`adb shell getevent -lt /dev/input/eventX` 录制真实触摸数据
+3. 分析真实数据中各参数的数值范围，**注意 getevent 输出是十六进制，sendevent 输入是十进制**
+4. 建立随机化参数池，每次模拟点击时从参数池中随机采样
+5. 验证：注入后在手机上用 `getevent -lt` 同步监听，确认注入事件与真实触摸事件格式一致
 
 ### 2.2 行为节奏拟人化
 
@@ -88,13 +97,22 @@ def get_humanized_delay():
 
 ### 2.3 接单率管理 — 避免选择性过高
 
+> **Uber 接受率机制**（来自官方文档）：
+> - 计算窗口：**最近 100 个独占派单请求**（Trip Radar 群发单不计入）
+> - 拒绝或超时未接都会降低接受率
+> - 低接受率**不会导致永久停用**，但会：
+>   - 丢失 Uber Pro 等级（Gold/Platinum/Diamond）及相关福利（油费折扣、学费补贴、机场优先排队等）
+>   - 降低获得奖励/促销活动的资格
+>   - 可能被算法降低派单优先级
+> - 预约单在接受率计算中**与普通单一视同仁**
+
 ```python
 # 不能只接"极品单"，需要偶尔接一些普通单维持正常的 acceptance rate
 class AcceptanceRateManager:
     def __init__(self):
         self.total_offers = 0
         self.accepted = 0
-        self.target_rate = 0.75  # Uber 期望的最低接受率约 85%，我们维持 75% 以上
+        self.target_rate = 0.75  # Uber Pro Gold 门槛约 85%，我们至少维持 75%
 
     def should_force_accept(self):
         """当接受率过低时，强制接受下一单（即使不够优质）"""
@@ -133,11 +151,12 @@ ACTIVE_WINDOWS = [
 
 | 措施 | 说明 |
 |---|---|
-| **不 Root** | Uber 使用 Google Play Integrity API 检测 Root，绝对不要 Root |
+| **绝对不 Root** | Uber 的 Root 检测超过银行级别，即使 Magisk+Shamiko+PIF 全部通过 SafetyNet 也会被检测到。XDA 论坛多人报告："Uber's root detection is way beyond what the banks are doing." |
 | **隐藏开发者模式** | 接单后关闭"开发者选项"显示（部分设备可通过 Settings 隐藏） |
-| **USB 调试安全** | 使用 WiFi ADB 替代 USB 连接，避免 Uber 检测 USB 调试状态 |
-| **不装可疑 APK** | 不安装名称含 "auto/bot/hack" 的应用；自己的辅助 APK 伪装为普通工具名 |
+| **WiFi ADB** | 使用 WiFi ADB（`adb tcpip 5555` → `adb connect <IP>:5555`）替代 USB 连接，避免 Uber 检测 USB 调试状态 |
+| **不装可疑 APK** | 不安装名称含 "auto/bot/hack" 的应用。**重要**：如果使用自定义 APK 中的 NotificationListenerService，Uber 可以通过 `Settings.Secure("enabled_notification_listeners")` 检测到。因此优先考虑**无 APK 方案**（见下文方案 B+） |
 | **保持系统更新** | 旧版系统更容易被标记为刷机设备 |
+| **不解锁 Bootloader** | Uber 检测 Bootloader 解锁状态，解锁后即使不 Root 也可能进入 "lite mode" |
 
 ---
 
@@ -145,14 +164,71 @@ ACTIVE_WINDOWS = [
 
 ### 3.1 架构选型对比
 
-| 方案 | 延迟 | 防封性 | 稳定性 | 复杂度 |
-|---|---|---|---|---|
-| A: ADB Logcat + VLM + ADB Tap | 1-2s | **差** | 中 | 中 |
-| B: dumpsys notification + OCR + sendevent | 2-3s | 中 | 中 | 中 |
-| **C: 手机端 APK + 电脑端决策（推荐）** | **3-6s** | **好** | **高** | 中高 |
-| D: 纯手机端 APK（最隐蔽） | 3-6s | **最好** | 高 | 高 |
+| 方案 | 延迟 | 防封性 | 稳定性 | 复杂度 | 备注 |
+|---|---|---|---|---|---|
+| A: ADB Logcat + VLM + ADB Tap | 1-2s | **差** | 中 | 中 | 触控指纹暴露 |
+| B: dumpsys notification + OCR + sendevent | 2-3s | 中 | 中 | 中 | 轮询有延迟 |
+| **B+: dumpsys notification + 文本匹配 + sendevent（推荐）** | **3-6s** | **好** | **好** | **低** | **无需安装 APK，零设备指纹** |
+| C: 手机端 APK + 电脑端决策 | 3-6s | 中 | 高 | 中高 | APK 的 NotificationListener 可被 Uber 检测到 |
+| D: 纯手机端 APK（最隐蔽触控） | 3-6s | 中 | 高 | 高 | 同上，APK 可被检测 |
 
-### 3.2 推荐架构：方案 C — 混合架构
+> **关键发现**：研究表明 Uber 可以通过 `Settings.Secure("enabled_notification_listeners")` 检测手机上所有已启用的通知监听服务。因此，安装自定义 APK 使用 NotificationListenerService 本身就是一个风控信号。
+>
+> **方案 B+ 的优势**：完全通过 ADB shell 命令（`dumpsys notification --noredact`）读取通知内容，**无需在手机上安装任何第三方应用**，对 Uber 完全不可见。
+
+### 3.2 推荐架构：方案 B+ — 纯 ADB 无痕架构（修订推荐）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       安卓手机端                              │
+│                                                             │
+│   无需安装任何额外应用                                         │
+│   Uber Driver App 正常运行                                    │
+│   仅开启 WiFi ADB（开发者选项 → 无线调试）                      │
+│                                                             │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ WiFi ADB (局域网 TCP 5555)
+                       │
+┌──────────────────────▼──────────────────────────────────────┐
+│                  Windows 电脑端 (Python)                      │
+│                                                             │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  通知轮询器 (500ms 间隔)                                │  │
+│  │  adb shell dumpsys notification --noredact             │  │
+│  │  → 过滤 pkg=com.ubercab.driver                        │  │
+│  │  → 提取 title/text/bigText                            │  │
+│  │  → 与上一次快照对比，检测新通知                           │  │
+│  └─────────────────────┬──────────────────────────────────┘  │
+│                        │ 新通知                              │
+│  ┌─────────────────────▼──────────────────────────────────┐  │
+│  │  决策引擎                                               │  │
+│  │  • 通知文本解析（正则匹配评分/地址/车费）                  │  │
+│  │  • 区域白名单/黑名单过滤                                 │  │
+│  │  • 接受率管理器                                         │  │
+│  │  • 行为拟人化引擎（延迟/随机化）                          │  │
+│  └─────────────────────┬──────────────────────────────────┘  │
+│                        │ 接单指令                            │
+│  ┌─────────────────────▼──────────────────────────────────┐  │
+│  │  触控仿真器                                             │  │
+│  │  adb shell sendevent（完整 MotionEvent 序列）            │  │
+│  │  • 从设备校准数据中随机采样 pressure/touchMajor 等参数     │  │
+│  │  • 高斯分布坐标偏移                                     │  │
+│  │  • 随机保持时长 50-180ms                                │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  健康监控 + Web 面板 + Telegram 告警                     │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                             │
+│  GPU (RTX 4050): 仅当通知文本不足时回退到截图 PaddleOCR       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3.3 备选架构：方案 C — 混合 APK 架构（如果 dumpsys 不够用）
+
+> 仅当 `dumpsys notification` 无法获取完整订单信息时使用此方案。
+> 注意：此方案的 NotificationListenerService 可被 Uber 检测到，风险更高。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -195,23 +271,170 @@ ACTIVE_WINDOWS = [
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 为什么选择 NotificationListenerService 而非 AccessibilityService
+### 3.4 通知捕获方案对比（修订）
 
-| 对比项 | NotificationListenerService | AccessibilityService |
-|---|---|---|
-| **可被 Uber 检测** | 较难（需要特殊权限才能枚举） | **容易**（任何 App 可通过系统 API 列出已启用的无障碍服务） |
-| **获取通知内容** | 直接获取结构化文本 | 需要拦截 UI 事件 |
-| **所需权限** | 通知访问权限 | 无障碍权限（更敏感） |
-| **Google Play 审查** | 较宽松 | 严格（可能被标记） |
-| **用户感知** | 在"通知管理"设置中 | 在"无障碍"设置中（更显眼） |
+| 对比项 | dumpsys notification (ADB) | NotificationListenerService (APK) | AccessibilityService (APK) |
+|---|---|---|---|
+| **需要安装 APK** | **否** | 是 | 是 |
+| **可被 Uber 检测** | **不可能**（纯 shell 命令） | **可以**（通过 `enabled_notification_listeners` 系统设置） | **容易**（通过 `ENABLED_ACCESSIBILITY_SERVICES`） |
+| **获取通知内容** | 完整文本（需 `--noredact`） | 结构化文本 | 需拦截 UI 事件 |
+| **实时性** | 轮询（~500ms 延迟） | 事件驱动（~0ms） | 事件驱动（~0ms） |
+| **所需权限** | ADB shell（电脑端） | 通知访问（手机端授权） | 无障碍权限（手机端授权） |
+| **稳定性** | 依赖 ADB 连接 | 独立运行 | 独立运行 |
 
-**结论**：NotificationListenerService 用于捕获通知文本，触控执行使用 `sendevent`（不需要 AccessibilityService）。
+**结论**：**首选 `dumpsys notification`**（方案 B+），因为对手机零侵入、Uber 完全不可能检测到。500ms 轮询延迟在 3-8 秒的拟人化总延迟面前可以忽略不计。仅当 dumpsys 输出信息不完整时，再考虑安装 APK。
 
 ---
 
 ## 四、详细模块设计
 
-### 4.1 模块一：通知捕获 APK（安卓端）
+### 4.0 模块零：dumpsys 通知轮询器（推荐方案 B+ 的核心）
+
+**技术栈**：纯 Python，无需安装手机端 APK
+
+```python
+import subprocess
+import re
+import time
+import hashlib
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class UberNotification:
+    key: str               # 通知唯一标识
+    title: str
+    text: str
+    big_text: str
+    sub_text: str
+    timestamp: float       # 发现时间
+    content_hash: str      # 内容指纹（用于去重）
+
+class DumpsysNotificationPoller:
+    """
+    通过 ADB dumpsys 轮询 Uber 通知 — 零设备指纹方案
+
+    原理：
+    - adb shell dumpsys notification --noredact 可以读取所有活跃通知的完整文本
+    - ADB shell 拥有足够权限执行此命令，无需 Root
+    - 通过对比前后两次快照，检测新出现的 Uber 通知
+    """
+
+    # 解析 dumpsys 输出的正则
+    PKG_RE = re.compile(r'pkg=(\S+)')
+    TITLE_RE = re.compile(r'android\.title=String \((.+?)\)')
+    TEXT_RE = re.compile(r'android\.text=String \((.+?)\)')
+    BIG_TEXT_RE = re.compile(r'android\.bigText=String \((.+?)\)')
+    SUB_TEXT_RE = re.compile(r'android\.subText=String \((.+?)\)')
+    KEY_RE = re.compile(r'key=(\S+)')
+
+    def __init__(self, poll_interval: float = 0.5):
+        self.poll_interval = poll_interval
+        self.known_hashes: set[str] = set()  # 已处理过的通知指纹
+        self.on_new_notification = None       # 回调函数
+
+    def _run_dumpsys(self) -> str:
+        """执行 dumpsys notification 命令"""
+        result = subprocess.run(
+            ["adb", "shell", "dumpsys", "notification", "--noredact"],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout
+
+    def _parse_uber_notifications(self, dumpsys_output: str) -> list[UberNotification]:
+        """从 dumpsys 输出中提取 Uber 通知"""
+        notifications = []
+
+        # 按 NotificationRecord 分块
+        blocks = dumpsys_output.split("NotificationRecord")
+
+        for block in blocks:
+            # 只处理 Uber Driver 的通知
+            pkg_match = self.PKG_RE.search(block)
+            if not pkg_match or pkg_match.group(1) != "com.ubercab.driver":
+                continue
+
+            key_match = self.KEY_RE.search(block)
+            title_match = self.TITLE_RE.search(block)
+            text_match = self.TEXT_RE.search(block)
+            big_text_match = self.BIG_TEXT_RE.search(block)
+            sub_text_match = self.SUB_TEXT_RE.search(block)
+
+            title = title_match.group(1) if title_match else ""
+            text = text_match.group(1) if text_match else ""
+            big_text = big_text_match.group(1) if big_text_match else ""
+            sub_text = sub_text_match.group(1) if sub_text_match else ""
+            key = key_match.group(1) if key_match else ""
+
+            # 计算内容指纹
+            content = f"{title}|{text}|{big_text}"
+            content_hash = hashlib.md5(content.encode()).hexdigest()
+
+            notifications.append(UberNotification(
+                key=key,
+                title=title,
+                text=text,
+                big_text=big_text,
+                sub_text=sub_text,
+                timestamp=time.time(),
+                content_hash=content_hash
+            ))
+
+        return notifications
+
+    def poll_once(self) -> list[UberNotification]:
+        """执行一次轮询，返回新发现的通知"""
+        try:
+            output = self._run_dumpsys()
+            current = self._parse_uber_notifications(output)
+
+            new_notifications = []
+            for notif in current:
+                if notif.content_hash not in self.known_hashes:
+                    self.known_hashes.add(notif.content_hash)
+                    new_notifications.append(notif)
+
+            # 防止 known_hashes 无限增长
+            if len(self.known_hashes) > 1000:
+                self.known_hashes = set(list(self.known_hashes)[-500:])
+
+            return new_notifications
+
+        except subprocess.TimeoutExpired:
+            logging.warning("dumpsys 命令超时")
+            return []
+        except Exception as e:
+            logging.error(f"轮询异常: {e}")
+            return []
+
+    async def run_loop(self, callback):
+        """异步轮询主循环"""
+        self.on_new_notification = callback
+        logging.info(f"通知轮询器启动，间隔 {self.poll_interval}s")
+
+        while True:
+            new_notifs = self.poll_once()
+            for notif in new_notifs:
+                logging.info(f"🔔 新 Uber 通知: [{notif.title}] {notif.text}")
+                if self.on_new_notification:
+                    await self.on_new_notification(notif)
+
+            await asyncio.sleep(self.poll_interval)
+```
+
+> **首次校准**：运行以下命令确认你的手机上 dumpsys 能读到 Uber 通知：
+> ```bash
+> # 先让 Uber Driver App 产生一条通知（可以让朋友发一个叫车请求）
+> adb shell dumpsys notification --noredact | grep -A 30 "ubercab.driver"
+> ```
+> 如果输出包含通知标题和文本内容，则方案 B+ 可行。
+> 如果文本被 redact 或缺少关键字段，则需要回退到方案 C（APK 方案）。
+
+---
+
+### 4.1 模块一（备选）：通知捕获 APK（仅当 dumpsys 不够用时）
+
+> **警告**：此方案中的 NotificationListenerService 可被 Uber 通过系统 API 检测到。仅在方案 B+ 不可行时使用。
 
 **技术栈**：Kotlin / Android Studio
 
@@ -1052,7 +1275,8 @@ adb shell dumpsys notification --noredact | grep -A 20 "ubercab"
 |---|---|---|---|
 | 目标延迟 | 1-2 秒 | **3-8 秒** | 1 秒响应在凌晨极不自然，是最大封号风险 |
 | 触控方式 | `adb input tap` | **`adb shell sendevent` 完整事件** | input tap 缺少 pressure/size，一检测一个准 |
-| 文字提取 | VLM 视觉大模型 | **NotificationListenerService 直接读文本** | 快 100 倍、准确率 100%、零 GPU 开销 |
+| 文字提取 | VLM 视觉大模型 | **`dumpsys notification` 直接读文本（无需安装 APK）** | 快 100 倍、准确率 100%、零 GPU 开销、对 Uber 完全不可见 |
+| 设备指纹 | 未考虑 | **零设备侵入：不安装 APK、不 Root、不解锁 Bootloader** | NotificationListenerService 可被 Uber 检测到，dumpsys 不会 |
 | 接单策略 | 只接极品单 | **接受率管理 + 偶尔接普通单 + 偶尔故意放弃好单** | 防止选择性过高触发风控 |
 | 运行时段 | 全天候 | **模拟真人作息的时间窗口** | 凌晨持续活跃是明显的机器人特征 |
 | GPU 使用 | Moondream2 常驻推理 | **仅通知文本不足时回退到 PaddleOCR** | 99% 场景不需要 GPU，省电省资源 |
