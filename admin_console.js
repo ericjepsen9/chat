@@ -14,31 +14,27 @@ const STATUS_MAP = { pending: ['待处理','badge-yellow'], accepted: ['已接�
 function statusBadge(s) { const [label, cls] = STATUS_MAP[s] || [s, 'badge-gray']; return `<span class="badge ${cls}">${esc(label)}</span>`; }
 
 /* ── Auth ── */
-function getToken() {
+// Cache parsed session to avoid 4x localStorage reads + JSON.parse per api() call
+let _cachedAuth = null;
+function _readAuth() {
+  if (_cachedAuth) return _cachedAuth;
   try {
     const raw = localStorage.getItem(ADMIN_SESSION_KEY);
-    if (raw) { const p = JSON.parse(raw); if (p?.token) return p.token; }
+    if (raw) { const p = JSON.parse(raw); if (p?.token) { _cachedAuth = p; return p; } }
     const main = localStorage.getItem(SESSION_KEY);
-    if (main) { const p = JSON.parse(main); if (p?.token) return p.token; }
-    return '';
-  } catch (_) { return ''; }
+    if (main) { const p = JSON.parse(main); if (p?.token) { _cachedAuth = p; return p; } }
+  } catch (_) {}
+  return { token: '', csrfToken: '' };
 }
-function getCsrfToken() {
-  try {
-    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
-    if (raw) { const p = JSON.parse(raw); if (p?.csrfToken) return p.csrfToken; }
-    const main = localStorage.getItem(SESSION_KEY);
-    if (main) { const p = JSON.parse(main); if (p?.csrfToken) return p.csrfToken; }
-    return '';
-  } catch (_) { return ''; }
-}
+function getToken() { return _readAuth().token || ''; }
+function getCsrfToken() { return _readAuth().csrfToken || ''; }
+function clearAuthCache() { _cachedAuth = null; }
 
 async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json', ...opts.headers };
-  const token = getToken();
-  const csrf = getCsrfToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (csrf) headers['X-CSRF-Token'] = csrf;
+  const auth = _readAuth();
+  if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
+  if (auth.csrfToken) headers['X-CSRF-Token'] = auth.csrfToken;
   const res = await fetch(path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -89,6 +85,7 @@ async function doLogin() {
     const data = await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
     if (data.token) {
       localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify({ token: data.token, csrfToken: data.csrfToken || '', userId: data.userId }));
+      clearAuthCache();
       $('loginError').classList.add('hidden');
       showApp();
       initApp();
@@ -108,10 +105,13 @@ const TAB_TITLES = {
   friends: '好友关系', sessions: '会话/在线', msgSearch: '消息搜索', system: '系统信息',
 };
 
+let _navItems = null, _tabPanes = null;
 function switchTab(tab) {
   state.tab = tab;
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
-  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
+  if (!_navItems) _navItems = document.querySelectorAll('.nav-item');
+  if (!_tabPanes) _tabPanes = document.querySelectorAll('.tab-pane');
+  _navItems.forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+  _tabPanes.forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
   $('pageTitle').textContent = TAB_TITLES[tab] || tab;
   loadTabData(tab);
 }
@@ -677,6 +677,7 @@ function initApp() {
   // Logout
   $('logoutBtn').addEventListener('click', () => {
     localStorage.removeItem(ADMIN_SESSION_KEY);
+    clearAuthCache();
     showLogin();
   });
 

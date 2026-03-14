@@ -483,12 +483,15 @@ module.exports = function createAdminExtRoutes(ctx) {
     if (matchRoute(pathname, '/api/admin/badge-counts') && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
-      const pendingOrders = (db.orders || []).filter(o => o.status === 'pending').length;
-      const pendingRequests = (db.friendRequests || []).filter(r => r.status === 'pending').length;
-      const disabledUsers = db.users.filter(u => u.status === 'disabled').length;
-      let onlineCount = 0;
-      for (const [, conns] of sseClientsByUser) { if (conns && conns.size > 0) onlineCount++; }
-      return sendJson(res, 200, { pendingOrders, pendingRequests, disabledUsers, onlineCount });
+      // Single-pass counting instead of .filter().length (avoids 3 temporary array allocations)
+      let pendingOrders = 0;
+      const orders = db.orders || [];
+      for (let i = 0; i < orders.length; i++) { if (orders[i].status === 'pending') pendingOrders++; }
+      let pendingRequests = 0;
+      const reqs = db.friendRequests || [];
+      for (let i = 0; i < reqs.length; i++) { if (reqs[i].status === 'pending') pendingRequests++; }
+      // sseClientsByUser entries with empty Sets are already cleaned up, so .size = online user count
+      return sendJson(res, 200, { pendingOrders, pendingRequests, onlineCount: sseClientsByUser.size });
     }
 
     // ══════════════════════════════════════════
@@ -498,8 +501,6 @@ module.exports = function createAdminExtRoutes(ctx) {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
       const mem = process.memoryUsage();
-      let onlineCount = 0;
-      for (const [, conns] of sseClientsByUser) { if (conns && conns.size > 0) onlineCount++; }
       return sendJson(res, 200, {
         nodeVersion: process.version,
         platform: process.platform,
@@ -510,7 +511,7 @@ module.exports = function createAdminExtRoutes(ctx) {
           heapTotal: Math.round(mem.heapTotal / 1048576),
         },
         activeSessions: sessions.size,
-        onlineUsers: onlineCount,
+        onlineUsers: sseClientsByUser.size,
         dataStats: {
           users: db.users.length,
           orders: (db.orders || []).length,

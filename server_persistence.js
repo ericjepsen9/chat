@@ -18,7 +18,8 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
   };
 
   // WAL write buffer: batch multiple appendWal calls into a single I/O
-  let walBuffer = '';
+  // Use array + join instead of string += to avoid intermediate string allocations
+  let walBufferLines = [];
   let walFlushTimer = null;
 
   function reportError(stage, error) {
@@ -44,9 +45,9 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
   }
 
   function drainWalBuffer() {
-    if (!walBuffer) return;
-    const batch = walBuffer;
-    walBuffer = '';
+    if (!walBufferLines.length) return;
+    const batch = walBufferLines.join('\n') + '\n';
+    walBufferLines = [];
     walFlushTimer = null;
     runWalTask(async () => {
       await fs.promises.appendFile(msgWalFile, batch);
@@ -55,7 +56,7 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
 
   function appendWal(event, payload = {}) {
     const line = JSON.stringify({ ts: Date.now(), event, payload });
-    walBuffer += line + '\n';
+    walBufferLines.push(line);
     if (!walFlushTimer) {
       walFlushTimer = setTimeout(drainWalBuffer, WAL_FLUSH_INTERVAL_MS);
     }

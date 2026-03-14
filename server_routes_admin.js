@@ -162,7 +162,7 @@ module.exports = function createAdminRoutes(ctx) {
         orderStats: {
           asBuyer: buyerOrders.length,
           asSeller: sellerOrders.length,
-          pending: buyerOrders.filter(o => o.status === 'pending').length + sellerOrders.filter(o => o.status === 'pending').length,
+          pending: buyerOrders.reduce((n, o) => n + (o.status === 'pending'), 0) + sellerOrders.reduce((n, o) => n + (o.status === 'pending'), 0),
         },
       });
     }
@@ -461,29 +461,28 @@ module.exports = function createAdminRoutes(ctx) {
       const today = now - (now % dayMs);
 
       let newUsersToday = 0, newOrdersToday = 0, completedOrdersToday = 0;
-      let totalRevenue = 0;
+      let totalRevenue = 0, totalProducts = 0;
       const statusCounts = {};
-      for (const u of db.users) { if ((u.createdAt || 0) >= today) newUsersToday++; }
-      for (const o of (db.orders || [])) {
-        statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
-        if ((o.createdAt || 0) >= today) newOrdersToday++;
-        if (o.status === 'completed') {
-          totalRevenue += Number(o.total) || 0;
-          if ((o.updatedAt || 0) >= today) completedOrdersToday++;
-        }
-      }
 
-      // Activity trend (last 7 days) — single pass over each collection
+      // Merged: today stats + 7-day trend in single pass per collection
       const weekStart = today - 6 * dayMs;
       const trendUsers = new Int32Array(7);
       const trendOrders = new Int32Array(7);
       const trendMsgs = new Int32Array(7);
       for (const u of db.users) {
         const t = u.createdAt || 0;
+        if (t >= today) newUsersToday++;
         if (t >= weekStart) { const d = Math.floor((t - weekStart) / dayMs); if (d >= 0 && d < 7) trendUsers[d]++; }
+        if (Array.isArray(u.products)) totalProducts += u.products.length;
       }
       for (const o of (db.orders || [])) {
+        statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
         const t = o.createdAt || 0;
+        if (t >= today) newOrdersToday++;
+        if (o.status === 'completed') {
+          totalRevenue += Number(o.total) || 0;
+          if ((o.updatedAt || 0) >= today) completedOrdersToday++;
+        }
         if (t >= weekStart) { const d = Math.floor((t - weekStart) / dayMs); if (d >= 0 && d < 7) trendOrders[d]++; }
       }
       for (const m of (db.messages || [])) {
@@ -499,7 +498,7 @@ module.exports = function createAdminRoutes(ctx) {
         overview: {
           totalUsers: db.users.length,
           totalOrders: (db.orders || []).length,
-          totalProducts: db.users.reduce((s, u) => s + (Array.isArray(u.products) ? u.products.length : 0), 0),
+          totalProducts,
           totalMessages: (db.messages || []).length,
           totalConversations: (db.conversations || []).length,
           totalRevenue,
