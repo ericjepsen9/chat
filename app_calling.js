@@ -17,7 +17,7 @@ function _getCallEls() {
   };
   return _callEls;
 }
-function _clearCallEls() { _callEls = null; }
+function _clearCallEls() { _callEls = null; _cachedDurationEl = null; }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && callTimer && !hasActiveCallSession()) {
     clearInterval(callTimer); callTimer = null;

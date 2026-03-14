@@ -72,7 +72,7 @@
 #localVideo { position: absolute; top: max(40px, env(safe-area-inset-top)); right: 20px; width: 110px; height: 160px; object-fit: cover; border-radius: var(--radius-card); box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 102; border: 1px solid rgba(255,255,255,0.2); }
 .call-bottom-area { margin-top: auto; padding-bottom: max(50px, env(safe-area-inset-bottom)); z-index: 101; display:flex; flex-direction:column; gap:30px;}
 .call-controls { display: flex; justify-content: center; gap: 40px; }
-.control-btn { background: transparent; border: none; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: var(--font-caption); opacity: 0.5; transition: all 0.2s; outline:none; cursor:pointer;}
+.control-btn { background: transparent; border: none; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: var(--font-caption); opacity: 0.5; transition: opacity 0.2s, color 0.2s; outline:none; cursor:pointer;}
 .control-btn.active { opacity: 1; color: var(--brand); }
 .call-actions { display: flex; justify-content: space-evenly; width: 100%; }
 .call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer;}

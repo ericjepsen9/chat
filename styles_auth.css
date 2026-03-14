@@ -38,7 +38,7 @@
 .auth-check-row { margin: 20px 0 24px; }
 .auth-checkbox { display: flex; align-items: flex-start; gap: 8px; font-size: var(--font-caption); color: #888; cursor: pointer; line-height: 1.5; }
 .auth-checkbox input { display: none; }
-.auth-checkmark { width: 16px; height: 16px; border: 1.5px solid #d0d0d0; border-radius: 50%; flex-shrink: 0; margin-top: 1px; position: relative; transition: all 0.15s; }
+.auth-checkmark { width: 16px; height: 16px; border: 1.5px solid #d0d0d0; border-radius: 50%; flex-shrink: 0; margin-top: 1px; position: relative; transition: background 0.15s, border-color 0.15s; }
 .auth-checkbox input:checked + .auth-checkmark { border-color: var(--brand); background: var(--brand); }
 .auth-checkbox input:checked + .auth-checkmark::after { content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .auth-checkbox a { color: #576b95; text-decoration: none; }

@@ -38,6 +38,16 @@ const state = {
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 const CATEGORY_SPLIT_RE = /[\/,、]/;
+function _splitCategories(str) {
+  if (!str) return [];
+  const parts = str.split(CATEGORY_SPLIT_RE);
+  const result = [];
+  for (let i = 0; i < parts.length; i++) {
+    const t = parts[i].trim();
+    if (t) result.push(t);
+  }
+  return result;
+}
 const formatOrderId = (id) => String(id || '').slice(-6);
 const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
 const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'processing' || s === 'in_progress') ? ' s-active' : ' s-pending'); };
@@ -440,7 +450,9 @@ function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
   bindOrderListDelegation(list);
   syncOrderFilterInputs(role);
   const rows = (state[ordersKey] || []).filter((o) => orderMatchesFilters(o, role));
-  const sig = rows.map(o => o.id + '|' + o.status + '|' + (o.updatedAt||0)).join(';') + '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
+  let sig = '';
+  for (let i = 0; i < rows.length; i++) { const o = rows[i]; if (i) sig += ';'; sig += o.id + '|' + o.status + '|' + (o.updatedAt||0); }
+  sig += '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
   if (!sigChanged(ordersKey, sig)) return;
   if(!rows.length){ showEmptyState(list, emptyMsg, 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
@@ -468,7 +480,7 @@ function populateSellerCategoryFilter(){
   const cats = new Set();
   (state.sellerProducts || []).forEach(p => {
     if (p.category) {
-      if (!p._parsedCats) p._parsedCats = p.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+      if (!p._parsedCats) p._parsedCats = _splitCategories(p.category);
       p._parsedCats.forEach(c => cats.add(c));
     }
   });
@@ -497,7 +509,7 @@ function getFilteredSellerProducts(){
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
     if (catFilter) {
-      if (!item._parsedCats) item._parsedCats = item.category ? item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean) : [];
+      if (!item._parsedCats) item._parsedCats = _splitCategories(item.category);
       if (!item._parsedCats.includes(catFilter)) return false;
     }
     if (keyword) {
@@ -533,7 +545,9 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
   populateSellerCategoryFilter();
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
-  const sig = products.map(p => p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||'')).join(';') + '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
+  let sig = '';
+  for (let i = 0; i < products.length; i++) { const p = products[i]; if (i) sig += ';'; sig += p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||''); }
+  sig += '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
   if (!sigChanged('sellerProducts', sig)) return;
   if(!products.length){ showEmptyState(list, '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布'), 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
@@ -884,14 +898,17 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
-  const sig = (state.profileStoreItems||[]).map(i => i.id+'|'+(i.listed?'1':'0')+'|'+i.stock+'|'+(i.createdAt||0)).join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
+  const _psi = state.profileStoreItems || [];
+  let sig = '';
+  for (let i = 0; i < _psi.length; i++) { const it = _psi[i]; if (i) sig += ';'; sig += it.id+'|'+(it.listed?'1':'0')+'|'+it.stock+'|'+(it.createdAt||0); }
+  sig += '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
   if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []);
   sortedItems.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Single-pass: cache parsed categories and collect unique categories
   const cats = new Set();
   for (const item of sortedItems) {
-    if (item.category && !item._parsedCats) item._parsedCats = item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+    if (item.category && !item._parsedCats) item._parsedCats = _splitCategories(item.category);
     if (item._parsedCats) for (let ci = 0; ci < item._parsedCats.length; ci++) cats.add(item._parsedCats[ci]);
   }
   // Build category tabs
@@ -4176,7 +4193,7 @@ function bindProductEvents() {
     window.openSecondaryPage('publishProductPage', backTo);
     await loadProductPresets();
     if($("productTitleInput")) $("productTitleInput").value = presetProduct?.title || "";
-    categoryTags.setTags(presetProduct?.category ? presetProduct.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean) : []);
+    categoryTags.setTags(presetProduct?.category ? _splitCategories(presetProduct.category) : []);
     if($("productDescInput")) {
       const baseDesc = String(presetProduct?.desc || '');
       $("productDescInput").value = baseDesc.replace(/\n?\[预计出餐\]\s*\d+分钟/g, "").trim();

@@ -527,6 +527,7 @@
   border-radius: var(--radius-xl);
   padding:12px;
   box-shadow:0 1px 3px rgba(15,23,42,.06);
+  contain:content;
   width:100%;
   text-align:left;
   border:none;
@@ -1432,7 +1433,7 @@
 .preset-header .publish-field-label{margin-bottom:0;}
 .preset-manage-link{background:none;border:none;color:var(--brand);font-size: var(--font-caption);cursor:pointer;padding:0;}
 .preset-chips-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;min-height:28px;}
-.preset-chip{height:30px;padding:0 12px;border-radius:15px;border:1px solid var(--color-border);background:#fff;color:#333;font-size: var(--font-caption);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.preset-chip{height:30px;padding:0 12px;border-radius:15px;border:1px solid var(--color-border);background:#fff;color:#333;font-size: var(--font-caption);cursor:pointer;transition:background .15s,color .15s,border-color .15s;white-space:nowrap;}
 .preset-chip.selected{background:var(--brand);color:#fff;border-color:var(--brand);}
 .preset-chip:active{opacity:.7;}
 
@@ -1594,7 +1595,7 @@
   font-size: var(--font-body-sm);
   font-weight:500;
   cursor:pointer;
-  transition:all .15s;
+  transition:border-color .15s,color .15s,background .15s;
 }
 .sp-tab.active{
   border-color:var(--brand);
@@ -1662,6 +1663,7 @@
   box-shadow:0 1px 3px rgba(0,0,0,.06);
   cursor:pointer;
   transition:transform .12s;
+  contain:content;
 }
 .sp-card:active{transform:scale(.985);}
 .sp-card-img{
@@ -1736,7 +1738,7 @@
   font-size: var(--font-micro);
   font-weight:500;
   cursor:pointer;
-  transition:all .15s;
+  transition:background .15s;
 }
 .sp-action-btn:active{background:#f9fafb;}
 .sp-action-btn.accent{
@@ -1911,7 +1913,7 @@
   font-weight:600;
   box-shadow:0 1px 3px rgba(0,0,0,.06);
   cursor:pointer;
-  transition:all .2s;
+  transition:background .2s,color .2s;
 }
 .order-filter-toggle.active{
   background:var(--brand);
@@ -1970,7 +1972,7 @@
   padding:6px 14px;
   line-height:1;
   cursor:pointer;
-  transition:all .15s;
+  transition:border-color .15s,color .15s,background .15s,transform .15s;
 }
 .order-filter-chip:active{
   transform:scale(.95);
@@ -2002,7 +2004,7 @@
   text-align:left;
   padding:0 10px;
   cursor:pointer;
-  transition:all .15s;
+  transition:background .15s;
 }
 .order-date-btn:active{
   background:var(--color-gray-light);

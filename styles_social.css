@@ -435,7 +435,7 @@
   display:flex;
   align-items:center;
   justify-content:center;
-  transition:all .15s;
+  transition:background .15s,border-color .15s;
 }
 .ccp-friend-row.selected .ccp-check{
   background:var(--brand);
@@ -600,7 +600,7 @@
   font-weight:600;
   white-space:nowrap;
   cursor:pointer;
-  transition:all .15s;
+  transition:background .15s;
 }
 .settings-code-btn:active{
   background:#ecfdf5;
