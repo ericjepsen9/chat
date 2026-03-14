@@ -112,12 +112,10 @@ module.exports = function createAdminRoutes(ctx) {
       const filtered = needFilter ? db.users.filter(u => {
         if (statusFilter && (u.status || 'active') !== statusFilter) return false;
         if (roleFilter && (u.role || 'user') !== roleFilter) return false;
-        if (q && !(
-          (u.username || '').toLowerCase().includes(q) ||
-          (u.displayName || '').toLowerCase().includes(q) ||
-          (u.phone || '').includes(q) ||
-          (u.appNumberId || '').toLowerCase().includes(q)
-        )) return false;
+        if (q) {
+          const st = u._adminSearchText || (u._adminSearchText = ((u.username || '') + ' ' + (u.displayName || '') + ' ' + (u.phone || '') + ' ' + (u.appNumberId || '')).toLowerCase());
+          if (!st.includes(q)) return false;
+        }
         return true;
       }) : db.users;
       const result = slicePage(filtered, offset, limit);
@@ -306,7 +304,10 @@ module.exports = function createAdminRoutes(ctx) {
           const p = src[pi];
           if (listedFilter === 'true' && !p.listed) continue;
           if (listedFilter === 'false' && p.listed !== false) continue;
-          if (q && !(p.title || '').toLowerCase().includes(q) && !(p.sellerName || '').toLowerCase().includes(q) && !(p.category || '').toLowerCase().includes(q)) continue;
+          if (q) {
+            const st = p._adminSearchText || (p._adminSearchText = ((p.title || '') + ' ' + (p.sellerName || '') + ' ' + (p.category || '')).toLowerCase());
+            if (!st.includes(q)) continue;
+          }
           allProducts.push(p);
         }
       }

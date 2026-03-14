@@ -27,7 +27,8 @@ document.addEventListener('visibilitychange', () => {
     callTimer = setInterval(updateCallDuration, 1000);
   }
 });
-function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); const el = _getCallEls().callDuration; if(el) el.textContent = `${m}:${s}`; }
+let _cachedDurationEl = null;
+function updateCallDuration() { if(!callStartTime) return; const diff = Math.floor((Date.now() - callStartTime) / 1000); const m = String(Math.floor(diff / 60)).padStart(2, '0'); const s = String(diff % 60).padStart(2, '0'); if(!_cachedDurationEl) _cachedDurationEl = _getCallEls().callDuration; if(_cachedDurationEl) _cachedDurationEl.textContent = `${m}:${s}`; }
 function scheduleConnectTimeout(){
   clearTimeout(connectTimeoutTimer);
   connectTimeoutTimer = setTimeout(() => {
@@ -40,6 +41,7 @@ function clearAllCallTimers(){
   clearTimeout(outgoingTimeoutTimer); outgoingTimeoutTimer = null;
   clearTimeout(incomingTimeoutTimer); incomingTimeoutTimer = null;
   clearTimeout(connectTimeoutTimer); connectTimeoutTimer = null;
+  _cachedDurationEl = null;
 }
 function describeMediaAccessError(err, mode) {
   const name = err && err.name ? err.name : '';

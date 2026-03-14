@@ -492,9 +492,9 @@ const _previewByType = { image: '[图片]', audio: '[语音]', order_card: '[订
 function buildConversationMeta(conv, userId) {
   const ver = _convMetaVersion.get(conv.id) || 0;
   const lastRead = conv.lastRead?.[userId] || 0;
-  const cacheKey = `${conv.id}:${userId}:${ver}:${lastRead}`;
+  const cacheKey = `${conv.id}:${userId}:${ver}`;
   const cached = _convMetaCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && cached._lastRead === lastRead) return cached;
 
   const list = index.messagesByConv.get(conv.id) || [];
   let unread = 0;
@@ -517,12 +517,12 @@ function buildConversationMeta(conv, userId) {
     if (msg.createdAt > lastRead && msg.senderId !== userId) unread += 1;
     if (foundPreview && msg.createdAt <= lastRead) break;
   }
-  const result = { preview, unread, lastMessageAt };
+  const result = { preview, unread, lastMessageAt, _lastRead: lastRead };
   _convMetaCache.set(cacheKey, result);
-  // Keep cache bounded — evict oldest entries if too large
+  // Keep cache bounded — batch evict oldest entries
   if (_convMetaCache.size > 5000) {
-    const iter = _convMetaCache.keys();
-    for (let i = 0; i < 1000; i++) _convMetaCache.delete(iter.next().value);
+    const keys = Array.from(_convMetaCache.keys());
+    for (let i = 0; i < 1000; i++) _convMetaCache.delete(keys[i]);
   }
   return result;
 }
@@ -901,8 +901,8 @@ const server = http.createServer(async (req, res) => {
         const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
         _staticEtagCache.set(filePath, etag);
         if (_staticEtagCache.size > STATIC_ETAG_CACHE_MAX) {
-          const first = _staticEtagCache.keys().next().value;
-          _staticEtagCache.delete(first);
+          const keys = Array.from(_staticEtagCache.keys());
+          for (let ei = 0; ei < 20 && ei < keys.length; ei++) _staticEtagCache.delete(keys[ei]);
         }
         // Re-check after stat in case file changed
         if (ifNoneMatch && ifNoneMatch === etag) {

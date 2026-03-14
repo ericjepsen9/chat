@@ -1870,17 +1870,15 @@ function findMessageIndex(msg) {
   if (!msg) return -1;
   const byId = state.messagesById.get(msg.id);
   if (byId !== undefined && byId < state.messages.length && state.messages[byId]?.id === msg.id) return byId;
-  // Fallback: linear scan (handles index drift after splice)
+  // Single combined scan: check both id and clientMessageId in one pass
+  const hasCmid = !!msg.clientMessageId;
+  let cmidMatch = -1;
   for (let i = 0; i < state.messages.length; i++) {
-    if (state.messages[i].id === msg.id) { state.messagesById.set(msg.id, i); return i; }
+    const m = state.messages[i];
+    if (m.id === msg.id) { state.messagesById.set(msg.id, i); return i; }
+    if (hasCmid && cmidMatch < 0 && m.clientMessageId === msg.clientMessageId && m.senderId === msg.senderId) cmidMatch = i;
   }
-  if (msg.clientMessageId) {
-    for (let i = 0; i < state.messages.length; i++) {
-      const m = state.messages[i];
-      if (m.clientMessageId && m.clientMessageId === msg.clientMessageId && m.senderId === msg.senderId) return i;
-    }
-  }
-  return -1;
+  return cmidMatch;
 }
 function upsertMessage(msg) {
   const idx = findMessageIndex(msg);
@@ -6121,15 +6119,18 @@ const renderSidebar = safeRender(function renderSidebar() {
   if (state.sidebarMode === 'hidden') return;
   ensureSidebarDelegation();
 
-  const convs = (state.conversations || []).filter(c => !c.synthetic && !c.syntheticType);
-  const visible = convs.filter(c => {
+  const visible = [];
+  for (const c of (state.conversations || [])) {
+    if (c.synthetic || c.syntheticType) continue;
     const clearedAt = getConversationClearedAt(c);
-    return !(clearedAt && (c.lastMessageAt || 0) <= clearedAt && !(c.unread > 0));
-  });
+    if (clearedAt && (c.lastMessageAt || 0) <= clearedAt && !(c.unread > 0)) continue;
+    visible.push(c);
+  }
 
-  let sig = '';
-  for (const c of visible) sig += c.id + ':' + (c.unread||0) + ':' + (c.preview||'') + ':' + (c.peerAvatarUrl||'') + ':' + (c.title||'') + ';';
-  sig += (state.activeConversation?.id || '') + ':' + state.sidebarMode;
+  const sigParts = [];
+  for (const c of visible) sigParts.push(c.id, ':', c.unread||0, ':', c.preview||'', ':', c.peerAvatarUrl||'', ':', c.title||'', ';');
+  sigParts.push(state.activeConversation?.id || '', ':', state.sidebarMode);
+  const sig = sigParts.join('');
   if (sig === _sidebarSignature) return;
   _sidebarSignature = sig;
 

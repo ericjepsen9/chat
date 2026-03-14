@@ -140,6 +140,7 @@ window.doRevokeSession = async function(userId) {
    ONLINE USERS
    ═══════════════════════════════════════ */
 async function loadOnlineUsers() {
+  if (document.hidden) return;
   try {
     const data = await api('/api/admin/online');
     const items = data.items || [];
