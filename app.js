@@ -525,8 +525,8 @@ function getFilteredSellerProducts(){
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
     if (catFilter) {
-      if (!item._parsedCats) item._parsedCats = _splitCategories(item.category);
-      if (!item._parsedCats.includes(catFilter)) return false;
+      if (!item._parsedCatsSet) item._parsedCatsSet = new Set(_splitCategories(item.category));
+      if (!item._parsedCatsSet.has(catFilter)) return false;
     }
     if (keyword) {
       if (!(item._searchText || (item._searchText = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase())).includes(keyword)) return false;
@@ -969,7 +969,7 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   }
   // Filter by category
   const allItems = state.profileStoreCategoryFilter
-    ? sortedItems.filter(item => item._parsedCats && item._parsedCats.includes(state.profileStoreCategoryFilter))
+    ? sortedItems.filter(item => item._parsedCatsSet && item._parsedCatsSet.has(state.profileStoreCategoryFilter))
     : sortedItems;
   if(title) title.textContent = `在售商品 ${allItems.length}`;
   if(!allItems.length){
@@ -1223,7 +1223,7 @@ function renderProfileCartPage(){
   }
 
   const updateTotals = () => {
-    const count = currentCart.reduce((s, i) => s + (Number(i.quantity)||0), 0);
+    let count = 0; for (let ci = 0; ci < currentCart.length; ci++) count += Number(currentCart[ci].quantity) || 0;
     setText("profileCartSummaryText", `${count} 件商品`);
     setText("profileCartPageTotal", formatMoney(getProfileCartTotal()));
   };
@@ -3457,7 +3457,7 @@ async function startScanCamera(){
 }
 function stopScanCamera(keepVideoHidden = false){
   if (state.scanLoopTimer) { clearTimeout(state.scanLoopTimer); state.scanLoopTimer = null; }
-  if (state.scanStream) { try { state.scanStream.getTracks().forEach(t => t.stop()); } catch(_) {} }
+  if (state.scanStream) { try { const trks = state.scanStream.getTracks(); for (let i = 0; i < trks.length; i++) trks[i].stop(); } catch(_) {} }
   state.scanStream = null;
   const video = $('scanVideo');
   if (video) {
@@ -5123,11 +5123,11 @@ function bindChatEvents() {
               }
           };
           state.mediaRecorder.start();
-      } catch(err) { setText("pttBtn", "按住 说话"); if (_pttStream) try { _pttStream.getTracks().forEach(t => t.stop()); } catch(_) {} showModal("无录音权限"); }
+      } catch(err) { setText("pttBtn", "按住 说话"); if (_pttStream) try { const trks = _pttStream.getTracks(); for (let i = 0; i < trks.length; i++) trks[i].stop(); } catch(_) {} showModal("无录音权限"); }
   });
   const stopPttRecording = () => {
       if($("pttBtn")) { $("pttBtn").textContent = "按住 说话"; $("pttBtn").style.background = "#fff"; }
-      if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') { state.mediaRecorder.stop(); state.mediaRecorder.stream.getTracks().forEach(t => t.stop()); }
+      if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') { state.mediaRecorder.stop(); const trks = state.mediaRecorder.stream.getTracks(); for (let i = 0; i < trks.length; i++) trks[i].stop(); }
   };
   on("pttBtn", "touchend", (e) => { e.preventDefault(); stopPttRecording(); });
   on("pttBtn", "touchcancel", (e) => { e.preventDefault(); stopPttRecording(); });

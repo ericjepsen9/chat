@@ -542,8 +542,8 @@ function reconcileList(container, items, opts) {
       if (children[i] !== orderedNodes[i]) { needsOrderUpdate = true; break; }
     }
   }
-  if (needsOrderUpdate) container.replaceChildren(...orderedNodes);
-  else existingNodes.forEach(n => n.remove());
+  if (needsOrderUpdate) { container.replaceChildren(); for (let i = 0; i < orderedNodes.length; i++) container.appendChild(orderedNodes[i]); }
+  else { for (let i = existingNodes.length - 1; i >= 0; i--) existingNodes[i].remove(); }
   return nextSigs;
 }
 

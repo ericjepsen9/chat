@@ -163,7 +163,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     stockUpdates[si++] = { sellerProduct, nextStock: currentStock - neededQty };
   }
 
-  const total = clampOrderTotal(normalized.reduce((sum, item) => sum + item.price * item.quantity, 0));
+  let _sum = 0; for (let ti = 0; ti < normalized.length; ti++) _sum += normalized[ti].price * normalized[ti].quantity;
+  const total = clampOrderTotal(_sum);
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
   const order = {

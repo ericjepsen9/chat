@@ -314,7 +314,8 @@ window.stopCall = () => {
     try { state.rtc.pc.onicecandidate = null; state.rtc.pc.ontrack = null; state.rtc.pc.onconnectionstatechange = null; state.rtc.pc.oniceconnectionstatechange = null; } catch(_) {}
     state.rtc.pc.close();
   }
-  if (state.rtc.localStream) state.rtc.localStream.getTracks().forEach(t => t.stop()); if (state.rtc.remoteStream) state.rtc.remoteStream.getTracks().forEach(t => t.stop());
+  if (state.rtc.localStream) { const trks = state.rtc.localStream.getTracks(); for (let i = 0; i < trks.length; i++) trks[i].stop(); }
+  if (state.rtc.remoteStream) { const trks = state.rtc.remoteStream.getTracks(); for (let i = 0; i < trks.length; i++) trks[i].stop(); }
   const convId = state.activeConversation?.id || state.rtc?.conversationId || null;
   state.rtc = { pc: null, mode: null, peerId: null, pendingOffer: null, incomingMeta: null, pendingAccept: false, earlyCandidates: [], phase: 'idle', endingLocally: false, conversationId: null, callId: null, lastEndedCallId: endedCallId, incomingShownKey: null, localStream: null, remoteStream: null, remoteCandidateQueue: [], _accepting: false, _starting: false };
   const els = _getCallEls();
@@ -341,14 +342,14 @@ async function createPeerConnection(mode) {
   const _pcEls = _getCallEls();
   if(_pcEls.remoteVideo) _pcEls.remoteVideo.srcObject = state.rtc.remoteStream;
   if(_pcEls.localVideo) _pcEls.localVideo.srcObject = stream;
-  stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+  { const trks = stream.getTracks(); for (let i = 0; i < trks.length; i++) pc.addTrack(trks[i], stream); }
   pc.onicecandidate = async (e) => {
     if (e.candidate && state.rtc.peerId && state.rtc.conversationId) {
       enqueueSignal(state.rtc.conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: state.rtc.peerId, mode, callId: state.rtc.callId, signal: { type: 'candidate', candidate: e.candidate } });
     }
   };
   pc.ontrack = (e) => {
-    e.streams[0].getTracks().forEach((t) => state.rtc.remoteStream.addTrack(t));
+    { const trks = e.streams[0].getTracks(); for (let i = 0; i < trks.length; i++) state.rtc.remoteStream.addTrack(trks[i]); }
     if (state.rtc.phase !== 'connected') {
       clearTimeout(connectTimeoutTimer); connectTimeoutTimer = null;
       setRtcPhase('connected');
@@ -493,8 +494,8 @@ window.__onNativeCallAction = (action, callerId, callerName, conversationId, cal
     // blocking on network; messages will load lazily in the background.
     window.openConversation(conversationId, { skipFetch: true }).then(() => {
       // If the pendingOffer already arrived via SSE, auto-click accept now
-      if (state.rtc.pendingOffer && state.rtc.pendingAccept && _getCallEls().acceptCallBtn) {
-        _getCallEls().acceptCallBtn.click();
+      if (state.rtc.pendingOffer && state.rtc.pendingAccept) {
+        const _els = _getCallEls(); if (_els.acceptCallBtn) _els.acceptCallBtn.click();
       }
     }).catch(() => {});
   } else if (action === 'reject_call') {

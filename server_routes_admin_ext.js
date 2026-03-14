@@ -131,11 +131,15 @@ module.exports = function createAdminExtRoutes(ctx) {
       if (idx !== -1) db.users.splice(idx, 1);
       // Remove friendships involving this user
       if (Array.isArray(db.friendships)) {
-        db.friendships = db.friendships.filter(f => f.userId !== userId && f.friendId !== userId);
+        for (let i = db.friendships.length - 1; i >= 0; i--) {
+          const f = db.friendships[i]; if (f.userId === userId || f.friendId === userId) db.friendships.splice(i, 1);
+        }
       }
       // Remove friend requests involving this user
       if (Array.isArray(db.friendRequests)) {
-        db.friendRequests = db.friendRequests.filter(r => r.userId !== userId && r.targetId !== userId);
+        for (let i = db.friendRequests.length - 1; i >= 0; i--) {
+          const r = db.friendRequests[i]; if (r.userId === userId || r.targetId === userId) db.friendRequests.splice(i, 1);
+        }
       }
       // Revoke sessions
       revokeSessionsForUser(userId);
