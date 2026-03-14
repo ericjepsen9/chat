@@ -28,22 +28,33 @@ function writeSession(user, token, csrfToken) {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ user, token: nextToken, csrfToken: nextCsrf, savedAt: Date.now(), loginAt }));
   state.sessionToken = nextToken;
   state.csrfToken = nextCsrf;
+  startSessionExpiryCheck();
 }
 // Session expiry: auto-logout after 7 days or on 401
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+let _sessionExpiryTimer = null;
 function checkSessionExpiry() {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return;
+    if (!raw) { stopSessionExpiryCheck(); return; }
     const parsed = JSON.parse(raw);
     if (parsed && (parsed.loginAt || parsed.savedAt) && (Date.now() - (parsed.loginAt || parsed.savedAt) > SESSION_MAX_AGE_MS)) {
       localStorage.removeItem(SESSION_KEY);
+      stopSessionExpiryCheck();
       showToast('登录已过期，请重新登录');
       setTimeout(() => location.reload(), 1500);
     }
   } catch (_) {}
 }
-setInterval(checkSessionExpiry, 60 * 1000);
+function startSessionExpiryCheck() {
+  if (_sessionExpiryTimer) return;
+  _sessionExpiryTimer = setInterval(checkSessionExpiry, 60 * 1000);
+}
+function stopSessionExpiryCheck() {
+  if (_sessionExpiryTimer) { clearInterval(_sessionExpiryTimer); _sessionExpiryTimer = null; }
+}
+// Only start polling if a session exists
+if (localStorage.getItem(SESSION_KEY)) startSessionExpiryCheck();
 
 const on = (id, ev, fn) => {
     const el = $(id);
