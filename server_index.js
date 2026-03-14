@@ -68,6 +68,7 @@ function rebuildMallIndex() {
       product.sellerName = sellerName;
       product.sellerAvatarUrl = sellerAvatarUrl;
       product.sellerAppNumberId = sellerAppNumberId;
+      product._adminSearchText = null; // Invalidate cached admin search text on rebuild
       ownerMap.set(product.id, user);
       byId.set(product.id, product);
       allProducts.push(product);

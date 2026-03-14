@@ -469,9 +469,12 @@ function updateSellerProductsFilterUI(){
   const unlistedTab = $("sellerProductsUnlistedTab");
   if (listedTab) listedTab.classList.toggle('active', state.sellerProductViewTab !== 'unlisted');
   if (unlistedTab) unlistedTab.classList.toggle('active', state.sellerProductViewTab === 'unlisted');
-  if ($("sellerProductsSearchInput")) $("sellerProductsSearchInput").value = state.sellerProductSearch || '';
-  if ($("sellerProductsSortSelect")) $("sellerProductsSortSelect").value = state.sellerProductSort || 'newest';
-  if ($("sellerProductsCategoryFilter")) $("sellerProductsCategoryFilter").value = state.sellerProductCategoryFilter || '';
+  const _spSearch = $("sellerProductsSearchInput");
+  const _spSort = $("sellerProductsSortSelect");
+  const _spCatFilt = $("sellerProductsCategoryFilter");
+  if (_spSearch) _spSearch.value = state.sellerProductSearch || '';
+  if (_spSort) _spSort.value = state.sellerProductSort || 'newest';
+  if (_spCatFilt) _spCatFilt.value = state.sellerProductCategoryFilter || '';
 }
 
 function populateSellerCategoryFilter(){
@@ -623,13 +626,16 @@ function openProductDetail(item, fromSeller = false){
   toggleEl("productDetailChatBtn", 'hidden', showSellerControls);
   // Disable buy/cart buttons when out of stock
   const outOfStock = stock <= 0;
-  if($("productDetailBuyNowBtn")) $("productDetailBuyNowBtn").disabled = outOfStock;
-  if($("productDetailAddCartBtn")) $("productDetailAddCartBtn").disabled = outOfStock;
+  const _pdBuyBtn = $("productDetailBuyNowBtn");
+  const _pdCartBtn = $("productDetailAddCartBtn");
+  if(_pdBuyBtn) _pdBuyBtn.disabled = outOfStock;
+  if(_pdCartBtn) _pdCartBtn.disabled = outOfStock;
   // Show seller management buttons on detail page for own products
   toggleEl("productDetailSellerActions", 'hidden', !showSellerControls);
-  if(showSellerControls && $("productDetailListedBtn")) {
-    $("productDetailListedBtn").textContent = item.listed === false ? '上架' : '下架';
-    $("productDetailListedBtn").className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
+  const _pdListedBtn = $("productDetailListedBtn");
+  if(showSellerControls && _pdListedBtn) {
+    _pdListedBtn.textContent = item.listed === false ? '上架' : '下架';
+    _pdListedBtn.className = 'sp-action-btn' + (item.listed === false ? ' accent' : '');
   }
   window.openSecondaryPage('productDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
 }
@@ -1039,7 +1045,8 @@ function openProductSpecSheet(item, mode = 'cart'){
   state.specSheetMode = mode;
   const specs = Array.isArray(item.specs) && item.specs.length ? item.specs : ['默认规格'];
   state.selectedProfileSpec = specs[0];
-  if($("specSheetImage")) $("specSheetImage").src = normalizeMediaUrl(item.image || item.imageUrl) || '';
+  const _ssImg = $("specSheetImage");
+  if(_ssImg) _ssImg.src = normalizeMediaUrl(item.image || item.imageUrl) || '';
   setText("specSheetTitle", item.title || '商品');
   setText("specSheetDesc", item.desc || '商品详情页包含图片、文字与价格');
   setText("specSheetPrice", formatMoney(item.price));
@@ -1063,15 +1070,19 @@ function openProductSpecSheet(item, mode = 'cart'){
   }
   // Reset quantity UI
   setText("specSheetQtyNum", '1');
-  if($("specSheetQtyMinus")) $("specSheetQtyMinus").disabled = true;
+  const _ssQtyMinus = $("specSheetQtyMinus");
+  if(_ssQtyMinus) _ssQtyMinus.disabled = true;
   // Toggle cart vs buy-now buttons
   toggleEl("confirmAddToCartBtn", 'hidden', mode === 'buyNow');
   toggleEl("confirmBuyNowBtn", 'hidden', mode !== 'buyNow');
   // Disable action buttons when out of stock
   const specSheetStock = getItemAvailableStock(item);
-  if($("confirmAddToCartBtn")) $("confirmAddToCartBtn").disabled = specSheetStock <= 0;
-  if($("confirmBuyNowBtn")) $("confirmBuyNowBtn").disabled = specSheetStock <= 0;
-  if($("specSheetQtyPlus")) $("specSheetQtyPlus").disabled = specSheetStock <= 0;
+  const _ssAddCart = $("confirmAddToCartBtn");
+  const _ssBuyNow = $("confirmBuyNowBtn");
+  const _ssQtyPlus = $("specSheetQtyPlus");
+  if(_ssAddCart) _ssAddCart.disabled = specSheetStock <= 0;
+  if(_ssBuyNow) _ssBuyNow.disabled = specSheetStock <= 0;
+  if(_ssQtyPlus) _ssQtyPlus.disabled = specSheetStock <= 0;
   showEl("productSpecSheet");
 }
 
@@ -1626,11 +1637,13 @@ async function sendContactCardInChat(){
   if(!peerId) return;
   await loadFriends(true);
   state._ccpSelectedFriend = null;
-  if ($("ccpSearchInput")) $("ccpSearchInput").value = '';
+  const _ccpInput = $("ccpSearchInput");
+  if (_ccpInput) _ccpInput.value = '';
   hideEl("ccpConfirmBar");
   renderContactCardPicker();
   window.openSecondaryPage('contactCardPickerPage', 'chat');
-  if ($("chatTitle")) $("chatTitle").textContent = '选择名片';
+  const _chatTitleEl = $("chatTitle");
+  if (_chatTitleEl) _chatTitleEl.textContent = '选择名片';
 }
 
 async function sendProductCardInChat(){

@@ -360,52 +360,58 @@ module.exports = function createAdminExtRoutes(ctx) {
     if (matchRoute(pathname, '/api/admin/export/users') && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
-      const rows = [['ID', '用户名', '昵称', '手机号', 'APP号', '角色', '状态', '商品数', '注册时间'].join(',')];
-      for (const u of db.users) {
-        rows.push([
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="users_export.csv"',
+        'Transfer-Encoding': 'chunked',
+      });
+      // Stream CSV to avoid building large string in memory
+      res.write('\uFEFF' + 'ID,用户名,昵称,手机号,APP号,角色,状态,商品数,注册时间\n');
+      const users = db.users;
+      for (let i = 0; i < users.length; i++) {
+        const u = users[i];
+        res.write([
           u.id, u.username, csvField(u.displayName),
           u.phone || '', u.appNumberId || '', u.role || 'user', u.status || 'active',
           Array.isArray(u.products) ? u.products.length : 0,
           u.createdAt ? new Date(u.createdAt).toISOString() : '',
-        ].join(','));
+        ].join(',') + '\n');
       }
-      const csv = rows.join('\n');
-      res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="users_export.csv"',
-      });
-      res.end('\uFEFF' + csv); // BOM for Excel
+      res.end();
       return true;
     }
 
     if (matchRoute(pathname, '/api/admin/export/orders') && method === 'GET') {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
-      const rows = [['订单号', '买家', '卖家', '金额', '状态', '商品摘要', '备注', '创建时间', '更新时间'].join(',')];
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="orders_export.csv"',
+        'Transfer-Encoding': 'chunked',
+      });
+      // Stream CSV to avoid large string allocation
+      res.write('\uFEFF' + '订单号,买家,卖家,金额,状态,商品摘要,备注,创建时间,更新时间\n');
       const exportNameCache = new Map();
-      for (const o of (db.orders || [])) {
+      const orders = db.orders || [];
+      for (let oi = 0; oi < orders.length; oi++) {
+        const o = orders[oi];
         let buyerName = exportNameCache.get(o.buyerId);
         if (buyerName === undefined) { const u = index.usersById.get(o.buyerId); buyerName = u?.displayName || o.buyerId; exportNameCache.set(o.buyerId, buyerName); }
         let sellerName = exportNameCache.get(o.sellerId);
         if (sellerName === undefined) { const u = index.usersById.get(o.sellerId); sellerName = u?.displayName || o.sellerId; exportNameCache.set(o.sellerId, sellerName); }
         const items = o.items || [];
         const parts = new Array(items.length);
-        for (let j = 0; j < items.length; j++) parts[j] = `${items[j].title}×${items[j].quantity}`;
-        rows.push([
+        for (let j = 0; j < items.length; j++) parts[j] = items[j].title + '×' + items[j].quantity;
+        res.write([
           o.id, buyerName, sellerName,
           Number(o.total) || 0, o.status || '',
           csvField(parts.join('; ')),
           csvField(o.remark),
           o.createdAt ? new Date(o.createdAt).toISOString() : '',
           o.updatedAt ? new Date(o.updatedAt).toISOString() : '',
-        ].join(','));
+        ].join(',') + '\n');
       }
-      const csv = rows.join('\n');
-      res.writeHead(200, {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': 'attachment; filename="orders_export.csv"',
-      });
-      res.end('\uFEFF' + csv);
+      res.end();
       return true;
     }
 

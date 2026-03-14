@@ -43,12 +43,12 @@
 
 /* 下拉与上下文菜单 */
 .popover-overlay { position: fixed; inset: 0; z-index: 999; background: transparent; }
-.popover-menu { position: absolute; top: 60px; right: 12px; background: #4c4c4c; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 1000; width: 140px; }
+.popover-menu { position: absolute; top: 60px; right: 12px; background: #4c4c4c; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 1000; width: 140px; contain: layout style paint; }
 .popover-menu::before { content: ''; position: absolute; top: -6px; right: 16px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 6px solid #4c4c4c; }
 .popover-menu button { background: transparent; color: #fff; border: none; padding: 14px 16px; font-size: 15px; text-align: left; border-bottom: 0.5px solid rgba(255,255,255,0.1); outline: none; cursor: pointer; }
 .popover-menu button:last-child { border-bottom: none; }
 
-.context-menu { position: absolute; background: #4c4c4c; border-radius: 8px; display: flex; gap: 1px; padding: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.context-menu { position: absolute; background: #4c4c4c; border-radius: 8px; display: flex; gap: 1px; padding: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.2); contain: layout style paint; }
 .context-menu button { background: transparent; color: #fff; border: none; padding: 8px 16px; font-size: var(--font-body-sm); outline:none; }
 .context-menu button:active { background: #666; border-radius: 4px; }
 .image-viewer { position: absolute; inset: 0; background: rgba(0,0,0,1); z-index: 99999; display: flex; justify-content: center; align-items: center; contain: layout style paint; }

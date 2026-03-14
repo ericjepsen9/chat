@@ -167,8 +167,9 @@ module.exports = function createAdminRoutes(ctx) {
         friendCount: friendships.length,
         orderStats: (() => {
           let pending = 0;
-          for (let oi = 0; oi < buyerOrders.length; oi++) if (buyerOrders[oi].status === 'pending') pending++;
-          for (let oi = 0; oi < sellerOrders.length; oi++) if (sellerOrders[oi].status === 'pending') pending++;
+          // Combined single pass over both buyer and seller orders
+          const combined = [buyerOrders, sellerOrders];
+          for (let ci = 0; ci < 2; ci++) { const arr = combined[ci]; for (let oi = 0; oi < arr.length; oi++) if (arr[oi].status === 'pending') pending++; }
           return { asBuyer: buyerOrders.length, asSeller: sellerOrders.length, pending };
         })(),
       });
@@ -234,11 +235,11 @@ module.exports = function createAdminRoutes(ctx) {
         } : null;
         filtered = allOrders.filter(o => {
           if (statusFilter && o.status !== statusFilter) return false;
-          if (q && !(
-            (o.id || '').toLowerCase().includes(q) ||
-            getUserNames(o.buyerId).includes(q) ||
-            getUserNames(o.sellerId).includes(q)
-          )) return false;
+          if (q) {
+            // Use cached lowercase id to avoid repeated toLowerCase
+            const lid = o._lcId || (o._lcId = (o.id || '').toLowerCase());
+            if (!(lid.includes(q) || getUserNames(o.buyerId).includes(q) || getUserNames(o.sellerId).includes(q))) return false;
+          }
           return true;
         });
       } else {
@@ -440,12 +441,12 @@ module.exports = function createAdminRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const { limit, offset } = paginate(searchParams);
       const msgs = index.messagesByConv.get(convId) || [];
-      // Messages are stored chronologically; iterate in reverse for newest-first without full copy+sort
+      // Messages are stored chronologically; use slice+reverse for newest-first (avoids per-element loop)
       const total = msgs.length;
-      const start = total - 1 - offset;
-      const pageItems = [];
-      for (let mi = start; mi >= 0 && pageItems.length < limit; mi--) pageItems.push(msgs[mi]);
-      const result = { items: pageItems, total, hasMore: start - limit >= 0 };
+      const endIdx = total - offset;           // exclusive upper bound
+      const startIdx = Math.max(0, endIdx - limit);  // inclusive lower bound
+      const pageItems = endIdx > 0 ? msgs.slice(startIdx, endIdx).reverse() : [];
+      const result = { items: pageItems, total, hasMore: startIdx > 0 };
       // Transform in-place to avoid .map() allocation
       const mItems = result.items;
       for (let mi = 0; mi < mItems.length; mi++) {

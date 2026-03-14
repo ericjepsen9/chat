@@ -459,7 +459,10 @@ function isMessageVisibleToUser(msg, conv, userId) {
   if (msg.createdAt <= clearedAt) return false;
   if (msg._deletedBySet) return !msg._deletedBySet.has(userId);
   const deletedBy = msg.deletedBy;
-  return !deletedBy || !deletedBy.length || !deletedBy.includes(userId);
+  if (!deletedBy || !deletedBy.length) return true;
+  // Lazily promote to Set for O(1) subsequent lookups on messages with many deletions
+  if (deletedBy.length > 4) { msg._deletedBySet = new Set(deletedBy); return !msg._deletedBySet.has(userId); }
+  return !deletedBy.includes(userId);
 }
 
 function getVisibleMessagesSlice(conv, userId, before = 0, limit = 30) {
@@ -519,11 +522,13 @@ function buildConversationMeta(conv, userId) {
   }
   const result = { preview, unread, lastMessageAt, _lastRead: lastRead };
   _convMetaCache.set(cacheKey, result);
-  // Incremental eviction: remove small batches starting earlier to avoid sudden large purges
+  // Incremental eviction: bulk-collect then delete to avoid iterator invalidation overhead
   if (_convMetaCache.size > 4500) {
     const excess = _convMetaCache.size - 4000;
+    const keysToDelete = [];
     const iter = _convMetaCache.keys();
-    for (let i = 0; i < excess; i++) { const k = iter.next(); if (k.done) break; _convMetaCache.delete(k.value); }
+    for (let i = 0; i < excess; i++) { const k = iter.next(); if (k.done) break; keysToDelete.push(k.value); }
+    for (let i = 0; i < keysToDelete.length; i++) _convMetaCache.delete(keysToDelete[i]);
   }
   return result;
 }
@@ -540,9 +545,11 @@ const sessionsByUserId = new Map();
 
 function issueSession(userId, ttlMs = SESSION_TTL_MS) {
   const token = crypto.randomBytes(24).toString('hex');
-  sessions.set(token, { userId, createdAt: Date.now(), expiresAt: Date.now() + ttlMs });
-  if (!sessionsByUserId.has(userId)) sessionsByUserId.set(userId, new Set());
-  sessionsByUserId.get(userId).add(token);
+  const now = Date.now();
+  sessions.set(token, { userId, createdAt: now, expiresAt: now + ttlMs });
+  let userSessions = sessionsByUserId.get(userId);
+  if (!userSessions) { userSessions = new Set(); sessionsByUserId.set(userId, userSessions); }
+  userSessions.add(token);
   return token;
 }
 
@@ -905,9 +912,11 @@ const server = http.createServer(async (req, res) => {
         const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
         _staticEtagCache.set(filePath, etag);
         if (_staticEtagCache.size > STATIC_ETAG_CACHE_MAX) {
-          // Incremental eviction — remove oldest 10 entries
+          // Bulk eviction — collect oldest 10 keys then delete
+          const keysToEvict = [];
           const iter = _staticEtagCache.keys();
-          for (let ei = 0; ei < 10; ei++) { const k = iter.next(); if (k.done) break; _staticEtagCache.delete(k.value); }
+          for (let ei = 0; ei < 10; ei++) { const k = iter.next(); if (k.done) break; keysToEvict.push(k.value); }
+          for (let ei = 0; ei < keysToEvict.length; ei++) _staticEtagCache.delete(keysToEvict[ei]);
         }
         // Re-check after stat in case file changed
         if (ifNoneMatch && ifNoneMatch === etag) {

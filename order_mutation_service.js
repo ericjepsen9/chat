@@ -115,9 +115,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   for (const p of (seller.products || [])) {
     const pid = String(p.id || '');
     productById.set(pid, p);
-    if (Array.isArray(p.specs)) {
-      const specSet = new Set();
-      for (let si = 0; si < p.specs.length; si++) { if (p.specs[si]) specSet.add(p.specs[si]); }
+    if (Array.isArray(p.specs) && p.specs.length) {
+      const specSet = new Set(p.specs.filter(Boolean));
       if (specSet.size) specSetByProduct.set(pid, specSet);
     }
   }
@@ -153,14 +152,15 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     );
   }
 
-  // Validate stock availability before any mutations
-  const stockUpdates = [];
+  // Validate stock availability before any mutations (productId is already a string from productById keys)
+  const stockUpdates = new Array(neededByProduct.size);
+  let si = 0;
   for (const [productId, neededQty] of neededByProduct.entries()) {
-    const sellerProduct = productById.get(String(productId));
+    const sellerProduct = productById.get(productId);
     if (!sellerProduct) return { ok: false, status: 404, error: 'product_not_found' };
     const currentStock = Math.max(0, Math.floor(Number(sellerProduct.stock ?? 0)));
     if (currentStock < neededQty) return { ok: false, status: 409, error: 'insufficient_stock' };
-    stockUpdates.push({ sellerProduct, nextStock: currentStock - neededQty });
+    stockUpdates[si++] = { sellerProduct, nextStock: currentStock - neededQty };
   }
 
   const total = clampOrderTotal(normalized.reduce((sum, item) => sum + item.price * item.quantity, 0));

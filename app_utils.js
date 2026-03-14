@@ -176,15 +176,7 @@ function showModal(msg, onOk) {
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = '_appModal';
-    overlay.innerHTML =
-      '<div class="app-modal-mask"></div>' +
-      '<div class="app-modal-box">' +
-        '<div class="app-modal-body"></div>' +
-        '<div class="app-modal-footer">' +
-          '<button class="app-modal-cancel" style="display:none">取消</button>' +
-          '<button class="app-modal-ok">确定</button>' +
-        '</div>' +
-      '</div>';
+    overlay.innerHTML = '<div class="app-modal-mask"></div><div class="app-modal-box"><div class="app-modal-body"></div><div class="app-modal-footer"><button class="app-modal-cancel" style="display:none">取消</button><button class="app-modal-ok">确定</button></div></div>';
     document.body.appendChild(overlay);
     // Style
     const s = document.createElement('style');
@@ -468,10 +460,13 @@ const _SIG_CACHE_MAX = 500;
 function sigChanged(key, newSig) {
   if (_sigCache.get(key) === newSig) return false;
   _sigCache.set(key, newSig);
-  // Prune oldest entries when cache exceeds limit
+  // Prune oldest entries when cache exceeds limit — bulk collect then delete
   if (_sigCache.size > _SIG_CACHE_MAX) {
+    const excess = _sigCache.size - _SIG_CACHE_MAX;
+    const toDelete = [];
     const it = _sigCache.keys();
-    for (let i = _sigCache.size - _SIG_CACHE_MAX; i > 0; i--) _sigCache.delete(it.next().value);
+    for (let i = 0; i < excess; i++) toDelete.push(it.next().value);
+    for (let i = 0; i < toDelete.length; i++) _sigCache.delete(toDelete[i]);
   }
   return true;
 }

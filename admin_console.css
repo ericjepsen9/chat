@@ -8,8 +8,8 @@ body{font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;background:
 .login-title{font-size:22px;font-weight:800}
 .login-subtitle{font-size:13px;color:#64748b;margin:6px 0 24px}
 .login-error{background:#fef2f2;color:#dc2626;padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:14px}
-.login-card input{width:100%;height:46px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 14px;font-size:15px;margin-bottom:12px;outline:none;transition:border .2s}
-.login-card input:focus{border-color:#667eea}
+.login-card input{width:100%;height:46px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 14px;font-size:15px;margin-bottom:12px;outline:none;transition:border-color .2s,box-shadow .2s}
+.login-card input:focus{border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,.15)}
 
 /* ── App Shell ── */
 .app-shell{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
@@ -78,8 +78,8 @@ body{font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;background:
 
 /* ── Toolbar ── */
 .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-.search-input{flex:1;min-width:200px;height:40px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 14px;font-size:14px;outline:none;transition:border .2s}
-.search-input:focus{border-color:#3b82f6}
+.search-input{flex:1;min-width:200px;height:40px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 14px;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
+.search-input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
 .filter-sel{height:40px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 10px;font-size:13px;background:#fff;outline:none;min-width:110px;cursor:pointer}
 
 /* ── Table ── */
@@ -122,13 +122,13 @@ body{font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif;background:
 /* ── Form ── */
 .form-group{margin-bottom:14px}
 .form-group label{display:block;font-size:12px;font-weight:700;color:#64748b;margin-bottom:4px}
-.form-group input,.form-group textarea,.form-group select{width:100%;height:40px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 12px;font-size:14px;outline:none;transition:border .2s}
+.form-group input,.form-group textarea,.form-group select{width:100%;height:40px;border:1.5px solid #e2e8f0;border-radius:10px;padding:0 12px;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s}
 .form-group textarea{height:auto;min-height:80px;padding:10px 12px;resize:vertical}
-.form-group input:focus,.form-group textarea:focus{border-color:#3b82f6}
+.form-group input:focus,.form-group textarea:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
 .form-actions{display:flex;gap:10px;margin-top:16px}
 
 /* ── Modal ── */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;contain:layout style}
 .modal-box{background:#fff;border-radius:16px;width:600px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 48px rgba(0,0,0,.15)}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #e5e7eb}
 .modal-head h2{font-size:17px;font-weight:800}

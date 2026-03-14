@@ -141,7 +141,7 @@ input, textarea { font-size: var(--font-body); }
 .qq-group-header { padding: 14px 16px; background: #fff; font-size: var(--font-body); border-bottom: 0.5px solid var(--line); display: flex; align-items: center; cursor: pointer; user-select: none; font-weight: 500; line-height: 1.35; }
 .qq-group-header::before { content: '▶'; display: inline-block; margin-right: 8px; font-size: 10px; color: #b2b2b2; transition: transform 0.2s; }
 .qq-group-header.expanded::before { transform: rotate(90deg); }
-.qq-group-content { display: none; background: #fafafa; }
+.qq-group-content { display: none; background: #fafafa; content-visibility: auto; }
 .qq-group-content.expanded { display: block; }
 
 /* 商城与卡片 */
