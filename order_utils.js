@@ -1,5 +1,10 @@
 function formatOrderSummary(items = []) {
-  return items.map((item) => `${item.title}(${item.spec}) x${item.quantity}`).join('，');
+  const parts = new Array(items.length);
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    parts[i] = `${item.title}(${item.spec}) x${item.quantity}`;
+  }
+  return parts.join('，');
 }
 
 function normalizeText(value, maxLen) {

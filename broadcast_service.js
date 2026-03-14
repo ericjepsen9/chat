@@ -1,9 +1,11 @@
 const { normalizeText } = require('./order_utils');
 
+const RE_HTTP_URL = /^https?:\/\//i;
+
 function normalizeCoverUrl(value) {
   const url = String(value || '').trim().slice(0, 512);
   if (!url) return '';
-  if (/^https?:\/\//i.test(url) || url.startsWith('/uploads/')) return url;
+  if (RE_HTTP_URL.test(url) || url.startsWith('/uploads/')) return url;
   return '';
 }
 

@@ -1,9 +1,11 @@
 const { normalizeText } = require('./order_utils');
 
+const RE_HTTP_URL = /^https?:\/\//i;
+
 function isValidMediaUrl(value) {
   const url = String(value || '').trim();
   if (!url) return false;
-  return /^https?:\/\//i.test(url) || url.startsWith('/uploads/');
+  return RE_HTTP_URL.test(url) || url.startsWith('/uploads/');
 }
 
 function normalizeStock(value) {
@@ -27,9 +29,16 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
   const category = normalizeText(body.category, 24);
   const desc = normalizeText(body.desc, 500);
   const price = normalizeText(body.price, 24);
-  const specs = Array.isArray(body.specs)
-    ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
-    : [];
+  let specs;
+  if (Array.isArray(body.specs)) {
+    specs = [];
+    for (let i = 0; i < body.specs.length && specs.length < 12; i++) {
+      const s = normalizeText(body.specs[i], 24);
+      if (s) specs.push(s);
+    }
+  } else {
+    specs = [];
+  }
   const stock = normalizeStock(body.stock);
   const image = String(body.image || '').trim().slice(0, 512);
   if (!title || !price || !image) {
@@ -120,9 +129,16 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
     product.image = image;
   }
   if (body.specs !== undefined) {
-    product.specs = Array.isArray(body.specs)
-      ? body.specs.map((s) => normalizeText(s, 24)).filter(Boolean).slice(0, 12)
-      : [];
+    if (Array.isArray(body.specs)) {
+      const normSpecs = [];
+      for (let i = 0; i < body.specs.length && normSpecs.length < 12; i++) {
+        const s = normalizeText(body.specs[i], 24);
+        if (s) normSpecs.push(s);
+      }
+      product.specs = normSpecs;
+    } else {
+      product.specs = [];
+    }
   }
   if (body.listed !== undefined) {
     product.listed = normalizeListed(body.listed, product.listed !== false);

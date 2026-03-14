@@ -2,6 +2,7 @@
 
 const RE_USER_PROFILE = /(?:\/api)?\/users\/([^/]+)\/profile$/;
 const RE_USER_STORE = /^\/api\/users\/([^/]+)\/store$/;
+const RE_CODE_4DIGIT = /^\d{4}$/;
 
 module.exports = function createUserRoutes(ctx) {
   const {
@@ -60,7 +61,7 @@ module.exports = function createUserRoutes(ctx) {
       const phone = normalizePhone(context.body.phone || '');
       const code = String(context.body.code || '').trim();
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
-      if (!/^\d{4}$/.test(code)) return sendJson(res, 400, { error: '验证码错误' });
+      if (!RE_CODE_4DIGIT.test(code)) return sendJson(res, 400, { error: '验证码错误' });
       const verify = consumePhoneCode(phone, code, 'reset');
       if (!verify.ok) {
         const statusCode = verify.retryAfterSec ? 429 : 400;

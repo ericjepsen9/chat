@@ -1,10 +1,12 @@
 const { normalizeText } = require('./order_utils');
 
+const RE_HTTP_URL = /^https?:\/\//i;
+
 function normalizeAvatarUrl(value) {
   if (value === null || value === undefined || value === '') return null;
   const url = String(value).trim().slice(0, 512);
   if (!url) return null;
-  if (/^https?:\/\//i.test(url) || url.startsWith('/uploads/')) return url;
+  if (RE_HTTP_URL.test(url) || url.startsWith('/uploads/')) return url;
   return null;
 }
 
@@ -14,7 +16,7 @@ function normalizePaymentCodes(value) {
   const keep = (v) => {
     const t = String(v || '').trim().slice(0, 512);
     if (!t) return '';
-    if (/^https?:\/\//i.test(t) || t.startsWith('/uploads/')) return t;
+    if (RE_HTTP_URL.test(t) || t.startsWith('/uploads/')) return t;
     return '';
   };
   return {

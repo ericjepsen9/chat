@@ -178,8 +178,9 @@ function openSqliteStore(sqliteFilePath, jsonFilePath, defaultSnapshotFactory) {
       if (Array.isArray(snap.products) && snap.products.length) {
         const bySeller = new Map();
         for (const p of snap.products) {
-          if (!bySeller.has(p.sellerId)) bySeller.set(p.sellerId, []);
-          bySeller.get(p.sellerId).push(p);
+          let arr = bySeller.get(p.sellerId);
+          if (!arr) { arr = []; bySeller.set(p.sellerId, arr); }
+          arr.push(p);
         }
         for (const u of snap.users) {
           const arr = bySeller.get(u.id);

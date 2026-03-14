@@ -246,9 +246,10 @@ module.exports = function createAdminExtRoutes(ctx) {
       const { limit, offset } = paginate(searchParams);
       const statusFilter = searchParams.get('status') || '';
       // Filter first, then sort only the smaller filtered set
-      let requests = db.friendRequests || [];
-      if (statusFilter) requests = requests.filter(r => r.status === statusFilter);
-      else requests = requests.slice();
+      const rawRequests = db.friendRequests || [];
+      let requests = statusFilter
+        ? rawRequests.filter(r => r.status === statusFilter)
+        : rawRequests.slice();
       requests.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const result = slicePage(requests, offset, limit);
       result.items = result.items.map(r => {
@@ -460,11 +461,18 @@ module.exports = function createAdminExtRoutes(ctx) {
             nameCache.set(m.senderId, senderName);
           }
           const conv = index.convById.get(m.conversationId);
-          const memberNames = conv ? (conv.members || []).map(mid => {
-            let n = nameCache.get(mid);
-            if (n === undefined) { const u = index.usersById.get(mid); n = u?.displayName || mid; nameCache.set(mid, n); }
-            return n;
-          }).join(' ↔ ') : '';
+          let memberNames = '';
+          if (conv) {
+            const members = conv.members || [];
+            const names = new Array(members.length);
+            for (let j = 0; j < members.length; j++) {
+              const mid = members[j];
+              let n = nameCache.get(mid);
+              if (n === undefined) { const u = index.usersById.get(mid); n = u?.displayName || mid; nameCache.set(mid, n); }
+              names[j] = n;
+            }
+            memberNames = names.join(' ↔ ');
+          }
           results.push({
             id: m.id, text: m.text, type: m.type,
             senderId: m.senderId, senderName,

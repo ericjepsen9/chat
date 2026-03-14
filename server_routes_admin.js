@@ -160,12 +160,12 @@ module.exports = function createAdminRoutes(ctx) {
           stock: p.stock, listed: !!p.listed, category: p.category, createdAt: p.createdAt,
         })),
         friendCount: friendships.length,
-        orderStats: {
-          asBuyer: buyerOrders.length,
-          asSeller: sellerOrders.length,
-          pending: buyerOrders.reduce((n, o) => n + (o.status === 'pending'), 0)
-                 + sellerOrders.reduce((n, o) => n + (o.status === 'pending'), 0),
-        },
+        orderStats: (() => {
+          let pending = 0;
+          for (let oi = 0; oi < buyerOrders.length; oi++) if (buyerOrders[oi].status === 'pending') pending++;
+          for (let oi = 0; oi < sellerOrders.length; oi++) if (sellerOrders[oi].status === 'pending') pending++;
+          return { asBuyer: buyerOrders.length, asSeller: sellerOrders.length, pending };
+        })(),
       });
     }
 
@@ -242,7 +242,7 @@ module.exports = function createAdminRoutes(ctx) {
           buyerName: buyer?.displayName || o.buyerId,
           sellerName: seller?.displayName || o.sellerId,
           itemCount: (o.items || []).length,
-          summary: (o.items || []).map(i => `${i.title}×${i.quantity}`).join('，'),
+          summary: (() => { const items = o.items || []; const p = new Array(items.length); for (let si = 0; si < items.length; si++) p[si] = `${items[si].title}×${items[si].quantity}`; return p.join('，'); })(),
           remark: o.remark || '',
           createdAt: o.createdAt, updatedAt: o.updatedAt,
         };

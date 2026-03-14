@@ -1,6 +1,7 @@
 const { formatOrderSummary, findOrderById } = require('./order_utils');
 
 const MAX_ORDER_TOTAL = 10_000_000; // 1000万 upper bound for order totals
+const RE_NON_NUMERIC = /[^\d.]/g;
 
 function clampOrderTotal(value) {
   const num = Number(value ?? 0);
@@ -8,7 +9,7 @@ function clampOrderTotal(value) {
 }
 
 function parseProductPrice(value) {
-  const cleaned = String(value ?? '').replace(/[^\d.]/g, '');
+  const cleaned = String(value ?? '').replace(RE_NON_NUMERIC, '');
   const num = Number(cleaned);
   return Number.isFinite(num) ? Math.max(0, num) : 0;
 }
@@ -179,9 +180,9 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   };
 
   // Apply stock deduction and order insertion together after all validation passes
-  stockUpdates.forEach(({ sellerProduct, nextStock }) => {
-    sellerProduct.stock = nextStock;
-  });
+  for (let i = 0; i < stockUpdates.length; i++) {
+    stockUpdates[i].sellerProduct.stock = stockUpdates[i].nextStock;
+  }
   db.orders.unshift(order);
   if (ordersById) ordersById.set(order.id, order);
   if (order.buyerId) addToMapArray(ordersByBuyer, order.buyerId, order);
@@ -323,10 +324,11 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
   const requestedTotal = clampOrderTotal(body.total);
+  const nowPr = Date.now();
   order.pendingPrice = requestedTotal;
   order.pendingPriceRequestedBy = authUser.id;
-  order.updatedAt = Date.now();
-  order._lastPriceRequestAt = Date.now();
+  order.updatedAt = nowPr;
+  order._lastPriceRequestAt = nowPr;
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
   addTradeMessage(conv.id, {
     senderId: authUser.id,

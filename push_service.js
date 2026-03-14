@@ -74,11 +74,16 @@ async function pushToUser(userId, payload) {
     .update(stringToSign).digest('base64');
   params.Signature = signature;
 
-  return new Promise((resolve) => {
-    const postData = Object.keys(params)
-      .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`)
-      .join('&');
+  // Reuse sorted keys to build postData (signature is appended, so rebuild with all params)
+  const allKeys = Object.keys(params).sort();
+  const postParts = new Array(allKeys.length);
+  for (let i = 0; i < allKeys.length; i++) {
+    const k = allKeys[i];
+    postParts[i] = `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`;
+  }
+  const postData = postParts.join('&');
 
+  return new Promise((resolve) => {
     const req = https.request({
       hostname: EMAS_ENDPOINT,
       path: '/',
@@ -89,13 +94,13 @@ async function pushToUser(userId, payload) {
       },
       timeout: 5000,
     }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => {
         if (res.statusCode === 200) {
           resolve(true);
         } else {
-          console.warn('[push] EMAS push failed:', res.statusCode, data);
+          console.warn('[push] EMAS push failed:', res.statusCode, Buffer.concat(chunks).toString());
           resolve(false);
         }
       });
