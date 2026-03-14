@@ -504,6 +504,9 @@
   will-change:transform;
   touch-action: pan-y;
 }
+.chat-swipe-content.swipe-dragging{
+  transition:none;
+}
 .chat-swipe-row.revealed .chat-swipe-content{
   transform:translateX(-156px);
 }

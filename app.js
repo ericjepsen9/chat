@@ -452,7 +452,10 @@ function populateSellerCategoryFilter(){
   // Collect categories from seller's own products + presets
   const cats = new Set();
   (state.sellerProducts || []).forEach(p => {
-    if (p.category) p.category.split(CATEGORY_SPLIT_RE).forEach(c => { const t = c.trim(); if (t) cats.add(t); });
+    if (p.category) {
+      if (!p._parsedCats) p._parsedCats = p.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+      p._parsedCats.forEach(c => cats.add(c));
+    }
   });
   // Also merge from presets if loaded
   (state._sellerCategoryPresets || []).forEach(c => cats.add(c));
@@ -479,10 +482,8 @@ function getFilteredSellerProducts(){
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
     if (catFilter) {
-      const parts = (item.category || '').split(CATEGORY_SPLIT_RE);
-      let catMatch = false;
-      for (let j = 0; j < parts.length; j++) { if (parts[j].trim() === catFilter) { catMatch = true; break; } }
-      if (!catMatch) return false;
+      if (!item._parsedCats) item._parsedCats = item.category ? item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean) : [];
+      if (!item._parsedCats.includes(catFilter)) return false;
     }
     if (keyword) {
       const hay = `${item.title || ''} ${item.category || ''} ${item.desc || ''}`.toLowerCase();
@@ -858,16 +859,15 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   const sig = (state.profileStoreItems||[]).map(i => i.id+'|'+(i.listed?'1':'0')+'|'+i.stock+'|'+(i.createdAt||0)).join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
   if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  // Pre-parse categories once for reuse in tabs + filtering
-  const parsedCats = new Map();
+  // Use cached parsed categories to avoid repeated regex splitting
   for (const item of sortedItems) {
-    if (item.category) parsedCats.set(item, item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean));
+    if (item.category && !item._parsedCats) item._parsedCats = item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean);
   }
   // Build category tabs
   const catTabsEl = $("profileStoreCategoryTabs");
   if (catTabsEl) {
     const cats = new Set();
-    for (const arr of parsedCats.values()) arr.forEach(c => cats.add(c));
+    for (const item of sortedItems) if (item._parsedCats) item._parsedCats.forEach(c => cats.add(c));
     catTabsEl.replaceChildren();
     if (cats.size > 0) {
       if (!catTabsEl.dataset.delegated) {
@@ -893,7 +893,7 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   }
   // Filter by category
   const allItems = state.profileStoreCategoryFilter
-    ? sortedItems.filter(item => { const arr = parsedCats.get(item); return arr && arr.includes(state.profileStoreCategoryFilter); })
+    ? sortedItems.filter(item => item._parsedCats && item._parsedCats.includes(state.profileStoreCategoryFilter))
     : sortedItems;
   if(title) title.textContent = `在售商品 ${allItems.length}`;
   if(!allItems.length){
@@ -2398,9 +2398,8 @@ function createEmptyChatListNode() {
 function closeConversationSwipeRows(exceptWrap = null) {
   const list = $("chatList");
   if (!list) return;
-  const rows = list.getElementsByClassName('revealed');
-  // Iterate backwards since removing 'revealed' class mutates live collection
-  for (let i = rows.length - 1; i >= 0; i--) {
+  const rows = list.querySelectorAll('.revealed');
+  for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (exceptWrap && row === exceptWrap) continue;
     row.classList.remove('revealed');
@@ -2411,7 +2410,13 @@ function bindConversationSwipeDismiss(){
   const list = $("chatList");
   if (!list || list.dataset.swipeDismissBound === '1') return;
   list.dataset.swipeDismissBound = '1';
-  list.addEventListener('scroll', () => closeConversationSwipeRows(), { passive: true });
+  let _swipeScrollThrottled = false;
+  list.addEventListener('scroll', () => {
+    if (_swipeScrollThrottled) return;
+    _swipeScrollThrottled = true;
+    setTimeout(() => { _swipeScrollThrottled = false; }, 150);
+    closeConversationSwipeRows();
+  }, { passive: true });
   list.addEventListener('click', (e) => {
     if (!e.target.closest('.chat-swipe-row')) closeConversationSwipeRows();
     // Delegated conversation item click
@@ -2506,7 +2511,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
       const base = wasRevealed ? -actionWidth : 0;
       const raw = base + dx;
       const clamped = Math.max(-actionWidth, Math.min(0, raw));
-      content.style.transition = 'none';
+      content.classList.add('swipe-dragging');
       content.style.transform = `translateX(${clamped}px)`;
     }
   };
@@ -2514,7 +2519,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
   const finish = (x, y) => {
     if (!tracking) return;
     tracking = false;
-    content.style.transition = '';
+    content.classList.remove('swipe-dragging');
     content.style.transform = '';
     const dx = dragDx || (x - startX);
     const dy = y - startY;
@@ -5302,8 +5307,7 @@ function bindSearchAndEmojiEvents() {
   function clearSearchHighlights() {
     const cv = $("chatView");
     if (!cv) return;
-    const marks = cv.getElementsByClassName('search-highlight');
-    // Iterate backwards since DOM mutates during replacement
+    const marks = cv.querySelectorAll('.search-highlight');
     for (let i = marks.length - 1; i >= 0; i--) {
       const el = marks[i];
       const parent = el.parentNode;
@@ -5343,7 +5347,6 @@ function bindSearchAndEmojiEvents() {
             range.setStart(node, idx);
             range.setEnd(node, idx + keyword.length);
             const mark = createEl('span', 'search-highlight');
-            mark.style.cssText = 'background:#b4efc8;padding:0 1px;border-radius:2px;';
             range.surroundContents(mark);
             matches.push(mark);
           });
@@ -5642,7 +5645,7 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     const keyword = $("friendSearchInput") ? $("friendSearchInput").value.trim().toLowerCase() : "";
     const data = await api(`/api/friends?userId=${encodeURIComponent(state.currentUser.id)}`);
     let filteredFriends = data.friends;
-    if (keyword) filteredFriends = filteredFriends.filter(f => f.friend && ((f.friend.displayName || '').toLowerCase().includes(keyword) || (f.friend.username || '').toLowerCase().includes(keyword)));
+    if (keyword) filteredFriends = filteredFriends.filter(f => { const b = f.friend; if (!b) return false; return (b._lcName || (b._lcName = (b.displayName || '').toLowerCase())).includes(keyword) || (b._lcUser || (b._lcUser = (b.username || '').toLowerCase())).includes(keyword); });
     state.friends = data.friends;
     state.friendsById = new Map();
     for (const f of data.friends) if (f.friend?.id) state.friendsById.set(f.friend.id, f);
