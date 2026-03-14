@@ -4,10 +4,17 @@ const ADMIN_PAGE_LIMIT = 50;
 const AUDIT_LOG_MAX = 200;
 const adminAuditLog = []; // in-memory ring buffer
 
-// CSV helper: escape a field value once (avoids repeated .replace() calls)
+// CSV helper: single-scan approach — check all special chars in one pass
 function csvField(val) {
   const s = String(val ?? '');
-  return s.indexOf('"') !== -1 ? `"${s.replace(/"/g, '""')}"` : s.indexOf(',') !== -1 || s.indexOf('\n') !== -1 ? `"${s}"` : s;
+  let hasQuote = false, needsQuote = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    if (ch === 34) { hasQuote = true; needsQuote = true; break; } // '"'
+    if (ch === 44 || ch === 10) { needsQuote = true; } // ',' or '\n'
+  }
+  if (!needsQuote) return s;
+  return hasQuote ? `"${s.replace(/"/g, '""')}"` : `"${s}"`;
 }
 
 // Pre-compiled route regexes
@@ -370,12 +377,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       const users = db.users;
       for (let i = 0; i < users.length; i++) {
         const u = users[i];
-        res.write([
-          u.id, u.username, csvField(u.displayName),
-          u.phone || '', u.appNumberId || '', u.role || 'user', u.status || 'active',
-          Array.isArray(u.products) ? u.products.length : 0,
-          u.createdAt ? new Date(u.createdAt).toISOString() : '',
-        ].join(',') + '\n');
+        res.write(`${u.id},${u.username},${csvField(u.displayName)},${u.phone || ''},${u.appNumberId || ''},${u.role || 'user'},${u.status || 'active'},${Array.isArray(u.products) ? u.products.length : 0},${u.createdAt ? new Date(u.createdAt).toISOString() : ''}\n`);
       }
       res.end();
       return true;
@@ -402,14 +404,7 @@ module.exports = function createAdminExtRoutes(ctx) {
         const items = o.items || [];
         const parts = new Array(items.length);
         for (let j = 0; j < items.length; j++) parts[j] = items[j].title + '×' + items[j].quantity;
-        res.write([
-          o.id, buyerName, sellerName,
-          Number(o.total) || 0, o.status || '',
-          csvField(parts.join('; ')),
-          csvField(o.remark),
-          o.createdAt ? new Date(o.createdAt).toISOString() : '',
-          o.updatedAt ? new Date(o.updatedAt).toISOString() : '',
-        ].join(',') + '\n');
+        res.write(`${o.id},${buyerName},${sellerName},${Number(o.total) || 0},${o.status || ''},${csvField(parts.join('; '))},${csvField(o.remark)},${o.createdAt ? new Date(o.createdAt).toISOString() : ''},${o.updatedAt ? new Date(o.updatedAt).toISOString() : ''}\n`);
       }
       res.end();
       return true;

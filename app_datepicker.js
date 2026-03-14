@@ -60,7 +60,13 @@ function dpGetSelectedIndex(col) {
 
 function dpHighlight(col, items, key) {
   const idx = dpGetSelectedIndex(col);
-  const allItems = key ? (_dp.itemNodes[key] || []) : Array.from(col.querySelectorAll('.dp-item:not(.dp-pad)'));
+  // Cache querySelectorAll result into itemNodes when falling back, to avoid re-scanning DOM
+  let allItems;
+  if (key) {
+    allItems = _dp.itemNodes[key] || [];
+  } else {
+    allItems = Array.from(col.querySelectorAll('.dp-item:not(.dp-pad)'));
+  }
   allItems.forEach((el, i) => {
     el.classList.toggle('selected', i === idx);
   });

@@ -29,12 +29,23 @@ function createFriendRequest({
   if (areFriends(authUser.id, target.id)) {
     return { ok: false, status: 409, error: 'already_friends' };
   }
-  const existingPending = (index.requestsByTarget.get(target.id) || []).find((r) => r.userId === authUser.id && r.status === 'pending');
+  // For-loop with early break instead of .find() — avoids scanning full array
+  const targetRequests = index.requestsByTarget.get(target.id) || [];
+  let existingPending = null;
+  for (let i = 0; i < targetRequests.length; i++) {
+    const r = targetRequests[i];
+    if (r.userId === authUser.id && r.status === 'pending') { existingPending = r; break; }
+  }
   if (existingPending) {
     return { ok: false, status: 409, error: 'request_pending' };
   }
   // Check for reverse pending request — auto-accept if target already sent request to authUser
-  const reversePending = (index.requestsByTarget.get(authUser.id) || []).find((r) => r.userId === target.id && r.status === 'pending');
+  const authRequests = index.requestsByTarget.get(authUser.id) || [];
+  let reversePending = null;
+  for (let i = 0; i < authRequests.length; i++) {
+    const r = authRequests[i];
+    if (r.userId === target.id && r.status === 'pending') { reversePending = r; break; }
+  }
   if (reversePending) {
     reversePending.status = 'accepted';
     if (!index.friendshipByPair.has(`${authUser.id}:${target.id}`)) {

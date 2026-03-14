@@ -197,16 +197,18 @@ window.applyOrderDateFilter = function() {
    ═══════════════════════════════════════ */
 const _origApi = api;
 let _loadingCount = 0;
+let _loadingEl = null;
 
 function showLoading() {
   _loadingCount++;
-  let el = $('globalLoading');
+  let el = _loadingEl || $('globalLoading');
   if (!el) {
     el = document.createElement('div');
     el.id = 'globalLoading';
     el.className = 'global-loading';
     el.innerHTML = '<div class="loading-bar"></div>';
     document.body.appendChild(el);
+    _loadingEl = el;
   }
   el.classList.remove('hidden');
 }
@@ -214,8 +216,8 @@ function showLoading() {
 function hideLoading() {
   _loadingCount = Math.max(0, _loadingCount - 1);
   if (_loadingCount === 0) {
-    const el = $('globalLoading');
-    if (el) el.classList.add('hidden');
+    if (!_loadingEl) _loadingEl = $('globalLoading');
+    if (_loadingEl) _loadingEl.classList.add('hidden');
   }
 }
 

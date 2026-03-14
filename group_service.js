@@ -56,8 +56,12 @@ function deleteGroup({ authUser, groupNameRaw, defaultGroup, normalizeSingleGrou
   const groupName = normalizeSingleGroupName(groupNameRaw);
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_delete_default_group' };
   if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
-  if (authUser.customGroups.indexOf(groupName) === -1) return { ok: false, status: 404, error: 'not_found' };
-  authUser.customGroups = normalizeUserCustomGroups(authUser.customGroups.filter((name) => name !== groupName));
+  const groupIdx = authUser.customGroups.indexOf(groupName);
+  if (groupIdx === -1) return { ok: false, status: 404, error: 'not_found' };
+  // Splice + normalizeUserCustomGroups avoids allocating a full .filter() copy
+  const nextGroups = authUser.customGroups.slice();
+  nextGroups.splice(groupIdx, 1);
+  authUser.customGroups = normalizeUserCustomGroups(nextGroups);
   for (const rel of friendshipsByUser.get(authUser.id) || []) {
     if (rel.group === groupName) rel.group = defaultGroup;
   }

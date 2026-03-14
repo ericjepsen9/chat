@@ -85,9 +85,11 @@ function createProduct({ authUser, body, uid, rebuildMallIndex, schedulePersist,
 }
 
 function deleteProduct({ authUser, productId, rebuildMallIndex, schedulePersist, broadcastAll }) {
-  const idx = (authUser.products || []).findIndex((p) => p.id === productId);
+  const products = authUser.products || [];
+  let idx = -1;
+  for (let i = 0; i < products.length; i++) { if (products[i].id === productId) { idx = i; break; } }
   if (idx === -1) return { ok: false, status: 404, error: 'not_found' };
-  authUser.products.splice(idx, 1);
+  products.splice(idx, 1);
   rebuildMallIndex();
   schedulePersist('product_delete', { userId: authUser.id, productId });
   broadcastAll('mall_updated', {});
@@ -97,7 +99,9 @@ function deleteProduct({ authUser, productId, rebuildMallIndex, schedulePersist,
 function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broadcastAll }) {
   const productId = String(body.productId || '').trim();
   if (!productId) return { ok: false, status: 400, error: 'missing_product_id' };
-  const product = (authUser.products || []).find((p) => p.id === productId);
+  const products = authUser.products || [];
+  let product = null;
+  for (let i = 0; i < products.length; i++) { if (products[i].id === productId) { product = products[i]; break; } }
   if (!product) return { ok: false, status: 404, error: 'not_found' };
 
   // Track whether significant fields changed (price/image) to auto-delist

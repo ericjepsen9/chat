@@ -80,7 +80,8 @@ module.exports = function createAdminRoutes(ctx) {
       if (!authUser || !isAdmin(authUser)) return sendJson(res, 403, { error: 'forbidden' });
       const msgId = sysDelMatch[1];
       if (!Array.isArray(db.systemMessages)) return sendJson(res, 404, { error: 'not_found' });
-      const idx = db.systemMessages.findIndex(m => m.id === msgId);
+      let idx = -1;
+      for (let i = 0; i < db.systemMessages.length; i++) { if (db.systemMessages[i].id === msgId) { idx = i; break; } }
       if (idx === -1) return sendJson(res, 404, { error: 'not_found' });
       db.systemMessages.splice(idx, 1);
       schedulePersist('system_message_delete', { id: msgId });
@@ -155,10 +156,16 @@ module.exports = function createAdminRoutes(ctx) {
           paymentCodes: user.paymentCodes || {},
           productCount: Array.isArray(user.products) ? user.products.length : 0,
           blacklistCount: Array.isArray(user.blacklist) ? user.blacklist.length : 0,
-          blacklist: (user.blacklist || []).map(bid => {
-            const bu = index.usersById.get(bid);
-            return { id: bid, displayName: bu?.displayName || bid };
-          }),
+          blacklist: (() => {
+            const bl = user.blacklist || [];
+            const result = new Array(bl.length);
+            for (let bi = 0; bi < bl.length; bi++) {
+              const bid = bl[bi];
+              const bu = index.usersById.get(bid);
+              result[bi] = { id: bid, displayName: bu?.displayName || bid };
+            }
+            return result;
+          })(),
         },
         products: (user.products || []).map(p => ({
           id: p.id, title: p.title, price: p.price, image: p.image,
