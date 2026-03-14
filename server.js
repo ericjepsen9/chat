@@ -86,7 +86,8 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
 const CACHE_MAX_AGE_DEFAULT = 300;       // 5 minutes
-const _staticEtagCache = new Map();      // filePath → etag string
+const _staticEtagCache = new Map();      // filePath → etag string (capped at 200 entries)
+const STATIC_ETAG_CACHE_MAX = 200;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = MS_PER_DAY;
 const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
@@ -222,8 +223,28 @@ rebuildIndexes();
 
 const sseClientsByUser = new Map();
 const sseSessionTokens = new Map();
-const sseHeartbeatByRes = new WeakMap();
 const MAX_SSE_PER_USER = 8;
+
+// Single shared heartbeat interval for all SSE clients (instead of N timers for N clients)
+let _sseHeartbeatTimer = null;
+function _ensureSseHeartbeat() {
+  if (_sseHeartbeatTimer) return;
+  _sseHeartbeatTimer = setInterval(() => {
+    for (const conns of sseClientsByUser.values()) {
+      for (const res of conns) {
+        try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
+      }
+    }
+  }, SSE_HEARTBEAT_MS);
+  _sseHeartbeatTimer.unref();
+}
+function _stopSseHeartbeatIfEmpty() {
+  if (sseClientsByUser.size === 0 && _sseHeartbeatTimer) {
+    clearInterval(_sseHeartbeatTimer);
+    _sseHeartbeatTimer = null;
+  }
+}
+
 function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
   let conns = sseClientsByUser.get(userId);
@@ -239,18 +260,14 @@ function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
   conns = sseClientsByUser.get(userId);
   conns.add(res);
-  const timer = setInterval(() => {
-    try { if (!res.destroyed && !res.writableEnded) res.write(':ping\n\n'); } catch (_) {}
-  }, SSE_HEARTBEAT_MS);
-  sseHeartbeatByRes.set(res, timer);
+  _ensureSseHeartbeat();
 }
 function removeSseClient(userId, res) {
-  const timer = sseHeartbeatByRes.get(res);
-  if (timer) { clearInterval(timer); sseHeartbeatByRes.delete(res); }
   const set = sseClientsByUser.get(userId);
   if (!set) return;
   set.delete(res);
   if (!set.size) sseClientsByUser.delete(userId);
+  _stopSseHeartbeatIfEmpty();
 }
 function sendSseRaw(res, chunk) {
   try {
@@ -460,16 +477,31 @@ function getVisibleMessagesSlice(conv, userId, before = 0, limit = 30) {
   return { messages: out, hasMore };
 }
 
+// Conversation meta cache: keyed by `convId:userId`, invalidated on message/read changes
+const _convMetaCache = new Map();
+const _convMetaVersion = new Map(); // convId → version counter
+
+function invalidateConvMeta(convId) {
+  _convMetaVersion.set(convId, (_convMetaVersion.get(convId) || 0) + 1);
+}
+
 function buildConversationMeta(conv, userId) {
-  const list = index.messagesByConv.get(conv.id) || [];
+  const ver = _convMetaVersion.get(conv.id) || 0;
   const lastRead = conv.lastRead?.[userId] || 0;
+  const cacheKey = `${conv.id}:${userId}:${ver}:${lastRead}`;
+  const cached = _convMetaCache.get(cacheKey);
+  if (cached) return cached;
+
+  const list = index.messagesByConv.get(conv.id) || [];
   let unread = 0;
   let preview = '暂无消息';
   let foundPreview = false;
+  let lastMessageAt = 0;
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const msg = list[i];
     if (!isMessageVisibleToUser(msg, conv, userId)) continue;
     if (!foundPreview) {
+      lastMessageAt = msg.createdAt || 0;
       if (msg.type === 'image') preview = '[图片]';
       else if (msg.type === 'audio') preview = '[语音]';
       else if (msg.type === 'order_card') preview = '[订单]';
@@ -485,7 +517,14 @@ function buildConversationMeta(conv, userId) {
     if (msg.createdAt > lastRead && msg.senderId !== userId) unread += 1;
     if (foundPreview && msg.createdAt <= lastRead) break;
   }
-  return { preview, unread };
+  const result = { preview, unread, lastMessageAt };
+  _convMetaCache.set(cacheKey, result);
+  // Keep cache bounded — evict oldest entries if too large
+  if (_convMetaCache.size > 5000) {
+    const iter = _convMetaCache.keys();
+    for (let i = 0; i < 1000; i++) _convMetaCache.delete(iter.next().value);
+  }
+  return result;
 }
 
 function matchRoute(route, target) {
@@ -495,23 +534,26 @@ function matchRoute(route, target) {
   return false;
 }
 
+// Reverse index: userId → Set<token> for O(1) session revocation
+const sessionsByUserId = new Map();
+
 function issueSession(userId, ttlMs = SESSION_TTL_MS) {
   const token = crypto.randomBytes(24).toString('hex');
   sessions.set(token, { userId, createdAt: Date.now(), expiresAt: Date.now() + ttlMs });
+  if (!sessionsByUserId.has(userId)) sessionsByUserId.set(userId, new Set());
+  sessionsByUserId.get(userId).add(token);
   return token;
 }
 
 function revokeSessionsForUser(userId) {
   if (!userId) return;
-  // Collect tokens first to avoid modifying map during iteration
-  const toDelete = [];
-  for (const [token, session] of sessions) {
-    if (session?.userId === userId) toDelete.push(token);
+  const tokens = sessionsByUserId.get(userId);
+  if (!tokens) return;
+  for (const token of tokens) {
+    sessions.delete(token);
+    csrfTokens.delete(token);
   }
-  for (let i = 0; i < toDelete.length; i++) {
-    sessions.delete(toDelete[i]);
-    csrfTokens.delete(toDelete[i]);
-  }
+  sessionsByUserId.delete(userId);
 }
 
 function issueSseSessionToken(userId, ttlMs = SSE_TOKEN_TTL_MS) {
@@ -535,9 +577,19 @@ function consumeUserBySseSessionToken(token) {
 
 
 
-// Wrap cleanupAuthState to pass server-local maps
+// Wrap cleanupAuthState to pass server-local maps; also prune reverse session index
 function runCleanupAuthState() {
+  const beforeTokens = new Set(sessions.keys());
   cleanupAuthState({ sessions, sseSessionTokens });
+  // Prune sessionsByUserId for tokens removed by cleanup
+  if (sessions.size < beforeTokens.size) {
+    for (const [userId, tokens] of sessionsByUserId.entries()) {
+      for (const token of tokens) {
+        if (!sessions.has(token)) tokens.delete(token);
+      }
+      if (!tokens.size) sessionsByUserId.delete(userId);
+    }
+  }
 }
 
 function ensureActingUser(body, authUser, ...candidateKeys) {
@@ -625,6 +677,7 @@ function addTradeMessage(conversationId, payload = {}) {
   db.messages.push(msg);
   addToMapArray(index.messagesByConv, conversationId, msg);
   index.messagesById.set(msg.id, msg);
+  invalidateConvMeta(conversationId);
   const conv = index.convById.get(conversationId);
   if (conv) conv.lastMessageAt = msg.createdAt;
   broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
@@ -693,7 +746,7 @@ const routeCtx = {
   rebuildIndexes, rebuildFriendViewsIndex, rebuildConversationBaseIndex,
   rebuildBlacklistViewsIndex, rebuildRequestViewsIndex, rebuildMallIndex,
   rebuildFriendshipAndRequestIndexes, rebuildRequestIndexesOnly,
-  isMessageVisibleToUser, getVisibleMessagesSlice, buildConversationMeta,
+  isMessageVisibleToUser, getVisibleMessagesSlice, buildConversationMeta, invalidateConvMeta,
   searchMessagesGlobal, searchMessagesInConversation,
   queryOrders, createOrder, acceptOrder, updateOrderPrice,
   requestOrderPriceChange, confirmOrderPriceChange, updateOrderStatus, deleteOrder,
@@ -846,6 +899,10 @@ const server = http.createServer(async (req, res) => {
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
         const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
         _staticEtagCache.set(filePath, etag);
+        if (_staticEtagCache.size > STATIC_ETAG_CACHE_MAX) {
+          const first = _staticEtagCache.keys().next().value;
+          _staticEtagCache.delete(first);
+        }
         // Re-check after stat in case file changed
         if (ifNoneMatch && ifNoneMatch === etag) {
           res.writeHead(304, { 'ETag': etag });

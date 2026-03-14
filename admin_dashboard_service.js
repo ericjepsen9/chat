@@ -1,4 +1,12 @@
+// Cache dashboard data with a short TTL to avoid rebuilding on every request
+let _dashboardCache = null;
+let _dashboardCacheExpiry = 0;
+const DASHBOARD_CACHE_TTL_MS = 5000; // 5 seconds
+
 function buildAdminDashboardData(db) {
+  const now = Date.now();
+  if (_dashboardCache && now < _dashboardCacheExpiry) return _dashboardCache;
+
   const users = db.users || [];
   const orders = db.orders || [];
   const userById = new Map();
@@ -102,7 +110,10 @@ function buildAdminDashboardData(db) {
   if (blacklistLinks) reportList.push({ title: '黑名单关系提醒', summary: `当前共有 ${blacklistLinks} 条黑名单关系` });
   if (pendingOrders) reportList.push({ title: '待完成订单提醒', summary: `当前仍有 ${pendingOrders} 笔订单未完成` });
 
-  return { stats, recentOrders, userList, productList, reportList };
+  const result = { stats, recentOrders, userList, productList, reportList };
+  _dashboardCache = result;
+  _dashboardCacheExpiry = now + DASHBOARD_CACHE_TTL_MS;
+  return result;
 }
 
 module.exports = {

@@ -106,9 +106,18 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     }
   }
 
-  // Build product-by-id map once for O(1) lookups
+  // Build product-by-id map and spec sets once for O(1) lookups
   const productById = new Map();
-  for (const p of (seller.products || [])) productById.set(String(p.id || ''), p);
+  const specSetByProduct = new Map();
+  for (const p of (seller.products || [])) {
+    const pid = String(p.id || '');
+    productById.set(pid, p);
+    if (Array.isArray(p.specs)) {
+      const specSet = new Set();
+      for (let si = 0; si < p.specs.length; si++) { if (p.specs[si]) specSet.add(p.specs[si]); }
+      if (specSet.size) specSetByProduct.set(pid, specSet);
+    }
+  }
 
   const normalized = [];
   const neededByProduct = new Map();
@@ -118,12 +127,12 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     const sellerProduct = productById.get(reqItem.productId);
     if (!sellerProduct) return { ok: false, status: 404, error: 'product_not_found' };
 
-    const availableSpecs = Array.isArray(sellerProduct.specs) ? sellerProduct.specs.filter(Boolean) : [];
-    if (availableSpecs.length && !availableSpecs.includes(reqItem.spec)) {
+    const specSet = specSetByProduct.get(reqItem.productId);
+    if (specSet && !specSet.has(reqItem.spec)) {
       return { ok: false, status: 409, error: 'invalid_spec' };
     }
 
-    const safeSpec = availableSpecs.length ? reqItem.spec : '默认规格';
+    const safeSpec = specSet ? reqItem.spec : '默认规格';
     const productPrice = parseProductPrice(sellerProduct.price);
     const unitPrice = productPrice;
     normalized.push({

@@ -2172,16 +2172,21 @@ async function reloadActiveConversationMessages(){
 function appendMessageToView(msg) {
   const chatView = $('chatView');
   if (!chatView) return;
-  const wasNearBottom = (chatView.scrollHeight - chatView.scrollTop - chatView.clientHeight) < 100;
+  // Batch read before write to avoid layout thrashing
+  const sh = chatView.scrollHeight;
+  const st = chatView.scrollTop;
+  const ch = chatView.clientHeight;
+  const wasNearBottom = (sh - st - ch) < 100;
   const prev = state.messages.length > 1 ? state.messages[state.messages.length - 2] : null;
   chatView.appendChild(buildMessageChunk(msg, prev?.createdAt || 0));
-  if (wasNearBottom) chatView.scrollTop = chatView.scrollHeight;
+  if (wasNearBottom) requestAnimationFrame(() => { chatView.scrollTop = chatView.scrollHeight; });
   refreshMessageReadReceipts();
   applyLastOutgoingReadState();
 }
 function prependMessagesToView(messages, oldFirstMessage = null) {
   const chatView = $('chatView');
   if (!chatView || !messages || !messages.length) return;
+  // Read scrollHeight once before DOM mutation
   const oldHeight = chatView.scrollHeight;
   const fragment = document.createDocumentFragment();
   let lastTime = 0;
@@ -2196,7 +2201,8 @@ function prependMessagesToView(messages, oldFirstMessage = null) {
     const maybeStamp = firstArticle?.previousElementSibling;
     if (maybeStamp && maybeStamp.classList && maybeStamp.classList.contains('time-stamp')) maybeStamp.remove();
   }
-  chatView.scrollTop = chatView.scrollHeight - oldHeight;
+  // Defer scroll position restoration to next frame to batch reflow
+  requestAnimationFrame(() => { chatView.scrollTop = chatView.scrollHeight - oldHeight; });
   refreshMessageReadReceipts();
   applyLastOutgoingReadState();
 }
@@ -4960,7 +4966,7 @@ function bindChatEvents() {
 
   let typingDebounceTimer = null;
   on("messageInput", "input", function() {
-      this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px';
+      this.style.height = '0'; const sh = this.scrollHeight; this.style.height = sh + 'px';
       const hasText = this.value.trim().length > 0;
       toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
       if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { const _peerId = conversationPeerId(state.activeConversation); if (_peerId) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: _peerId, signal: {type:'typing'} }) }); } typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }

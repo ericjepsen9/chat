@@ -92,7 +92,7 @@ module.exports = function createSocialRoutes(ctx) {
         db,
         areFriends,
         uid,
-        rebuildIndexes: rebuildFriendshipAndRequestIndexes,
+        rebuildFriendshipAndRequestIndexes,
         schedulePersist,
         broadcastToUser,
         findUserByPhone,
@@ -111,7 +111,7 @@ module.exports = function createSocialRoutes(ctx) {
         index,
         uid,
         getDirectConversation,
-        rebuildIndexes: rebuildFriendshipAndRequestIndexes,
+        rebuildFriendshipAndRequestIndexes,
         schedulePersist,
         broadcastToUser,
       });
@@ -126,7 +126,7 @@ module.exports = function createSocialRoutes(ctx) {
         authUser: context.authUser,
         db,
         index,
-        rebuildIndexes: rebuildRequestIndexesOnly,
+        rebuildRequestIndexesOnly,
         schedulePersist,
         broadcastToUser,
       });

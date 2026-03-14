@@ -65,7 +65,7 @@ function recallConversationMessage({ conversationId, messageId, authUser, index,
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
-function applyConversationAction({ action, conversationId, body, authUser, conv, db, index, uid, addToMapArray, schedulePersist, broadcastToUser, broadcastToConversation }) {
+function applyConversationAction({ action, conversationId, body, authUser, conv, db, index, uid, addToMapArray, invalidateConvMeta, schedulePersist, broadcastToUser, broadcastToConversation }) {
   if (action === 'delete') {
     return deleteConversationMessage({
       conversationId,
@@ -92,6 +92,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
 
   if (action === 'read') {
     conv.lastRead[authUser.id] = Date.now();
+    if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
     schedulePersist('conversation_read', { conversationId, userId: authUser.id });
     broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
     return { ok: true, status: 200, payload: { ok: true } };
@@ -118,6 +119,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   if (action === 'clear') {
     conv.clearedAt[authUser.id] = Date.now();
     conv.lastRead[authUser.id] = conv.clearedAt[authUser.id];
+    if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
     schedulePersist('conversation_clear', { conversationId, userId: authUser.id });
     broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
     return { ok: true, status: 200, payload: { ok: true, clearedAt: conv.clearedAt[authUser.id] } };
@@ -166,6 +168,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
       addToMapArray(index.messagesByConv, conversationId, msg);
       index.messagesById.set(msg.id, msg);
       conv.lastMessageAt = msg.createdAt;
+      if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
       broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
       broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
     }

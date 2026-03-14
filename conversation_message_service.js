@@ -39,6 +39,7 @@ function createConversationMessage({
   uid,
   db,
   addToMapArray,
+  invalidateConvMeta,
   schedulePersist,
   broadcastToConversation,
 }) {
@@ -115,6 +116,7 @@ function createConversationMessage({
   index.messagesById.set(msg.id, msg);
   if (msg.clientMessageId) index.messageByClientKey.set(`${conversationId}:${authUser.id}:${msg.clientMessageId}`, msg);
   conv.lastMessageAt = now;
+  if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
   schedulePersist('message_create', { conversationId, messageId: msg.id });
   broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
   broadcastToConversation(conversationId, 'conversation_updated', { conversationId });

@@ -5,7 +5,7 @@ function createFriendRequest({
   db,
   areFriends,
   uid,
-  rebuildIndexes,
+  rebuildFriendshipAndRequestIndexes,
   schedulePersist,
   broadcastToUser,
   findUserByPhone,
@@ -45,7 +45,7 @@ function createFriendRequest({
     if (typeof getOrCreateDirectConversation === 'function') {
       getOrCreateDirectConversation(authUser.id, target.id);
     }
-    rebuildIndexes();
+    rebuildFriendshipAndRequestIndexes();
     schedulePersist('friend_auto_accept', { requestId: reversePending.id });
     broadcastToUser(authUser.id, 'friends_updated', {});
     broadcastToUser(target.id, 'friends_updated', {});
@@ -64,7 +64,7 @@ function createFriendRequest({
     createdAt: Date.now(),
   };
   db.friendRequests.push(request);
-  rebuildIndexes();
+  rebuildFriendshipAndRequestIndexes();
   schedulePersist('friend_request', { requestId: request.id });
   broadcastToUser(target.id, 'friend_request_updated', {});
   return { ok: true, status: 201, payload: { ok: true, request } };
@@ -77,7 +77,7 @@ function acceptFriendRequest({
   index,
   uid,
   getDirectConversation,
-  rebuildIndexes,
+  rebuildFriendshipAndRequestIndexes,
   schedulePersist,
   broadcastToUser,
 }) {
@@ -94,7 +94,7 @@ function acceptFriendRequest({
   if (!existed) {
     db.conversations.push({ id: uid('c'), type: 'direct', name: '', ownerId: authUser.id, members: [authUser.id, request.userId], announcement: '', mutedBy: [], pinnedBy: [], lastRead: {}, clearedAt: {}, createdAt: Date.now(), lastMessageAt: Date.now() });
   }
-  rebuildIndexes();
+  rebuildFriendshipAndRequestIndexes();
   schedulePersist('friend_accept', { requestId: request.id });
   broadcastToUser(authUser.id, 'friends_updated', {});
   broadcastToUser(request.userId, 'friends_updated', {});
@@ -104,11 +104,11 @@ function acceptFriendRequest({
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
-function rejectFriendRequest({ requestId, authUser, db, index, rebuildIndexes, schedulePersist, broadcastToUser }) {
+function rejectFriendRequest({ requestId, authUser, db, index, rebuildRequestIndexesOnly, schedulePersist, broadcastToUser }) {
   const request = index.friendRequestsById.get(requestId);
   if (!request || request.targetId !== authUser.id || request.status !== 'pending') return { ok: false, status: 404, error: 'not_found' };
   request.status = 'rejected';
-  rebuildIndexes();
+  rebuildRequestIndexesOnly();
   schedulePersist('friend_reject', { requestId: request.id, userId: authUser.id });
   broadcastToUser(authUser.id, 'friend_request_updated', {});
   broadcastToUser(request.userId, 'friend_request_updated', {});
