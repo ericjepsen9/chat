@@ -153,6 +153,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       if (!Array.isArray(user.blacklist)) return sendJson(res, 200, { ok: true });
       const bi = user.blacklist.indexOf(targetId);
       if (bi !== -1) user.blacklist.splice(bi, 1);
+      if (user._blacklistSet) user._blacklistSet.delete(targetId);
       rebuildBlacklistViewsIndex();
       schedulePersist('admin_blacklist_remove', { userId: user.id, targetId });
       return sendJson(res, 200, { ok: true });

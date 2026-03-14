@@ -424,11 +424,12 @@ window.viewOrder = async function(orderId) {
       <div class="detail-item"><div class="detail-label">更新时间</div><div class="detail-value">${fmtDate(o.updatedAt)}</div></div>
     </div></div>`;
     if (o.items?.length) {
-      body += '<div class="detail-section"><div class="detail-section-title">商品明细</div>';
+      const parts = ['<div class="detail-section"><div class="detail-section-title">商品明细</div>'];
       for (const item of o.items) {
-        body += `<div class="row-card"><div class="row-title">${esc(item.title)} (${esc(item.spec)})</div><div class="row-sub">单价 ${money(item.price)} × ${item.quantity} = ${money(item.price * item.quantity)}</div></div>`;
+        parts.push(`<div class="row-card"><div class="row-title">${esc(item.title)} (${esc(item.spec)})</div><div class="row-sub">单价 ${money(item.price)} × ${item.quantity} = ${money(item.price * item.quantity)}</div></div>`);
       }
-      body += '</div>';
+      parts.push('</div>');
+      body += parts.join('');
     }
     openModal('订单详情', body, '');
   } catch (e) { toast('加载失败'); }
@@ -656,7 +657,7 @@ function initApp() {
   $('adminInfo').textContent = '管理员已登录';
 
   // Tab navigation
-  document.querySelectorAll('.nav-item').forEach(n => {
+  (_navItems || (_navItems = document.querySelectorAll('.nav-item'))).forEach(n => {
     n.addEventListener('click', (e) => {
       e.preventDefault();
       switchTab(n.dataset.tab);

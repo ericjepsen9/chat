@@ -39,9 +39,10 @@ function assertOrderVersion(order, expectedUpdatedAtRaw) {
 
 function isUserBlockedByCounterparty(userA, userB) {
   if (!userA || !userB) return false;
-  const aBlacklist = Array.isArray(userA.blacklist) ? userA.blacklist : [];
-  const bBlacklist = Array.isArray(userB.blacklist) ? userB.blacklist : [];
-  return aBlacklist.includes(userB.id) || bBlacklist.includes(userA.id);
+  if (userA._blacklistSet) { if (userA._blacklistSet.has(userB.id)) return true; }
+  else if (Array.isArray(userA.blacklist) && userA.blacklist.includes(userB.id)) return true;
+  if (userB._blacklistSet) return userB._blacklistSet.has(userA.id);
+  return Array.isArray(userB.blacklist) && userB.blacklist.includes(userA.id);
 }
 
 function validateOrderActor(order, authUser, usersById, { allowBuyer = true, allowSeller = true } = {}) {
@@ -380,7 +381,11 @@ function deleteOrder({ authUser, orderId, db, usersById, schedulePersist, orders
   if (!actor.ok) return actor;
   if (order.status !== 'completed') return { ok: false, status: 409, error: 'order_not_completed' };
   if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
-  if (!order.deletedBy.includes(authUser.id)) order.deletedBy.push(authUser.id);
+  if (!order._deletedBySet) order._deletedBySet = new Set(order.deletedBy);
+  if (!order._deletedBySet.has(authUser.id)) {
+    order.deletedBy.push(authUser.id);
+    order._deletedBySet.add(authUser.id);
+  }
   schedulePersist('order_delete', { orderId: order.id, userId: authUser.id });
   return { ok: true, status: 200, payload: { ok: true, orderId: order.id } };
 }

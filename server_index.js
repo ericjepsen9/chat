@@ -184,6 +184,7 @@ function rebuildIndexes() {
   index.mallItems = [];
   for (const user of db.users) {
     if (!Array.isArray(user.blacklist)) user.blacklist = [];
+    user._blacklistSet = new Set(user.blacklist);
     if (!Array.isArray(user.products)) user.products = [];
     for (let pi = 0; pi < user.products.length; pi++) {
       const p = user.products[pi];
@@ -278,6 +279,7 @@ function indexNewUser(user) {
   user.role = normalizeUserRole(user);
   if (!user.status) user.status = 'active';
   if (!Array.isArray(user.blacklist)) user.blacklist = [];
+  user._blacklistSet = new Set(user.blacklist);
   if (!Array.isArray(user.products)) user.products = [];
   user.paymentCodes = normalizePaymentCodes(user.paymentCodes);
   user.customGroups = normalizeUserCustomGroups(user.customGroups);

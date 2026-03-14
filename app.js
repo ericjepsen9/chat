@@ -3621,25 +3621,22 @@ function bindAuthEvents() {
     allSteps.forEach(s => { if (!s.classList.contains('hidden') && s.id !== 'authTermsView') window._authTermsBackTarget = s.id; });
     authGotoStep('authTermsView');
   }
-  document.querySelectorAll('.auth-open-terms').forEach(a => {
-    a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); authOpenLegal('terms'); });
-  });
-  document.querySelectorAll('.auth-open-privacy').forEach(a => {
-    a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); authOpenLegal('privacy'); });
+  // Delegated auth event listeners — single listener instead of per-element
+  const authScreen = $("authScreen");
+  if (authScreen) authScreen.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.closest('.auth-open-terms')) { e.preventDefault(); e.stopPropagation(); authOpenLegal('terms'); return; }
+    if (t.closest('.auth-open-privacy')) { e.preventDefault(); e.stopPropagation(); authOpenLegal('privacy'); return; }
+    const backBtn = t.closest('[data-auth-back]');
+    if (backBtn) { authGotoStep(backBtn.dataset.authBack); return; }
+    const gotoBtn = t.closest('[data-auth-goto]');
+    if (gotoBtn) { authGotoStep(gotoBtn.dataset.authGoto); return; }
   });
   on("authTermsBackBtn", "click", () => authGotoStep(window._authTermsBackTarget));
 
   // ---- Welcome screen buttons ----
   on("authGoLogin", "click", () => authGotoStep('authLoginPhone'));
   on("authGoRegister", "click", () => authGotoStep('authRegPhone'));
-
-  // ---- Auth back buttons & goto buttons ----
-  document.querySelectorAll('[data-auth-back]').forEach(btn => {
-    btn.addEventListener('click', () => authGotoStep(btn.dataset.authBack));
-  });
-  document.querySelectorAll('[data-auth-goto]').forEach(btn => {
-    btn.addEventListener('click', () => authGotoStep(btn.dataset.authGoto));
-  });
 
   // ---- Shared: phone → send code → go to code step ----
   async function sendCodeAndNext({ phoneInputId, btnId, scene, stateKey, displayId, codeBoxesId, stepId, resendBtnId, enterInputId }) {
@@ -4970,7 +4967,7 @@ function bindChatEvents() {
 
   let typingDebounceTimer = null;
   on("messageInput", "input", function() {
-      this.style.height = '0'; const sh = this.scrollHeight; this.style.height = sh + 'px';
+      this.style.height = '0'; this.style.height = this.scrollHeight + 'px';
       const hasText = this.value.trim().length > 0;
       toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
       if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { const _peerId = conversationPeerId(state.activeConversation); if (_peerId) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: _peerId, signal: {type:'typing'} }) }); } typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }

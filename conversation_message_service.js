@@ -54,8 +54,8 @@ function createConversationMessage({
     if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
     const peerUser = index.usersById.get(peerId);
-    if (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId)) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
-    if (peerUser?.blacklist?.includes(authUser.id)) return { ok: false, status: 403, error: '消息被对方拒收' };
+    if (authUser._blacklistSet ? authUser._blacklistSet.has(peerId) : (Array.isArray(authUser.blacklist) && authUser.blacklist.includes(peerId))) return { ok: false, status: 403, error: '你已将对方拉黑，请先解除。' };
+    if (peerUser?._blacklistSet ? peerUser._blacklistSet.has(authUser.id) : peerUser?.blacklist?.includes(authUser.id)) return { ok: false, status: 403, error: '消息被对方拒收' };
     if (!NO_FRIEND_CHECK_TYPES.has(body.type) && !areFriends(peerId, authUser.id)) {
       return { ok: false, status: 403, error: '对方开启了验证，你还不是他(她)的好友。' };
     }
@@ -79,13 +79,9 @@ function createConversationMessage({
   if (body.type === 'card' && body.card?.cardType === '收款码') {
     if (conv.type !== 'direct') return { ok: false, status: 400, error: 'payment_code_only_for_direct_chat' };
     const codes = authUser.paymentCodes || {};
-    const allowedSet = new Set();
-    if (codes.wechat) allowedSet.add(codes.wechat);
-    if (codes.alipay) allowedSet.add(codes.alipay);
-    if (codes.cloudpay) allowedSet.add(codes.cloudpay);
-    if (!allowedSet.size) return { ok: false, status: 400, error: 'payment_code_not_configured' };
+    if (!codes.wechat && !codes.alipay && !codes.cloudpay) return { ok: false, status: 400, error: 'payment_code_not_configured' };
     const imageUrl = String(body.card.imageUrl || '').trim();
-    if (!imageUrl || !allowedSet.has(imageUrl)) return { ok: false, status: 400, error: 'invalid_payment_code' };
+    if (!imageUrl || (imageUrl !== codes.wechat && imageUrl !== codes.alipay && imageUrl !== codes.cloudpay)) return { ok: false, status: 400, error: 'invalid_payment_code' };
   }
 
   if (body.clientMessageId) {

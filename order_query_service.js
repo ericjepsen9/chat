@@ -33,9 +33,14 @@ function queryOrders({ db, authUser, searchParams, isAdmin, index }) {
   const end = offset + limit;
   for (let i = 0; i < candidates.length; i++) {
     const o = candidates[i];
-    const deletedBy = Array.isArray(o.deletedBy) ? o.deletedBy : [];
-    if (!adminUser && deletedBy.includes(authUser.id)) continue;
-    if (adminUser && userId && deletedBy.includes(userId)) continue;
+    if (o._deletedBySet) {
+      if (!adminUser && o._deletedBySet.has(authUser.id)) continue;
+      if (adminUser && userId && o._deletedBySet.has(userId)) continue;
+    } else {
+      const deletedBy = Array.isArray(o.deletedBy) ? o.deletedBy : [];
+      if (!adminUser && deletedBy.includes(authUser.id)) continue;
+      if (adminUser && userId && deletedBy.includes(userId)) continue;
+    }
     if (sellerId) {
       if (adminUser) { if (o.sellerId !== sellerId) continue; }
       else { if (o.sellerId !== sellerId || (o.buyerId !== authUser.id && o.sellerId !== authUser.id)) continue; }
