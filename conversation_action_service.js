@@ -40,10 +40,10 @@ function deleteConversationMessage({ conversationId, messageId, authUser, index,
   const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
   if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
-  if (!msg.deletedBy.includes(authUser.id)) {
+  if (!msg._deletedBySet) msg._deletedBySet = new Set(msg.deletedBy);
+  if (!msg._deletedBySet.has(authUser.id)) {
     msg.deletedBy.push(authUser.id);
-    if (!msg._deletedBySet) msg._deletedBySet = new Set(msg.deletedBy);
-    else msg._deletedBySet.add(authUser.id);
+    msg._deletedBySet.add(authUser.id);
   }
   schedulePersist(persistEvent, { conversationId, messageId: msg.id, userId: authUser.id });
   broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
@@ -135,8 +135,9 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   }
 
   if (action === 'clear') {
-    conv.clearedAt[authUser.id] = Date.now();
-    conv.lastRead[authUser.id] = conv.clearedAt[authUser.id];
+    const clearNow = Date.now();
+    conv.clearedAt[authUser.id] = clearNow;
+    conv.lastRead[authUser.id] = clearNow;
     if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
     schedulePersist('conversation_clear', { conversationId, userId: authUser.id });
     broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
@@ -191,6 +192,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
       broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
     }
     schedulePersist('call_event', { conversationId, event: body.event, userId: authUser.id, callId: body.callId });
+    const durationSec = Math.max(0, Number(body.durationSec) || 0);
     broadcastToUser(targetUserId, 'call_event', {
       conversationId,
       senderId: authUser.id,
@@ -200,7 +202,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
       mode: body.mode,
       reason: body.reason,
       callId: body.callId,
-      durationSec: Math.max(0, Number(body.durationSec) || 0),
+      durationSec,
     });
     return { ok: true, status: 200, payload: { ok: true } };
   }

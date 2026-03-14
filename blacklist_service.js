@@ -12,9 +12,10 @@ function updateBlacklist({ authUser, targetId, action, index, rebuildBlacklistVi
       authUser._blacklistSet.add(target.id);
     }
   } else {
-    const idx = authUser.blacklist.indexOf(target.id);
-    if (idx !== -1) authUser.blacklist.splice(idx, 1);
-    authUser._blacklistSet.delete(target.id);
+    if (authUser._blacklistSet.has(target.id)) {
+      authUser._blacklistSet.delete(target.id);
+      authUser.blacklist = Array.from(authUser._blacklistSet);
+    }
   }
 
   rebuildBlacklistViewsIndex();

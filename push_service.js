@@ -74,14 +74,21 @@ async function pushToUser(userId, payload) {
     .update(stringToSign).digest('base64');
   params.Signature = signature;
 
-  // Reuse sorted keys to build postData (signature is appended, so rebuild with all params)
-  const allKeys = Object.keys(params).sort();
-  const postParts = new Array(allKeys.length);
-  for (let i = 0; i < allKeys.length; i++) {
-    const k = allKeys[i];
-    postParts[i] = `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`;
+  // Build postData reusing sorted keys; only 'Signature' is new (sorts between 'S' entries)
+  // Insert Signature into correct sorted position to avoid full re-sort
+  let sigInserted = false;
+  const postParts = new Array(sortedKeys.length + 1);
+  let pi = 0;
+  for (let i = 0; i < sortedKeys.length; i++) {
+    const k = sortedKeys[i];
+    if (!sigInserted && 'Signature' < k) {
+      postParts[pi++] = `${encodeURIComponent('Signature')}=${encodeURIComponent(signature)}`;
+      sigInserted = true;
+    }
+    postParts[pi++] = `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`;
   }
-  const postData = postParts.join('&');
+  if (!sigInserted) postParts[pi++] = `${encodeURIComponent('Signature')}=${encodeURIComponent(signature)}`;
+  const postData = postParts.slice(0, pi).join('&');
 
   return new Promise((resolve) => {
     const req = https.request({

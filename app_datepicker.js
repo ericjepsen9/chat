@@ -126,17 +126,16 @@ function openDatePicker(role, which, currentVal) {
   for (let y = curYear - 2; y <= curYear + 1; y++) years.push({ value: y, label: y + '年' });
   _dp.ranges.year = years;
 
-  const months = [];
-  for (let m = 1; m <= 12; m++) months.push({ value: m, label: m + '月' });
-  _dp.ranges.month = months;
-
-  const hours = [];
-  for (let h = 0; h < 24; h++) hours.push({ value: h, label: String(h).padStart(2, '0') + '时' });
-  _dp.ranges.hour = hours;
-
-  const minutes = [];
-  for (let mi = 0; mi < 60; mi += 5) minutes.push({ value: mi, label: String(mi).padStart(2, '0') + '分' });
-  _dp.ranges.minute = minutes;
+  // Reuse static ranges (months, hours, minutes never change)
+  if (!_dp._staticMonths) {
+    const months = []; for (let m = 1; m <= 12; m++) months.push({ value: m, label: m + '月' });
+    const hours = []; for (let h = 0; h < 24; h++) hours.push({ value: h, label: String(h).padStart(2, '0') + '时' });
+    const minutes = []; for (let mi = 0; mi < 60; mi += 5) minutes.push({ value: mi, label: String(mi).padStart(2, '0') + '分' });
+    _dp._staticMonths = months; _dp._staticHours = hours; _dp._staticMinutes = minutes;
+  }
+  _dp.ranges.month = _dp._staticMonths;
+  _dp.ranges.hour = _dp._staticHours;
+  _dp.ranges.minute = _dp._staticMinutes;
   // Snap minute to nearest 5
   _dp.selected.minute = Math.round(_dp.selected.minute / 5) * 5;
   if (_dp.selected.minute >= 60) { _dp.selected.minute = 0; _dp.selected.hour = (_dp.selected.hour + 1) % 24; }

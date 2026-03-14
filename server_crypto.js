@@ -95,8 +95,12 @@ function isRateLimitEntryStale(_key, state, now) {
   return expiredBlock && staleWindow;
 }
 
+// Batch cleanup of all phone code maps; throttled to run at most once per 30s
+let _lastPhoneCodeCleanup = 0;
 function cleanupExpiredPhoneCodeState() {
   const now = Date.now();
+  if (now - _lastPhoneCodeCleanup < 30000) return;
+  _lastPhoneCodeCleanup = now;
   for (const [k, r] of phoneCodeStore.entries()) { if (!r || r.expiresAt < now) phoneCodeStore.delete(k); }
   for (const [k, v] of phoneCodeCooldownStore.entries()) { if (!v || v < now) phoneCodeCooldownStore.delete(k); }
   for (const [k, v] of phoneCodeIpCooldownStore.entries()) { if (!v || v < now) phoneCodeIpCooldownStore.delete(k); }

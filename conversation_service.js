@@ -6,6 +6,7 @@ function createDirectConversation({ authUser, peerId, usersById, getDirectConver
   const existed = getDirectConversation(authUser.id, peerId);
   if (existed) return { ok: true, status: 200, payload: { conversation: existed } };
 
+  const now = Date.now();
   const conv = {
     id: uid('c'),
     type: 'direct',
@@ -17,8 +18,8 @@ function createDirectConversation({ authUser, peerId, usersById, getDirectConver
     pinnedBy: [],
     lastRead: {},
     clearedAt: {},
-    createdAt: Date.now(),
-    lastMessageAt: Date.now(),
+    createdAt: now,
+    lastMessageAt: now,
   };
   db.conversations.push(conv);
   indexNewConversation(conv);

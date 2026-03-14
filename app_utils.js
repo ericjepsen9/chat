@@ -264,23 +264,26 @@ function showPrompt(msg, defaultValue, onOk, onCancel) {
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); okBtn.click(); } };
 }
 
+const _RE_NON_DIGIT = /\D+/g;
+const _RE_CN_PHONE = /^1\d{10}$/;
+const _RE_NON_NUM = /[^\d.]/g;
 function normalizePhoneInput(phone){
-  const digits = String(phone || '').replace(/\D+/g, '');
+  const digits = String(phone || '').replace(_RE_NON_DIGIT, '');
   let normalized = digits;
   if (normalized.startsWith('86') && normalized.length === 13 && normalized[2] === '1') {
     normalized = normalized.slice(2);
   }
-  if (!/^1\d{10}$/.test(normalized)) return '';
+  if (!_RE_CN_PHONE.test(normalized)) return '';
   return normalized;
 }
 
 function formatMoney(v){
-  const n = Number(String(v).replace(/[^\d.]/g, '')) || 0;
+  const n = Number(String(v).replace(_RE_NON_NUM, '')) || 0;
   return `¥${n.toFixed(2)}`;
 }
 
 function parseMoney(v){
-  return Number(String(v).replace(/[^\d.]/g, '')) || 0;
+  return Number(String(v).replace(_RE_NON_NUM, '')) || 0;
 }
 
 function normalizeMediaUrl(url) {
@@ -422,11 +425,22 @@ function _dayStartAndTime(d) {
     hhmm: `${hh < 10 ? '0' + hh : hh}:${mm < 10 ? '0' + mm : mm}`,
   };
 }
+// Cached today's dayStart — refreshed at most once per minute
+let _cachedTodayStart = 0;
+let _cachedTodayTs = 0;
+function _getTodayStart() {
+  const now = Date.now();
+  if (now - _cachedTodayTs < 60000) return _cachedTodayStart;
+  const { dayStart } = _dayStartAndTime(new Date(now));
+  _cachedTodayStart = dayStart;
+  _cachedTodayTs = now;
+  return dayStart;
+}
 
 function formatTime(timestamp) {
   const d = new Date(timestamp);
   const { dayStart: msgDay, hhmm } = _dayStartAndTime(d);
-  const { dayStart: todayStart } = _dayStartAndTime(new Date());
+  const todayStart = _getTodayStart();
   if (msgDay === todayStart) return hhmm;
   if (todayStart - msgDay === 86400000) return `昨天 ${hhmm}`;
   return `${d.getMonth()+1}月${d.getDate()}日 ${hhmm}`;
@@ -437,13 +451,12 @@ function formatConversationTime(timestamp) {
   if (!timestamp) return '';
   const d = new Date(timestamp);
   const { dayStart: msgDay, hhmm } = _dayStartAndTime(d);
-  const now = new Date();
-  const { dayStart: todayStart } = _dayStartAndTime(now);
+  const todayStart = _getTodayStart();
   const diffDays = Math.round((todayStart - msgDay) / 86400000);
   if (diffDays <= 0) return hhmm;
   if (diffDays === 1) return '昨天';
   if (diffDays < 7) return _WEEKDAYS[d.getDay()];
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
+  if (d.getFullYear() === new Date().getFullYear()) return `${d.getMonth()+1}/${d.getDate()}`;
   return `${String(d.getFullYear()).slice(-2)}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
 }
 

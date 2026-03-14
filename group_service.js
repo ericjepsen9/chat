@@ -19,8 +19,9 @@ function renameGroup({ authUser, groupNameRaw, newNameRaw, defaultGroup, normali
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_rename_default_group' };
   if (!newName || newName === defaultGroup) return { ok: false, status: 400, error: 'invalid_group_name' };
   if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
-  if (!authUser.customGroups.includes(groupName)) return { ok: false, status: 404, error: 'not_found' };
-  if (authUser.customGroups.includes(newName) && newName !== groupName) return { ok: false, status: 400, error: 'group_exists' };
+  const groupsSet = new Set(authUser.customGroups);
+  if (!groupsSet.has(groupName)) return { ok: false, status: 404, error: 'not_found' };
+  if (groupsSet.has(newName) && newName !== groupName) return { ok: false, status: 400, error: 'group_exists' };
   authUser.customGroups = normalizeUserCustomGroups((authUser.customGroups || []).map((name) => name === groupName ? newName : name));
   for (const rel of friendshipsByUser.get(authUser.id) || []) {
     if (rel.group === groupName) rel.group = newName;
@@ -37,7 +38,7 @@ function reorderGroup({ authUser, groupNameRaw, offsetRaw, defaultGroup, normali
   const offset = Number(offsetRaw || 0);
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_move_default_group' };
   if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
-  const groups = normalizeUserCustomGroups(authUser.customGroups);
+  const groups = authUser.customGroups || [defaultGroup];
   const fromIndex = groups.indexOf(groupName);
   if (fromIndex < 0) return { ok: false, status: 404, error: 'not_found' };
   const toIndex = Math.max(1, Math.min(groups.length - 1, fromIndex + (offset < 0 ? -1 : 1)));
@@ -55,8 +56,8 @@ function deleteGroup({ authUser, groupNameRaw, defaultGroup, normalizeSingleGrou
   const groupName = normalizeSingleGroupName(groupNameRaw);
   if (!groupName || groupName === defaultGroup) return { ok: false, status: 400, error: 'cannot_delete_default_group' };
   if (!Array.isArray(authUser.customGroups)) authUser.customGroups = [defaultGroup];
-  if (!authUser.customGroups.includes(groupName)) return { ok: false, status: 404, error: 'not_found' };
-  authUser.customGroups = normalizeUserCustomGroups((authUser.customGroups || []).filter((name) => name !== groupName));
+  if (authUser.customGroups.indexOf(groupName) === -1) return { ok: false, status: 404, error: 'not_found' };
+  authUser.customGroups = normalizeUserCustomGroups(authUser.customGroups.filter((name) => name !== groupName));
   for (const rel of friendshipsByUser.get(authUser.id) || []) {
     if (rel.group === groupName) rel.group = defaultGroup;
   }

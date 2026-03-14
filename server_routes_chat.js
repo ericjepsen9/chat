@@ -68,8 +68,9 @@ module.exports = function createChatRoutes(ctx) {
       return sendJson(res, 200, searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessageVisibleToUser }));
     }
 
-    const convSearchMatch = pathname.match(RE_CONV_SEARCH);
-    if (convSearchMatch && method === 'GET') {
+    // Match regex routes: check method first to skip expensive regex when possible
+    const convSearchMatch = method === 'GET' && pathname.match(RE_CONV_SEARCH);
+    if (convSearchMatch) {
       const conversationId = convSearchMatch[1];
       const conv = index.convById.get(conversationId);
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
@@ -123,8 +124,8 @@ module.exports = function createChatRoutes(ctx) {
       }
     }
 
-    const convMsgActionMatch = pathname.match(RE_CONV_MSG_ACTION);
-    if (convMsgActionMatch && method === 'POST') {
+    const convMsgActionMatch = method === 'POST' && pathname.match(RE_CONV_MSG_ACTION);
+    if (convMsgActionMatch) {
       const [_, conversationId, messageId, action] = convMsgActionMatch;
       const conv = index.convById.get(conversationId);
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
@@ -155,8 +156,8 @@ module.exports = function createChatRoutes(ctx) {
       return sendResult(res, result);
     }
 
-    const convActionMatch = pathname.match(RE_CONV_ACTION);
-    if (convActionMatch && method === 'POST') {
+    const convActionMatch = method === 'POST' && pathname.match(RE_CONV_ACTION);
+    if (convActionMatch) {
       const conversationId = convActionMatch[1];
       const action = convActionMatch[2];
       const conv = index.convById.get(conversationId);

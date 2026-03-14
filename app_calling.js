@@ -101,14 +101,27 @@ async function enqueueSignal(conversationId, payload) {
   }
 }
 
+// Cached friends lookup map — rebuilt lazily when friends change
+let _friendsById = null; let _friendsByIdSig = 0;
+function _getFriendsById() {
+  const sig = state.friends ? state.friends.length : 0;
+  if (_friendsById && _friendsByIdSig === sig) return _friendsById;
+  _friendsById = new Map();
+  if (state.friends) {
+    for (const f of state.friends) {
+      if (!f.friend) continue;
+      if (f.friend.id) _friendsById.set(f.friend.id, f);
+      if (f.friend.username) _friendsById.set(f.friend.username, f);
+      if (f.friend.friendId) _friendsById.set(f.friend.friendId, f);
+    }
+  }
+  _friendsByIdSig = sig;
+  return _friendsById;
+}
 function resolveCallPeerMeta(peerId, fallbackName = '') {
   let name = fallbackName || peerId || '';
   let avatarUrl = null;
-  const friend = state.friends.find(f =>
-    f.friend && (f.friend.id === peerId ||
-    f.friend.username === peerId ||
-    f.friend.friendId === peerId)
-  );
+  const friend = _getFriendsById().get(peerId);
   if (friend) {
     name = friend.friend.remark || friend.friend.displayName || friend.friend.username || name;
     avatarUrl = friend.friend.avatarUrl || null;
@@ -207,7 +220,9 @@ function getCallDurationSeconds() {
 }
 function syncCallConversationState(conversationId, peerId, fallbackName = '') {
   try {
-    const conv = (state.conversations || []).find(c => c.id === conversationId);
+    const convs = state.conversations || [];
+    let conv = null;
+    for (let i = 0; i < convs.length; i++) { if (convs[i].id === conversationId) { conv = convs[i]; break; } }
     const meta = resolveCallPeerMeta(peerId, conv?.title || fallbackName || peerId);
     if (state.activeConversation && state.activeConversation.id === conversationId) {
       state.activeConversation.title = conv?.title || meta.name || state.activeConversation.title || '';

@@ -82,7 +82,7 @@ module.exports = function createSocialRoutes(ctx) {
     }
 
     // Both /api/friends/request and /api/friends POST create a friend request
-    if (matchRoute(pathname, '/api/friends/request') || matchRoute(pathname, '/api/friends')) {
+    if (pathname === '/api/friends/request' || pathname === '/api/friends') {
       const context = await getAuthedActingBody(req, res, { actingKeys: ['userId'] });
       if (!context) return true;
       const result = createFriendRequest({
