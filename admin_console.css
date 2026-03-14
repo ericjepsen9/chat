@@ -182,8 +182,8 @@ mark{background:#fef08a;padding:0 2px;border-radius:2px}
 /* ── Responsive ── */
 @media(max-width:900px){
   .app-shell{grid-template-columns:1fr}
-  .sidebar{position:fixed;left:-260px;width:250px;z-index:100;transition:left .25s}
-  .sidebar.open{left:0}
+  .sidebar{position:fixed;left:0;width:250px;z-index:100;transform:translateX(-260px);transition:transform .25s}
+  .sidebar.open{transform:translateX(0)}
   .menu-toggle{display:flex;align-items:center;justify-content:center}
   .grid-2{grid-template-columns:1fr}
   .tab-pane{padding:16px}
