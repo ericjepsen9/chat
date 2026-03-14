@@ -1402,17 +1402,203 @@ adb shell dumpsys notification --noredact | grep -A 20 "ubercab"
 
 ---
 
-## 七、风险矩阵与缓解措施
+## 七、未覆盖场景补全
+
+### 7.1 接单按钮定位问题（重要）
+
+当前方案使用**固定坐标**点击接单按钮，但实际中按钮位置会变化：
+
+| 变化原因 | 说明 |
+|---|---|
+| **不同订单类型 UI 不同** | 预约单 vs 即时单 vs Trip Radar，按钮位置可能不同 |
+| **Uber App 更新** | 一次 App 更新就可能导致按钮坐标偏移 |
+| **不同手机分辨率** | 换手机后坐标全部失效 |
+| **通知展开/收起** | 通知栏状态影响整体布局偏移 |
+
+**解决方案**：用 `uiautomator dump` 动态定位按钮（和弹窗处理同一套技术）
+
+```python
+def find_accept_button() -> tuple[int, int] | None:
+    """动态定位接单按钮"""
+    result = subprocess.run(
+        ["adb", "shell", "uiautomator", "dump", "/sdcard/ui_dump.xml"],
+        capture_output=True, timeout=5
+    )
+    result = subprocess.run(
+        ["adb", "shell", "cat", "/sdcard/ui_dump.xml"],
+        capture_output=True, text=True, timeout=5
+    )
+    xml = result.stdout
+
+    # Uber 接单按钮可能的文本（繁体中文/英文）
+    accept_texts = ["接受", "Accept", "預約", "Reserve", "確認接單"]
+
+    for text in accept_texts:
+        pattern = rf'text="{re.escape(text)}"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
+        match = re.search(pattern, xml)
+        if match:
+            x1, y1, x2, y2 = map(int, match.groups())
+            return ((x1 + x2) // 2, (y1 + y2) // 2)
+
+    return None  # 未找到按钮 → 不操作，避免误触
+```
+
+### 7.2 来电/闹钟/系统弹窗打断
+
+| 场景 | 影响 | 处理 |
+|---|---|---|
+| **来电** | 来电界面覆盖 Uber，无法点击接单 | 检测 `dumpsys telephony.registry` 判断通话状态；活跃时段设勿扰模式 |
+| **闹钟** | 全屏闹钟覆盖 | 活跃时段不设闹钟 |
+| **系统弹窗** | "电池用量偏高"、"应用无响应(ANR)"、"存储空间不足" | `uiautomator dump` 检测并关闭 |
+| **其他 App 通知** | 遮挡或干扰操作区域 | 活跃时段通过 ADB 清除非 Uber 通知 |
+
+```python
+async def dismiss_system_dialogs():
+    """关闭系统级弹窗（ANR、电池提示等）"""
+    # Android 广播：关闭系统弹窗
+    subprocess.run(
+        ["adb", "shell", "am", "broadcast", "-a",
+         "android.intent.action.CLOSE_SYSTEM_DIALOGS"],
+        capture_output=True
+    )
+```
+
+### 7.3 Uber App 自身状态异常
+
+| 场景 | 检测方法 | 处理 |
+|---|---|---|
+| **App 崩溃** | `dumpsys activity` 中无 Uber Activity | `am start` 重新启动 |
+| **司机状态离线** | 接单通知停止超过预期时间 | 截图 + OCR 检查在线状态；或告警让人工介入 |
+| **被强制要求更新** | 全屏更新提示无法跳过 | Telegram 告警 + 暂停系统 |
+| **身份验证弹窗** | Uber 定期要求自拍验证身份 | 无法自动处理 → 立即告警 |
+| **App 被切到后台** | `mResumedActivity` 不含 Uber | `am start` 拉回前台 |
+| **GPS 定位丢失** | Uber 显示"无法获取位置" | 检测 `dumpsys location` → 告警 |
+
+### 7.4 手机硬件/环境问题
+
+| 场景 | 检测方法 | 处理 |
+|---|---|---|
+| **电量过低** | `adb shell dumpsys battery \| grep level` | 低于 20% 暂停并告警（建议保持充电） |
+| **手机过热降频** | `dumpsys thermalservice` 或 `cat /sys/class/thermal/*/temp` | 暂停运行，等温度下降 |
+| **存储空间满** | `df /data` | 清理缓存 `pm clear` 非关键应用 |
+| **WiFi 断连后切 4G** | ADB 通过 WiFi 连接会直接断开 | 健康检查已覆盖 ADB 重连 |
+| **手机自动重启** | ADB 连接突然断开 + 一段时间后恢复 | 重连后自动启动 Uber App + 恢复上线状态 |
+| **屏幕自动熄灭** | `dumpsys power` 检查屏幕状态 | 已覆盖（亮屏+解锁） |
+
+```python
+async def check_battery():
+    """检查电量"""
+    result = subprocess.run(
+        ["adb", "shell", "dumpsys", "battery"],
+        capture_output=True, text=True
+    )
+    match = re.search(r'level: (\d+)', result.stdout)
+    if match:
+        level = int(match.group(1))
+        plugged = "plugged: 0" not in result.stdout  # 是否在充电
+        if level < 20 and not plugged:
+            logging.warning(f"电量 {level}%，未充电！暂停接单")
+            return False
+    return True
+```
+
+### 7.5 接单后的后续流程
+
+**当前方案只考虑了"点击接单"，但接单成功后还需要处理**：
+
+| 场景 | 说明 | 处理建议 |
+|---|---|---|
+| **预约单时间冲突** | 接了两个时间重叠的预约单 | 通知解析时提取预约时间，维护已接预约时间表，冲突时不接 |
+| **乘客取消已接的单** | 接单后乘客在 60 分钟前免费取消 | 通知轮询会捕获取消通知 → 记录日志 |
+| **需要确认到达** | 到达接客点后可能需要操作 App | 超出自动化范围 → 人工处理（早上起来操作） |
+| **连续接单过多** | 一晚接太多预约单，第二天跑不完 | 配置 `max_accepted_per_night`（默认 3-5 单） |
+
+```python
+class ReservationTracker:
+    """已接预约单追踪 — 防止时间冲突和超量"""
+
+    def __init__(self, max_per_night: int = 5):
+        self.accepted_reservations = []  # [(pickup_time, destination)]
+        self.max_per_night = max_per_night
+
+    def can_accept(self, pickup_time: str) -> bool:
+        """检查是否还能接单"""
+        if len(self.accepted_reservations) >= self.max_per_night:
+            logging.info(f"已达每晚上限 {self.max_per_night}，停止接单")
+            return False
+
+        # TODO: 解析 pickup_time，检查与已接单是否时间冲突
+        return True
+
+    def record_accepted(self, pickup_time: str, destination: str):
+        self.accepted_reservations.append((pickup_time, destination))
+```
+
+### 7.6 电脑端稳定性
+
+| 场景 | 处理 |
+|---|---|
+| **Python 进程崩溃** | 用 `systemd` (Linux) 或 Windows 任务计划 + watchdog 自动重启 |
+| **电脑进入睡眠** | 电源计划设"永不睡眠"；或用 `caffeinate` / `SetThreadExecutionState` |
+| **ADB server 崩溃** | 健康检查中自动 `adb kill-server && adb start-server` |
+| **日志文件无限增长** | 配置 `RotatingFileHandler`，保留最近 7 天 |
+| **内存泄漏** | 定期重启 Python 进程（每 24 小时） |
+
+### 7.7 Uber 通知格式变更
+
+**最脆弱的环节** — Uber App 更新可能导致通知文本格式变化：
+
+```python
+class NotificationParser:
+    """通知文本解析器 — 需要持续维护"""
+
+    def parse(self, title: str, text: str, big_text: str) -> dict | None:
+        """
+        尝试多种模式匹配，兼容格式变更
+        解析失败时返回 None → 默认不接单（安全优先）
+        """
+        result = {}
+
+        # 尝试多种已知模式
+        patterns = [
+            # 模式 1：当前已知格式（需根据实际通知内容填充）
+            r'(?P<time>\d{1,2}:\d{2})\s+(?P<pickup>.+?)→(?P<dest>.+)',
+            # 模式 2：备选格式
+            r'(?P<pickup>.+?)\sto\s(?P<dest>.+)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, big_text or text)
+            if match:
+                result = match.groupdict()
+                break
+
+        if not result:
+            logging.warning(f"通知解析失败，可能格式已变: title={title}, text={text}")
+            # 解析失败 → 发送告警 + 原始通知内容，让人工判断
+            return None
+
+        return result
+```
+
+---
+
+## 八、风险矩阵与缓解措施
 
 | 风险 | 可能性 | 影响 | 缓解措施 |
 |---|---|---|---|
-| Uber 检测到自动化行为 | 中 | **致命** | sendevent 仿真 + 行为拟人化 + 作息模拟 + 接受率管理 |
-| 通知格式变更（App 更新） | 高 | 高 | 正则解析器需持续维护；回退到截图 OCR 路径 |
-| WiFi 断连 | 中 | 中 | 健康检查 + 自动重连 + Telegram 告警 |
-| 手机过热/卡死 | 低 | 中 | 屏幕最低亮度 + 健康检查发现无心跳后告警 |
-| 误接差单 | 低 | 低 | 解析失败时默认不接单（宁可错过不可误接） |
-| 好单因延迟被抢走 | 中 | 低 | 可接受的代价，安全优先于速度 |
-| 电脑进入睡眠 | 低 | 中 | 设置电源计划为"永不睡眠"；运行 `caffeinate` 等保活工具 |
+| Uber 检测到自动化行为 | 中 | **致命** | sendevent 仿真 + 行为拟人化 + 作息模拟 |
+| 通知格式变更（App 更新） | 高 | 高 | 多模式正则 + 解析失败默认不接 + 告警人工维护 |
+| 接单按钮位置变化 | 高 | 高 | `uiautomator dump` 动态定位（§7.1） |
+| 身份验证自拍弹窗 | 低 | 高 | 无法自动化 → 立即 Telegram 告警 |
+| 来电/系统弹窗打断 | 中 | 中 | 勿扰模式 + 广播关闭系统弹窗（§7.2） |
+| 预约单时间冲突 | 中 | 中 | ReservationTracker 维护已接时间表（§7.5） |
+| WiFi 断连 / ADB 掉线 | 中 | 中 | 健康检查 + 自动重连 + Telegram 告警 |
+| App 崩溃/被切后台 | 中 | 中 | `dumpsys activity` 检测 + `am start` 恢复 |
+| 手机电量低/过热 | 低 | 中 | 电量检查 + 温度监控 → 暂停接单 |
+| 电脑进程崩溃/睡眠 | 低 | 中 | watchdog 自动重启 + 永不睡眠电源计划 |
+| 一晚接太多单 | 低 | 低 | `max_per_night` 上限控制（§7.5） |
+| 好单因延迟被抢走 | 中 | 低 | 可接受的代价 → 抢单失败弹窗自动关闭 |
 
 ---
 
