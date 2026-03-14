@@ -257,6 +257,9 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   return { ok: true, status: 200, payload: { order } };
 }
 
+// Hoisted constants — avoid re-creating on every call
+const _STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受' };
+
 // Allowed status transitions: currentStatus -> Set of valid nextStatuses
 const ALLOWED_TRANSITIONS = {
   pending:     new Set(['accepted']),
@@ -285,7 +288,7 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
   order.status = nextStatus;
   order.updatedAt = Date.now();
 
-  const STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受' };
+  const STATUS_TITLES = _STATUS_TITLES;
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
   addTradeMessage(conv.id, {
     senderId: authUser.id,

@@ -225,6 +225,8 @@ function rebuildIndexes() {
     if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
     if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
     if (!Array.isArray(conv.members)) conv.members = [];
+    // Pre-built member Set for O(1) membership checks in hot paths
+    conv._memberSet = new Set(conv.members);
     index.convById.set(conv.id, conv);
     for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
     if (conv.type === 'direct' && conv.members.length === 2) {
@@ -291,6 +293,7 @@ function indexNewConversation(conv) {
   if (!Array.isArray(conv.mutedBy)) conv.mutedBy = [];
   if (!Array.isArray(conv.pinnedBy)) conv.pinnedBy = [];
   if (!Array.isArray(conv.members)) conv.members = [];
+  conv._memberSet = new Set(conv.members);
   index.convById.set(conv.id, conv);
   for (const memberId of conv.members) addToMapArray(index.convByUser, memberId, conv);
   if (conv.type === 'direct' && conv.members.length === 2) {

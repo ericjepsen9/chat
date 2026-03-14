@@ -110,10 +110,21 @@ module.exports = function createProductRoutes(ctx) {
       if (!context) return true;
       const { categoryPresets, specPresets } = context.body;
       if (Array.isArray(categoryPresets)) {
-        context.authUser.categoryPresets = categoryPresets.map(s => String(s || '').trim().slice(0, 40)).filter(Boolean).slice(0, MAX_PRESETS);
+        // Single-pass: normalize + filter + limit in one loop (avoids map+filter+slice chain)
+        const cats = [];
+        for (let i = 0; i < categoryPresets.length && cats.length < MAX_PRESETS; i++) {
+          const s = String(categoryPresets[i] || '').trim().slice(0, 40);
+          if (s) cats.push(s);
+        }
+        context.authUser.categoryPresets = cats;
       }
       if (Array.isArray(specPresets)) {
-        context.authUser.specPresets = specPresets.map(s => String(s || '').trim().slice(0, 40)).filter(Boolean).slice(0, MAX_PRESETS);
+        const specs = [];
+        for (let i = 0; i < specPresets.length && specs.length < MAX_PRESETS; i++) {
+          const s = String(specPresets[i] || '').trim().slice(0, 40);
+          if (s) specs.push(s);
+        }
+        context.authUser.specPresets = specs;
       }
       schedulePersist('product_presets_update', { userId: context.authUser.id });
       return sendJson(res, 200, {

@@ -12,19 +12,22 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
   const results = [];
   const userConvs = index.convByUser.get(authUser.id) || [];
   let scanned = 0;
+  // Cache peer info per conversation to avoid repeated Map lookups
+  const peerCache = new Map();
   outer:
   for (let c = 0; c < userConvs.length; c++) {
     const conv = userConvs[c];
-    const members = conv.members || [];
-    const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
-    let peerName, peerAvatarUrl;
-    if (peerId) {
-      const peer = index.usersById.get(peerId);
-      peerName = peer ? (peer.displayName || peer.username) : '';
-      peerAvatarUrl = peer ? peer.avatarUrl : '';
-    } else {
-      peerName = conv.title || '';
-      peerAvatarUrl = '';
+    let cached = peerCache.get(conv.id);
+    if (!cached) {
+      const members = conv.members || [];
+      const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
+      if (peerId) {
+        const peer = index.usersById.get(peerId);
+        cached = { peerId, peerName: peer ? (peer.displayName || peer.username) : '', peerAvatarUrl: peer ? peer.avatarUrl : '' };
+      } else {
+        cached = { peerId: '', peerName: conv.title || '', peerAvatarUrl: '' };
+      }
+      peerCache.set(conv.id, cached);
     }
     const msgs = index.messagesByConv.get(conv.id) || [];
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -35,7 +38,7 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
         results.push({
           messageId: msg.id, conversationId: conv.id, senderId: msg.senderId,
           text: msg.text, createdAt: msg.createdAt,
-          peerName, peerAvatarUrl, peerId: peerId || '',
+          peerName: cached.peerName, peerAvatarUrl: cached.peerAvatarUrl, peerId: cached.peerId,
         });
         if (++scanned >= SCAN_CAP) break outer;
       }

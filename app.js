@@ -1252,7 +1252,13 @@ function renderProfileCartPage(){
 function renderCartHubPage(){
   const list = $("cartHubList");
   if(!list) return;
-  const groups = Object.entries(state.profileCartBySeller || {}).filter(([,arr]) => Array.isArray(arr) && arr.length);
+  // Use Object.keys loop to avoid Object.entries allocation
+  const _cart = state.profileCartBySeller || {};
+  const groups = [];
+  for (const sid of Object.keys(_cart)) {
+    const arr = _cart[sid];
+    if (Array.isArray(arr) && arr.length) groups.push([sid, arr]);
+  }
   const sig = groups.map(([sid, arr]) => sid + ':' + arr.map(i => i.productId + ',' + (i.quantity||0)).join('|')).join(';');
   if (!sigChanged('cartHub', sig)) return;
   if(!groups.length){

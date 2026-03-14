@@ -22,10 +22,20 @@ module.exports = function createOrderRoutes(ctx) {
       if (!authUser) return true;
       const data = queryOrders({ db, authUser, searchParams, isAdmin, index });
       const orders = data.orders;
+      // Cache display names to avoid repeated Map lookups for same buyer/seller
+      const nameCache = new Map();
       for (let i = 0; i < orders.length; i++) {
         const o = orders[i];
-        if (!o.buyerName) o.buyerName = index.usersById.get(o.buyerId)?.displayName || '';
-        if (!o.sellerName) o.sellerName = index.usersById.get(o.sellerId)?.displayName || '';
+        if (!o.buyerName) {
+          let n = nameCache.get(o.buyerId);
+          if (n === undefined) { n = index.usersById.get(o.buyerId)?.displayName || ''; nameCache.set(o.buyerId, n); }
+          o.buyerName = n;
+        }
+        if (!o.sellerName) {
+          let n = nameCache.get(o.sellerId);
+          if (n === undefined) { n = index.usersById.get(o.sellerId)?.displayName || ''; nameCache.set(o.sellerId, n); }
+          o.sellerName = n;
+        }
       }
       return sendJson(res, 200, data);
     }
