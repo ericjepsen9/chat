@@ -30,7 +30,8 @@ const state = {
   typingTimer: null, mediaRecorder: null, audioChunks: [], chatListSignature: '', friendListSignature: '', mallListSignature: '', conversationItemSignatures: {}, friendGroupSignatures: {}, friendItemSignatures: {}, mallItemSignatures: {},
   mallTab: 'nearby', userLocation: null, userLocationName: '正在定位...',
   sidebarMode: 'expanded',
-  secondaryStack: []
+  secondaryStack: [],
+  _ctxMenuVersion: 0
 };
 let isMuted = false, isCameraOff = false, isSpeaker = false;
 const CATEGORY_SPLIT_RE = /[\/,、]/;
@@ -1291,6 +1292,7 @@ function bindMessageContextMenu(node, msg) {
   let pressArmed = false;
   let suppressClickUntil = 0;
   let startPoint = null;
+  let menuShownAt = 0;
   const clearPress = () => {
     pressArmed = false;
     startPoint = null;
@@ -1303,6 +1305,7 @@ function bindMessageContextMenu(node, msg) {
       if (!pressArmed) return;
       pressArmed = false;
       suppressClickUntil = Date.now() + 450;
+      menuShownAt = Date.now();
       try { if (navigator.vibrate) navigator.vibrate(10); } catch (_) {}
       window.showContextMenu(anchor, msg);
     }, LONG_PRESS_DELAY_MS);
@@ -1333,6 +1336,7 @@ function bindMessageContextMenu(node, msg) {
   node.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     clearPress();
+    if (Date.now() - menuShownAt < 500) return;
     suppressClickUntil = Date.now() + 250;
     window.showContextMenu(e, msg);
   });
@@ -1382,7 +1386,16 @@ window.showContextMenu = function(event, msg) {
   menu.style.left = `${x}px`; menu.style.top = `${y}px`;
   menu.style.visibility = '';
   if (state._ctxMenuClose) { document.removeEventListener('click', state._ctxMenuClose, true); document.removeEventListener('touchstart', state._ctxMenuClose, true); }
-  const closeMenu = (e) => { if(e && e.target.closest('#contextMenu')) return; menu.classList.add('hidden'); menu.replaceChildren(); document.removeEventListener('click', closeMenu, true); document.removeEventListener('touchstart', closeMenu, true); state._ctxMenuClose = null; };
+  const menuVersion = ++state._ctxMenuVersion;
+  const openTime = Date.now();
+  const closeMenu = (e) => {
+    if (state._ctxMenuVersion !== menuVersion) return;
+    if (Date.now() - openTime < 400) return;
+    if (e && e.target.closest('#contextMenu')) return;
+    menu.classList.add('hidden'); menu.replaceChildren();
+    document.removeEventListener('click', closeMenu, true); document.removeEventListener('touchstart', closeMenu, true);
+    state._ctxMenuClose = null;
+  };
   state._ctxMenuClose = closeMenu;
   setTimeout(() => { document.addEventListener('click', closeMenu, true); document.addEventListener('touchstart', closeMenu, true); }, 0);
 };
