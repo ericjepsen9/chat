@@ -6179,6 +6179,7 @@ async function connectRealtime() {
   state._sseRetryCount = (state._sseRetryCount || 0);
   state.eventSource.onopen = () => {
     state._sseRetryCount = 0;
+    updateSseStatus('connected');
     // Backfill messages after reconnect to avoid missing data during disconnect
     if (state.currentUser) {
       loadConversations().catch(() => {});
@@ -6197,14 +6198,24 @@ async function connectRealtime() {
     state._sseRetryCount = (state._sseRetryCount || 0) + 1;
     if (state._sseRetryCount > 10) {
       console.warn('[sse] max retries reached, stopping reconnect');
-      showToast('实时连接断开，请刷新页面');
+      updateSseStatus('disconnected');
       return;
     }
+    updateSseStatus('reconnecting');
+    // Skip reconnect if offline — will reconnect when online event fires
+    if (!navigator.onLine) return;
     const delay = Math.min(1500 * Math.pow(2, state._sseRetryCount - 1), 30000);
     setTimeout(() => { if (state.currentUser) connectRealtime().catch(() => {}); }, delay);
   };
   } finally { _connectRealtimeInFlight = false; }
 }
+
+// Reconnect SSE when page becomes visible again
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.currentUser && !state.eventSource && navigator.onLine) {
+    connectRealtime().catch(() => {});
+  }
+});
 
 window.addEventListener('pagehide', () => {
   if (typeof stopScanCamera === 'function') stopScanCamera();

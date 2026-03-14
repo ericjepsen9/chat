@@ -562,3 +562,91 @@ function debounce(fn, ms) {
   let t;
   return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
 }
+
+/* ═══════════════════════════════════════
+   GLOBAL ERROR HANDLERS
+   ═══════════════════════════════════════ */
+window.onerror = function(msg, source, line, col, err) {
+  console.error('[Global]', msg, source && `${source}:${line}:${col}`, err);
+};
+window.onunhandledrejection = function(e) {
+  // Suppress session_expired (already handled by api()) and intentional empty catches
+  const reason = e.reason;
+  if (!reason) return;
+  const msg = reason.message || String(reason);
+  if (msg === 'session_expired') return;
+  console.warn('[Unhandled rejection]', reason);
+};
+
+/* ═══════════════════════════════════════
+   UNIFIED API ERROR HANDLER
+   ═══════════════════════════════════════ */
+function handleApiError(e, context) {
+  if (!e) return;
+  const msg = e.message || String(e);
+  // session_expired already triggers reload in api()
+  if (msg === 'session_expired') return;
+  if (e.isNetworkError) {
+    showToast('网络连接失败，请检查网络');
+    return;
+  }
+  // Show user-friendly message with optional context
+  showToast(context ? `${context}: ${msg}` : msg);
+}
+
+/* ═══════════════════════════════════════
+   OFFLINE / ONLINE DETECTION
+   ═══════════════════════════════════════ */
+let _offlineBannerEl = null;
+
+function _showOfflineBanner() {
+  if (_offlineBannerEl) { _offlineBannerEl.style.display = 'flex'; return; }
+  _offlineBannerEl = document.createElement('div');
+  _offlineBannerEl.id = 'offlineBanner';
+  _offlineBannerEl.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#ef4444;color:#fff;font-size:13px;padding:6px 12px;display:flex;align-items:center;justify-content:center;gap:6px;';
+  _offlineBannerEl.textContent = '网络已断开，请检查连接';
+  document.body.appendChild(_offlineBannerEl);
+}
+
+function _hideOfflineBanner() {
+  if (_offlineBannerEl) _offlineBannerEl.style.display = 'none';
+}
+
+window.addEventListener('offline', _showOfflineBanner);
+window.addEventListener('online', () => {
+  _hideOfflineBanner();
+  showToast('网络已恢复');
+  // Trigger SSE reconnect if available
+  if (typeof connectRealtime === 'function' && state.currentUser && !state.eventSource) {
+    connectRealtime().catch(() => {});
+  }
+});
+
+/* ═══════════════════════════════════════
+   SSE CONNECTION STATUS
+   ═══════════════════════════════════════ */
+let _sseStatusEl = null;
+
+function updateSseStatus(status) {
+  // status: 'connected' | 'reconnecting' | 'disconnected'
+  if (status === 'connected') {
+    if (_sseStatusEl) _sseStatusEl.style.display = 'none';
+    return;
+  }
+  if (!_sseStatusEl) {
+    _sseStatusEl = document.createElement('div');
+    _sseStatusEl.id = 'sseStatus';
+    _sseStatusEl.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99997;font-size:12px;padding:4px 12px;text-align:center;transition:opacity .3s;';
+    document.body.appendChild(_sseStatusEl);
+  }
+  _sseStatusEl.style.display = 'block';
+  if (status === 'reconnecting') {
+    _sseStatusEl.style.background = '#f59e0b';
+    _sseStatusEl.style.color = '#fff';
+    _sseStatusEl.textContent = '正在重新连接...';
+  } else {
+    _sseStatusEl.style.background = '#ef4444';
+    _sseStatusEl.style.color = '#fff';
+    _sseStatusEl.textContent = '实时连接断开';
+  }
+}

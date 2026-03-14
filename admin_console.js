@@ -351,7 +351,7 @@ window.viewUser = async function(userId) {
       parts.push('</div>');
       body += parts.join('');
     }
-    openModal('用户详情 - ' + (u.displayName || u.username), body, '');
+    openModal('用户详情 - ' + esc(u.displayName || u.username), body, '');
   } catch (e) { toast('加载失败: ' + e.message); }
 };
 
@@ -369,7 +369,7 @@ window.editUser = async function(userId) {
       <div class="form-group"><label>新密码（留空则不修改）</label><input id="eu_pw" type="password" placeholder="输入新密码"></div>
     `;
     const footer = `<button class="btn-outline" onclick="closeModal()">取消</button><button class="btn-primary" onclick="saveUser('${esc(userId)}')">保存修改</button>`;
-    openModal('编辑用户 - ' + (u.displayName || u.username), body, footer);
+    openModal('编辑用户 - ' + esc(u.displayName || u.username), body, footer);
   } catch (e) { toast('加载失败'); }
 };
 
@@ -552,13 +552,15 @@ async function loadConversations() {
 function renderConvsTable() {
   const s = state.convs;
   const rows = s.items.map(c => {
-    const names = (c.members || []).map(m => esc(m.displayName)).join(' ↔ ');
+    const namesHtml = (c.members || []).map(m => esc(m.displayName)).join(' ↔ ');
+    // Build a plain-text version for onclick attribute (single esc)
+    const namesText = (c.members || []).map(m => m.displayName || '').join(' ↔ ');
     return `<tr>
-      <td><span class="user-cell-name">${names}</span></td>
+      <td><span class="user-cell-name">${namesHtml}</span></td>
       <td><span class="badge badge-gray">${esc(c.type)}</span></td>
       <td>${c.messageCount}</td>
       <td>${fmtDate(c.lastMessageAt)}</td>
-      <td class="cell-actions"><button class="btn-action primary" onclick="viewConvMessages('${esc(c.id)}')">查看消息</button><button class="btn-action danger" onclick="deleteConversation('${esc(c.id)}','${esc(names)}')">删除</button></td>
+      <td class="cell-actions"><button class="btn-action primary" onclick="viewConvMessages('${esc(c.id)}')">查看消息</button><button class="btn-action danger" onclick="deleteConversation('${esc(c.id)}','${esc(namesText)}')">删除</button></td>
     </tr>`;
   });
   renderTable('convsTable', [
