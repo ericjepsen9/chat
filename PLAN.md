@@ -1,17 +1,16 @@
 # 代码优化六方向执行计划
 
-## 项目现状
+## 项目现状（优化后）
 
-| 指标 | 数值 |
-|-----|------|
-| JS 文件总数 | 40+ |
-| 总行数 | 15,547 |
-| app.js 行数 | 6,605（占 42%） |
-| window.* 全局导出 | 34 个函数 |
-| innerHTML 使用 | app.js=0, admin 面板=24处 |
-| IntersectionObserver | 0（无懒加载） |
-| 全局错误处理 | 无 |
-| 测试 | 仅 1 个 smoke-test（359行） |
+| 指标 | 优化前 | 优化后 |
+|-----|------|------|
+| JS 文件总数 | 40+ | 45+ |
+| app.js 行数 | 6,605 | 4,524（-32%） |
+| 新增模块 | — | app_orders, app_shopping, app_contacts, app_chat, app_realtime |
+| IntersectionObserver | 0 | 7处懒加载 |
+| 全局错误处理 | 无 | window.onerror + unhandledrejection |
+| 测试 | 1 个 smoke-test | 32 unit tests + edge-case smoke tests |
+| 安全头 | 无 | CSP + X-Frame-Options + X-Content-Type-Options |
 
 ---
 
