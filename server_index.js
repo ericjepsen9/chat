@@ -46,6 +46,9 @@ function normalizeSingleGroupName(name) {
 
 function rebuildMallIndex() {
   const items = [];
+  const allProducts = [];
+  const ownerMap = index.productOwnerMap;
+  ownerMap.clear();
   const users = db.users;
   for (let u = 0; u < users.length; u++) {
     const user = users[u];
@@ -58,19 +61,22 @@ function rebuildMallIndex() {
     const nameLower = (sellerName || '').toLowerCase();
     for (let p = 0; p < products.length; p++) {
       const product = products[p];
-      if (product?.listed === false) continue;
-      // Skip stock-zero products from mall listing
-      if (Number(product.stock || 0) <= 0) continue;
       product.sellerId = sellerId;
       product.sellerName = sellerName;
       product.sellerAvatarUrl = sellerAvatarUrl;
       product.sellerAppNumberId = sellerAppNumberId;
+      ownerMap.set(product.id, user);
+      allProducts.push(product);
+      if (product.listed === false) continue;
+      if (Number(product.stock || 0) <= 0) continue;
       product._searchText = ((product.title || '') + ' ' + (product.desc || '') + ' ' + nameLower).toLowerCase();
       items.push(product);
     }
   }
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  allProducts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   index.mallItems = items;
+  index.allProductsSorted = allProducts;
 }
 
 function rebuildRequestViewsIndex() {

@@ -124,7 +124,12 @@ function saveSnapshot(db, snapshot) {
     // products: prefer snap.products if provided; otherwise flatten from users.
     const prods = Array.isArray(snap.products) && snap.products.length
       ? snap.products
-      : (snap.users || []).flatMap((u) => (Array.isArray(u.products) ? u.products.map((p) => ({ ...p, sellerId: u.id })) : []));
+      : (snap.users || []).flatMap((u) => {
+          if (!Array.isArray(u.products)) return [];
+          const sid = u.id;
+          for (let i = 0; i < u.products.length; i++) u.products[i].sellerId = sid;
+          return u.products;
+        });
 
     for (const p of prods) { if (p.id) insProd.run(p.id, p.sellerId, p.createdAt || Date.now(), JSON.stringify(p)); }
 
@@ -176,7 +181,10 @@ function openSqliteStore(sqliteFilePath, jsonFilePath, defaultSnapshotFactory) {
         }
         for (const u of snap.users) {
           const arr = bySeller.get(u.id);
-          if (arr) u.products = arr.map(({ sellerId, ...rest }) => rest);
+          if (arr) {
+            for (let i = 0; i < arr.length; i++) delete arr[i].sellerId;
+            u.products = arr;
+          }
         }
       }
       return {

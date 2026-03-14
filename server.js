@@ -201,6 +201,8 @@ const index = {
   ordersByBuyer: new Map(),
   ordersBySeller: new Map(),
   mallItems: [],
+  allProductsSorted: [],   // cached all-products list for admin (sorted by createdAt desc)
+  productOwnerMap: new Map(), // productId → user (for O(1) admin lookups)
 };
 
 // Index manager — all index rebuild/management functions

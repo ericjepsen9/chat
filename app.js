@@ -858,7 +858,8 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   if(!list) return;
   const sig = (state.profileStoreItems||[]).map(i => i.id+'|'+(i.listed?'1':'0')+'|'+i.stock+'|'+(i.createdAt||0)).join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
   if (!sigChanged('profileStore', sig)) return;
-  const sortedItems = (state.profileStoreItems || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const sortedItems = (state.profileStoreItems || []);
+  sortedItems.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Use cached parsed categories to avoid repeated regex splitting
   for (const item of sortedItems) {
     if (item.category && !item._parsedCats) item._parsedCats = item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean);
@@ -1619,25 +1620,21 @@ function extractContactCardUserId(card = {}){
   const appId = appMatch ? appMatch[0].toUpperCase() : '';
 
   const srcFriends = state.friends || [];
-  if (appId) {
-    for (let i = 0; i < srcFriends.length; i++) {
-      const f = srcFriends[i].friend;
-      if (f && String(f.appNumberId || '').toUpperCase() === appId && f.id) return f.id;
-    }
-  }
-
   const title = String(card.title || '').trim();
-  if (title) {
-    for (let i = 0; i < srcFriends.length; i++) {
-      const f = srcFriends[i].friend;
-      if (!f) continue;
+  if (!appId && !title) return '';
+  let titleMatch = '';
+  for (let i = 0; i < srcFriends.length; i++) {
+    const f = srcFriends[i].friend;
+    if (!f) continue;
+    if (appId && String(f.appNumberId || '').toUpperCase() === appId && f.id) return f.id;
+    if (!titleMatch && title) {
       const r = String(f.remark || '').trim();
       const d = String(f.displayName || '').trim();
       const u = String(f.username || '').trim();
-      if ((r && r === title) || (d && d === title) || (u && u === title)) return f.id;
+      if ((r && r === title) || (d && d === title) || (u && u === title)) titleMatch = f.id;
     }
   }
-  return '';
+  return titleMatch;
 }
 
 function isContactCardPayload(card = {}){
@@ -4352,7 +4349,7 @@ function bindProfileEvents() {
   on("sellerOrderManageBtn", "click", async () => { await loadSellerOrders(); window.openSecondaryPage('sellerOrdersPage', 'sellerCenterPage'); });
   [['buyer', renderBuyerOrdersManage], ['seller', renderSellerOrdersManage]].forEach(([role, renderFn]) => {
     const cap = role.charAt(0).toUpperCase() + role.slice(1);
-    on(`${role}OrdersSearchInput`, "input", () => { state[`${role}OrderSearch`] = $(`${role}OrdersSearchInput`)?.value?.trim() || ''; renderFn(); });
+    on(`${role}OrdersSearchInput`, "input", debounce(() => { state[`${role}OrderSearch`] = $(`${role}OrdersSearchInput`)?.value?.trim() || ''; renderFn(); }, 200));
     on(`${role}OrdersFromBtn`, "click", () => { openDatePicker(role, 'from', state[`${role}OrderFrom`]); });
     on(`${role}OrdersToBtn`, "click", () => { openDatePicker(role, 'to', state[`${role}OrderTo`]); });
     on(`${role}OrdersClearFilterBtn`, "click", () => { state[`${role}OrderSearch`]=''; state[`${role}OrderFrom`]=''; state[`${role}OrderTo`]=''; renderFn(); });

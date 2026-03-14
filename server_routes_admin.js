@@ -296,41 +296,20 @@ module.exports = function createAdminRoutes(ctx) {
       const { limit, offset } = paginate(searchParams);
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const listedFilter = searchParams.get('listed');
-      // mallItems only contains listed+in-stock items; for admin we need all products
+      // Use pre-built allProductsSorted from index (already sorted by createdAt desc)
       let allProducts;
       if (!listedFilter && !q) {
-        // Unfiltered: build from users (admin needs unlisted items too)
-        allProducts = [];
-        for (const u of db.users) {
-          if (!Array.isArray(u.products)) continue;
-          const sellerId = u.id;
-          const sellerName = u.displayName || u.username;
-          for (let pi = 0; pi < u.products.length; pi++) {
-            const p = u.products[pi];
-            p.sellerId = sellerId;
-            p.sellerName = sellerName;
-            allProducts.push(p);
-          }
-        }
-        allProducts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        allProducts = index.allProductsSorted;
       } else {
-        // Filtered: still need full scan but avoid spread-copying each product
         allProducts = [];
-        for (const u of db.users) {
-          if (!Array.isArray(u.products)) continue;
-          const sellerId = u.id;
-          const sellerName = u.displayName || u.username;
-          for (let pi = 0; pi < u.products.length; pi++) {
-            const p = u.products[pi];
-            if (listedFilter === 'true' && !p.listed) continue;
-            if (listedFilter === 'false' && p.listed !== false) continue;
-            if (q && !(p.title || '').toLowerCase().includes(q) && !(sellerName || '').toLowerCase().includes(q) && !(p.category || '').toLowerCase().includes(q)) continue;
-            p.sellerId = sellerId;
-            p.sellerName = sellerName;
-            allProducts.push(p);
-          }
+        const src = index.allProductsSorted;
+        for (let pi = 0; pi < src.length; pi++) {
+          const p = src[pi];
+          if (listedFilter === 'true' && !p.listed) continue;
+          if (listedFilter === 'false' && p.listed !== false) continue;
+          if (q && !(p.title || '').toLowerCase().includes(q) && !(p.sellerName || '').toLowerCase().includes(q) && !(p.category || '').toLowerCase().includes(q)) continue;
+          allProducts.push(p);
         }
-        allProducts.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       }
       const result = slicePage(allProducts, offset, limit);
       return sendJson(res, 200, result);
@@ -342,12 +321,8 @@ module.exports = function createAdminRoutes(ctx) {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
       const productId = productUpdateMatch[1];
-      let found = null;
-      for (const u of db.users) {
-        if (!Array.isArray(u.products)) continue;
-        found = u.products.find(p => p.id === productId);
-        if (found) break;
-      }
+      const owner = index.productOwnerMap.get(productId);
+      const found = owner ? (owner.products || []).find(p => p.id === productId) : null;
       if (!found) return sendJson(res, 404, { error: 'not_found' });
       const b = context.body;
       if (b.price !== undefined) found.price = String(b.price || '').trim().slice(0, 24);
@@ -365,13 +340,11 @@ module.exports = function createAdminRoutes(ctx) {
       const context = await getAuthedBody(req, res);
       if (!context || !isAdmin(context.authUser)) return sendJson(res, 403, { error: 'forbidden' });
       const productId = productDeleteMatch[1];
-      let deleted = false;
-      for (const u of db.users) {
-        if (!Array.isArray(u.products)) continue;
-        const idx = u.products.findIndex(p => p.id === productId);
-        if (idx !== -1) { u.products.splice(idx, 1); deleted = true; break; }
-      }
-      if (!deleted) return sendJson(res, 404, { error: 'not_found' });
+      const delOwner = index.productOwnerMap.get(productId);
+      if (!delOwner) return sendJson(res, 404, { error: 'not_found' });
+      const delIdx = (delOwner.products || []).findIndex(p => p.id === productId);
+      if (delIdx === -1) return sendJson(res, 404, { error: 'not_found' });
+      delOwner.products.splice(delIdx, 1);
       rebuildMallIndex();
       broadcastAll('mall_updated', {});
       schedulePersist('admin_product_delete', { productId });
@@ -389,8 +362,12 @@ module.exports = function createAdminRoutes(ctx) {
       const { limit, offset } = paginate(searchParams);
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const typeFilter = searchParams.get('type') || '';
-      let convs = db.conversations || [];
-      convs = convs.slice().sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
+      const rawConvs = db.conversations || [];
+      // Build lightweight index-sorted view: [index, lastMessageAt] sorted desc
+      const sortedIndices = [];
+      for (let ci = 0; ci < rawConvs.length; ci++) sortedIndices.push(ci);
+      sortedIndices.sort((a, b) => (rawConvs[b].lastMessageAt || 0) - (rawConvs[a].lastMessageAt || 0));
+      let convs = sortedIndices.map(i => rawConvs[i]);
       if (typeFilter) convs = convs.filter(c => c.type === typeFilter);
       if (q) {
         // Pre-build user name cache for conversation member name lookups
