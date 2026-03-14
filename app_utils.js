@@ -1,4 +1,12 @@
 /* app_utils.js — session, API, UI utilities extracted from app.js */
+
+// Safe render wrapper — prevents a single render error from crashing the entire page
+function safeRender(fn) {
+  return function (...args) {
+    try { return fn.apply(this, args); } catch (e) { console.error('[Render error in ' + fn.name + ']', e); }
+  };
+}
+
 const SESSION_KEY = "chattrade_api_session_user";
 
 const $ = id => document.getElementById(id);

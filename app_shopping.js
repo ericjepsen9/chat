@@ -95,6 +95,7 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   const cats = new Set();
   for (const item of sortedItems) {
     if (item.category && !item._parsedCats) item._parsedCats = _splitCategories(item.category);
+    if (item._parsedCats && !item._parsedCatsSet) item._parsedCatsSet = new Set(item._parsedCats);
     if (item._parsedCats) for (let ci = 0; ci < item._parsedCats.length; ci++) cats.add(item._parsedCats[ci]);
   }
   // Build category tabs
@@ -277,6 +278,7 @@ function addSelectedProductToCart(){
     showToast('库存不足');
     return;
   }
+  invalidateCartQtyCache();
   if(found){
     found.quantity = (Number(found.quantity) || 0) + addQty;
   }else{
@@ -308,6 +310,7 @@ function buyNowAndCheckout(){
   if(sellerId === state.currentUser?.id) return showToast('不能购买自己的商品');
   const availableStock = getItemAvailableStock(item);
   if(addQty > availableStock){ showToast('库存不足'); return; }
+  invalidateCartQtyCache();
   // Add to cart then navigate to checkout
   const key = `${item.id}__${spec}`;
   const cart = getCurrentSellerCart(sellerId);

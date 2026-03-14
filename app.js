@@ -14,12 +14,7 @@ const _RE_CT_ID = /CT\d{5,}/i;
 const _RE_CTID_EXTRACT = /(?:^|chattrade:|ctid:)([A-Za-z0-9_-]{4,})$/i;
 const _RE_REGEX_ESCAPE = /[.*+?^${}()|[\]\\]/g;
 
-// Safe render wrapper — prevents a single render error from crashing the entire page
-function safeRender(fn) {
-  return function (...args) {
-    try { return fn.apply(this, args); } catch (e) { console.error('[Render error in ' + fn.name + ']', e); }
-  };
-}
+// safeRender is now defined in app_utils.js (loaded before all other scripts)
 
 const state = {
   currentUser: null, sessionToken: null, conversations: [], conversationsById: new Map(), activeConversation: null, messages: [], messagesById: new Map(),
@@ -483,7 +478,8 @@ function bindProfileOrdersDelegation(list) {
     if (e.target.closest('.profile-order-actions')) return;
     const card = e.target.closest('[data-order-id]');
     if (!card) return;
-    const order = state.ordersById?.get(card.dataset.orderId);
+    const orderId = card.dataset.orderId;
+    const order = state.ordersById?.get(orderId) || (state.profileOrders || []).find(o => o.id === orderId);
     if (order) openOrderDetail(order, card.dataset.orderRole || 'buyer');
   });
 }
