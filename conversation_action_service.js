@@ -39,6 +39,7 @@ function findConversationMessage(messagesByConv, conversationId, messageId, mess
 function deleteConversationMessage({ conversationId, messageId, authUser, index, schedulePersist, broadcastToUser, persistEvent }) {
   const msg = findConversationMessage(index.messagesByConv, conversationId, messageId, index.messagesById);
   if (!msg) return { ok: false, status: 404, error: 'not_found' };
+  if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
   if (!msg.deletedBy.includes(authUser.id)) msg.deletedBy.push(authUser.id);
   schedulePersist(persistEvent, { conversationId, messageId: msg.id, userId: authUser.id });
   broadcastToUser(authUser.id, 'conversation_updated', { conversationId });

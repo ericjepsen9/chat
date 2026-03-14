@@ -2242,8 +2242,8 @@ function applyRecalledMessageLocally(messageId, senderId) {
   const msg = msgIdx !== undefined ? state.messages[msgIdx] : undefined;
   if (!msg) return false;
   msg.type = 'system';
-  msg.text = senderId === state.currentUser.id ? '你撤回了一条消息' : '对方撤回了一条消息';
-  delete msg.imageUrl; delete msg.audioUrl; delete msg.card;
+  msg.text = senderId === state.currentUser?.id ? '你撤回了一条消息' : '对方撤回了一条消息';
+  msg.imageUrl = null; msg.audioUrl = null; msg.card = null;
   return replaceMessageInView(msg) || false;
 }
 function summarizeMessagePreview(msg) {
@@ -2267,7 +2267,7 @@ let _lastReceiptEl = null;
 function refreshMessageReadReceipts() {
   const chatView = $('chatView');
   if (!chatView) return;
-  if (!state.activeConversation || state.activeConversation.type !== 'direct') {
+  if (!state.currentUser || !state.activeConversation || state.activeConversation.type !== 'direct') {
     if (_lastReceiptEl) { _lastReceiptEl.remove(); _lastReceiptEl = null; _lastReceiptKey = ''; }
     return;
   }
