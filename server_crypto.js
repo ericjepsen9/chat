@@ -157,7 +157,7 @@ function consumePhoneCode(phone, code, scene = 'login') {
   }
   if (String(record.code) !== String(code || '').trim()) {
     const nextCount = Number(attemptState.count || 0) + 1;
-    const next = { ...attemptState, count: nextCount, windowStart: attemptState.windowStart || now };
+    const next = { count: nextCount, windowStart: attemptState.windowStart || now, blockedUntil: attemptState.blockedUntil || 0 };
     if (nextCount >= PHONE_CODE_MAX_VERIFY_ATTEMPTS) {
       next.blockedUntil = now + PHONE_CODE_VERIFY_BLOCK_MS;
       phoneCodeStore.delete(key);

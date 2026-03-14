@@ -776,7 +776,10 @@ const server = http.createServer(async (req, res) => {
   try {
   const qIdx = req.url.indexOf('?');
   const pathname = qIdx === -1 ? req.url : req.url.slice(0, qIdx);
-  const searchParams = qIdx === -1 ? new URLSearchParams() : new URLSearchParams(req.url.slice(qIdx + 1));
+  // Lazy URLSearchParams: only parse query string when actually accessed (most routes don't use it)
+  let _sp = null;
+  const _qs = qIdx === -1 ? '' : req.url.slice(qIdx + 1);
+  const searchParams = { get(k) { if (!_sp) _sp = new URLSearchParams(_qs); return _sp.get(k); } };
   const origin = req.headers.origin || '';
   if (!origin || allowOrigins.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin || `http://127.0.0.1:${PORT}`);

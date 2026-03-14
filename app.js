@@ -50,7 +50,9 @@ function findFriendEntry(userId) {
 }
 
 function getPendingFriendRequest(userId) {
-  return state.friendRequests.find(r => r.status === 'pending' && (r.sender?.id === userId || r.fromUser?.id === userId));
+  // Use pre-built index for O(1) lookup when available
+  if (state._pendingRequestsBySenderId) return state._pendingRequestsBySenderId.get(userId) || null;
+  return state.friendRequests.find(r => r.status === 'pending' && (r.sender?.id === userId || r.fromUser?.id === userId)) || null;
 }
 
 let _profileActionEls = null;
@@ -203,8 +205,14 @@ function scheduleTradeReminderRefresh(delayMs = 300) {
   }, Math.max(0, Number(delayMs) || 0));
 }
 
+function _rebuildSellerProductsById() {
+  const m = new Map();
+  for (const p of state.sellerProducts) if (p.id) m.set(String(p.id), p);
+  state._sellerProductsById = m;
+}
 function syncSellerProducts(){
   state.sellerProducts = Array.isArray(state.currentUser?.products) ? [...state.currentUser.products] : [];
+  _rebuildSellerProductsById();
   renderSellerProductsManage();
 }
 
@@ -234,6 +242,7 @@ const loadSellerProductsManage = singleFlight(async function _loadSellerProducts
   try {
     const data = await api(`/api/users/${state.currentUser.id}/store`);
     state.sellerProducts = Array.isArray(data.items) ? data.items : [];
+    _rebuildSellerProductsById();
     state.currentUser.products = [...state.sellerProducts];
     writeSession(state.currentUser);
   } catch (e) {
@@ -517,7 +526,7 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
       if (e.target.closest('.sp-card-actions')) return;
       const card = e.target.closest('.sp-card[data-product-id]');
       if (!card) return;
-      const item = (state.sellerProducts || []).find(p => String(p.id) === card.dataset.productId);
+      const item = state._sellerProductsById ? state._sellerProductsById.get(card.dataset.productId) : (state.sellerProducts || []).find(p => String(p.id) === card.dataset.productId);
       if (item) openProductDetail(item, true);
     });
   }
@@ -5640,7 +5649,16 @@ const loadFriendRequests = singleFlight(async function _loadFriendRequestsImpl()
     const data = await api(`/api/friends/requests?userId=${encodeURIComponent(state.currentUser.id)}`);
     state.friendRequests = data.requests || [];
     let pendingCount = 0;
-    for (let i = 0; i < state.friendRequests.length; i++) { if (state.friendRequests[i].status === 'pending') pendingCount++; }
+    const pendingIdx = new Map();
+    for (let i = 0; i < state.friendRequests.length; i++) {
+      const r = state.friendRequests[i];
+      if (r.status === 'pending') {
+        pendingCount++;
+        const sid = r.sender?.id || r.fromUser?.id;
+        if (sid) pendingIdx.set(sid, r);
+      }
+    }
+    state._pendingRequestsBySenderId = pendingIdx;
     state._pendingFriendCount = pendingCount;
     const badgeText = pendingCount > 99 ? '99+' : (pendingCount ? String(pendingCount) : '');
     const tabBadge = $("friendsTabBadge");

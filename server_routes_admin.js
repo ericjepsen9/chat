@@ -119,14 +119,19 @@ module.exports = function createAdminRoutes(ctx) {
         return true;
       }) : db.users;
       const result = slicePage(filtered, offset, limit);
-      result.items = result.items.map(u => ({
-        id: u.id, username: u.username, displayName: u.displayName,
-        avatarUrl: u.avatarUrl, phone: u.phone, appNumberId: u.appNumberId,
-        role: u.role || 'user', status: u.status || 'active',
-        productCount: Array.isArray(u.products) ? u.products.length : 0,
-        blacklistCount: Array.isArray(u.blacklist) ? u.blacklist.length : 0,
-        createdAt: u.createdAt,
-      }));
+      // Transform in-place to avoid .map() allocation
+      const items = result.items;
+      for (let i = 0; i < items.length; i++) {
+        const u = items[i];
+        items[i] = {
+          id: u.id, username: u.username, displayName: u.displayName,
+          avatarUrl: u.avatarUrl, phone: u.phone, appNumberId: u.appNumberId,
+          role: u.role || 'user', status: u.status || 'active',
+          productCount: Array.isArray(u.products) ? u.products.length : 0,
+          blacklistCount: Array.isArray(u.blacklist) ? u.blacklist.length : 0,
+          createdAt: u.createdAt,
+        };
+      }
       return sendJson(res, 200, result);
     }
 
@@ -233,20 +238,26 @@ module.exports = function createAdminRoutes(ctx) {
         );
       }
       const result = slicePage(filtered, offset, limit);
-      result.items = result.items.map(o => {
+      // Transform in-place to avoid .map() allocation
+      const oItems = result.items;
+      for (let oi = 0; oi < oItems.length; oi++) {
+        const o = oItems[oi];
         const buyer = index.usersById.get(o.buyerId);
         const seller = index.usersById.get(o.sellerId);
-        return {
+        const orderItems = o.items || [];
+        const p = new Array(orderItems.length);
+        for (let si = 0; si < orderItems.length; si++) p[si] = orderItems[si].title + '×' + orderItems[si].quantity;
+        oItems[oi] = {
           id: o.id, total: o.total, status: o.status,
           buyerId: o.buyerId, sellerId: o.sellerId,
           buyerName: buyer?.displayName || o.buyerId,
           sellerName: seller?.displayName || o.sellerId,
-          itemCount: (o.items || []).length,
-          summary: (() => { const items = o.items || []; const p = new Array(items.length); for (let si = 0; si < items.length; si++) p[si] = `${items[si].title}×${items[si].quantity}`; return p.join('，'); })(),
+          itemCount: orderItems.length,
+          summary: p.join('，'),
           remark: o.remark || '',
           createdAt: o.createdAt, updatedAt: o.updatedAt,
         };
-      });
+      }
       return sendJson(res, 200, result);
     }
 
@@ -389,17 +400,23 @@ module.exports = function createAdminRoutes(ctx) {
       if (convs === rawConvs) convs = convs.slice();
       convs.sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
       const result = slicePage(convs, offset, limit);
-      result.items = result.items.map(c => {
-        const memberInfo = (c.members || []).map(mid => {
+      // Transform in-place to avoid .map() allocations
+      const cItems = result.items;
+      for (let ci = 0; ci < cItems.length; ci++) {
+        const c = cItems[ci];
+        const members = c.members || [];
+        const memberInfo = new Array(members.length);
+        for (let mi = 0; mi < members.length; mi++) {
+          const mid = members[mi];
           const u = index.usersById.get(mid);
-          return { id: mid, displayName: u?.displayName || mid, avatarUrl: u?.avatarUrl || '' };
-        });
-        const msgCount = (index.messagesByConv.get(c.id) || []).length;
-        return {
+          memberInfo[mi] = { id: mid, displayName: u?.displayName || mid, avatarUrl: u?.avatarUrl || '' };
+        }
+        cItems[ci] = {
           id: c.id, type: c.type, name: c.name, members: memberInfo,
-          messageCount: msgCount, lastMessageAt: c.lastMessageAt, createdAt: c.createdAt,
+          messageCount: (index.messagesByConv.get(c.id) || []).length,
+          lastMessageAt: c.lastMessageAt, createdAt: c.createdAt,
         };
-      });
+      }
       return sendJson(res, 200, result);
     }
 
@@ -419,14 +436,17 @@ module.exports = function createAdminRoutes(ctx) {
       const pageItems = [];
       for (let mi = start; mi >= 0 && pageItems.length < limit; mi--) pageItems.push(msgs[mi]);
       const result = { items: pageItems, total, hasMore: start - limit >= 0 };
-      result.items = result.items.map(m => {
+      // Transform in-place to avoid .map() allocation
+      const mItems = result.items;
+      for (let mi = 0; mi < mItems.length; mi++) {
+        const m = mItems[mi];
         const sender = index.usersById.get(m.senderId);
-        return {
+        mItems[mi] = {
           id: m.id, type: m.type, text: m.text, imageUrl: m.imageUrl, audioUrl: m.audioUrl,
           senderId: m.senderId, senderName: sender?.displayName || m.senderId || '系统',
           createdAt: m.createdAt,
         };
-      });
+      }
       return sendJson(res, 200, result);
     }
 
