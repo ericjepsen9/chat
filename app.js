@@ -323,7 +323,9 @@ function updateOrderPresetUI(role = 'buyer'){
   const fromTs = Date.parse(fromVal);
   const toTs = Date.parse(toVal);
   const now = Date.now();
-  root.querySelectorAll('.order-filter-chip').forEach((btn) => {
+  const chips = root.querySelectorAll('.order-filter-chip');
+  for (let i = 0; i < chips.length; i++) {
+    const btn = chips[i];
     const days = Number(btn.dataset.range || 0);
     let active = false;
     if (Number.isFinite(fromTs) && Number.isFinite(toTs) && days > 0) {
@@ -331,7 +333,7 @@ function updateOrderPresetUI(role = 'buyer'){
       active = Math.abs(fromTs - start) < 2 * 60 * 1000 && Math.abs(toTs - now) < 2 * 60 * 1000;
     }
     btn.classList.toggle('active', active);
-  });
+  }
 }
 
 function applyOrderQuickRange(role = 'buyer', days = 0){
@@ -2953,7 +2955,7 @@ window._authState = { loginPhone: '', regPhone: '', regCode: '' };
 let _cachedAuthSteps = null;
 window.authGotoStep = (stepId) => {
   if (!_cachedAuthSteps) _cachedAuthSteps = document.querySelectorAll('#authScreen .auth-step');
-  _cachedAuthSteps.forEach(s => { if (!s.classList.contains('hidden')) s.classList.add('hidden'); });
+  for (let i = 0; i < _cachedAuthSteps.length; i++) { const s = _cachedAuthSteps[i]; if (!s.classList.contains('hidden')) s.classList.add('hidden'); }
   const target = $(stepId);
   if (target) target.classList.remove('hidden');
 };
@@ -3980,15 +3982,16 @@ function bindProductEvents() {
     if (!wrap || !input) return { getTags: () => [], setTags: () => {} };
     let tags = [];
     function render() {
-      wrap.querySelectorAll('.tag-item').forEach(el => el.remove());
-      tags.forEach((tag, i) => {
+      { const tagEls = wrap.querySelectorAll('.tag-item'); for (let ti = tagEls.length - 1; ti >= 0; ti--) tagEls[ti].remove(); }
+      for (let i = 0; i < tags.length; i++) {
+        const tag = tags[i];
         const span = createEl('span', 'tag-item', tag);
         const btn = createEl('button', 'tag-item-remove', '\u00d7');
         btn.type = 'button';
-        btn.addEventListener('click', (e) => { e.stopPropagation(); tags.splice(i, 1); render(); renderPresetChips(); });
+        btn.addEventListener('click', ((idx) => (e) => { e.stopPropagation(); tags.splice(idx, 1); render(); renderPresetChips(); })(i));
         span.appendChild(btn);
         wrap.insertBefore(span, input);
-      });
+      }
     }
     function addTag(text) {
       const t = text.trim();
@@ -4287,7 +4290,7 @@ function bindProductEvents() {
   if ($("mallTabs")) $("mallTabs").addEventListener("click", (e) => {
     const tab = e.target.closest('.mall-tab');
     if (!tab || !tab.dataset.mallTab) return;
-    e.currentTarget.querySelectorAll('.mall-tab.active').forEach(t => t.classList.remove('active'));
+    { const actTabs = e.currentTarget.querySelectorAll('.mall-tab.active'); for (let ti = 0; ti < actTabs.length; ti++) actTabs[ti].classList.remove('active'); }
     tab.classList.add('active');
     state.mallTab = tab.dataset.mallTab;
     state.mallListSignature = '';
@@ -5560,7 +5563,7 @@ function setMainTab(tab) {
   const tabEl = $(tab+'Tab');
   if (tabEl) {
     const parent = tabEl.parentElement;
-    if (parent) parent.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
+    if (parent) { const actEls = parent.querySelectorAll('.active'); for (let ti = 0; ti < actEls.length; ti++) actEls[ti].classList.remove('active'); }
     tabEl.classList.add('active');
   }
   hideTabViews();
@@ -5809,13 +5812,14 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     state.friendsById = new Map();
     for (const f of data.friends) if (f.friend?.id) state.friendsById.set(f.friend.id, f);
     const grouped = new Map();
-    grouped.set(DEFAULT_GROUP, filteredFriends.slice());
-    filteredFriends.forEach((f) => {
+    grouped.set(DEFAULT_GROUP, filteredFriends);
+    for (let i = 0; i < filteredFriends.length; i++) {
+      const f = filteredFriends[i];
       const groupName = f.group && f.group !== DEFAULT_GROUP ? f.group : '';
-      if (!groupName) return;
+      if (!groupName) continue;
       if (!grouped.has(groupName)) grouped.set(groupName, []);
       grouped.get(groupName).push(f);
-    });
+    }
     const customGroups = getCustomGroups();
     state.currentUser.customGroups = customGroups;
     const nextSignature = buildFriendListSignature(customGroups, grouped);
@@ -5835,10 +5839,11 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     });
     state.friendListSignature = nextSignature;
     const nextFriendItemSignatures = {};
-    customGroups.forEach((groupName) => {
+    for (let gi = 0; gi < customGroups.length; gi++) {
+      const groupName = customGroups[gi];
       const members = grouped.get(groupName) || [];
-      members.forEach((item) => { const itemKey = `${groupName}::${item.friend.id}`; nextFriendItemSignatures[itemKey] = buildFriendItemSignature(item, groupName); });
-    });
+      for (let mi = 0; mi < members.length; mi++) { const item = members[mi]; const itemKey = `${groupName}::${item.friend.id}`; nextFriendItemSignatures[itemKey] = buildFriendItemSignature(item, groupName); }
+    }
     state.friendItemSignatures = nextFriendItemSignatures;
     if (state.activeConversation?.id) applyChatRelationshipState();
   } catch(e) {

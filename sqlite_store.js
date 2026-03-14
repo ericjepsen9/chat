@@ -126,10 +126,16 @@ function saveSnapshot(db, snapshot) {
     // products: prefer snap.products if provided; otherwise flatten from users.
     const prods = Array.isArray(snap.products) && snap.products.length
       ? snap.products
-      : (snap.users || []).flatMap((u) => {
-          if (!Array.isArray(u.products)) return [];
-          return u.products.map((p) => (p.sellerId = u.id, p));
-        });
+      : (() => {
+          const users = snap.users || [];
+          const result = [];
+          for (let i = 0; i < users.length; i++) {
+            const u = users[i];
+            if (!Array.isArray(u.products)) continue;
+            for (let j = 0; j < u.products.length; j++) { u.products[j].sellerId = u.id; result.push(u.products[j]); }
+          }
+          return result;
+        })();
 
     for (const p of prods) { if (p.id) insProd.run(p.id, p.sellerId, p.createdAt || Date.now(), JSON.stringify(p)); }
 

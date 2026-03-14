@@ -203,20 +203,27 @@ function renderTrendChart(trend) {
 }
 
 function renderOrderPie(counts) {
-  const entries = Object.entries(counts);
+  // Single pass: collect entries and compute total via for-in
+  const entries = [];
+  let total = 0;
+  for (const status in counts) {
+    const count = counts[status];
+    entries.push([status, count]);
+    total += count;
+  }
   if (!entries.length) { $('orderPie').innerHTML = '<div class="empty">暂无订单</div>'; return; }
-  const total = entries.reduce((s, [, v]) => s + v, 0);
   const colors = ['#3b82f6', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#ef4444'];
   let gradParts = [], offset = 0;
   const legendHtml = [];
-  entries.forEach(([status, count], i) => {
+  for (let i = 0; i < entries.length; i++) {
+    const [status, count] = entries[i];
     const pct = (count / total) * 100;
     const color = colors[i % colors.length];
     gradParts.push(`${color} ${offset}% ${offset + pct}%`);
     offset += pct;
     const [label] = STATUS_MAP[status] || [status];
     legendHtml.push(`<div class="pie-legend-item"><div class="pie-dot" style="background:${color}"></div>${esc(label)} ${count}</div>`);
-  });
+  }
   $('orderPie').innerHTML = `<div class="pie-wrap">
     <div class="pie-chart" style="background:conic-gradient(${gradParts.join(',')})"></div>
     <div class="pie-legend">${legendHtml.join('')}</div>
