@@ -217,12 +217,13 @@ module.exports = function createAdminRoutes(ctx) {
       const { limit, offset } = paginate(searchParams);
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const statusFilter = searchParams.get('status') || '';
-      let filtered = db.orders || [];
-      if (statusFilter) filtered = filtered.filter(o => o.status === statusFilter);
-      if (q) {
-        // Pre-build user name cache to avoid repeated index lookups in filter
-        const userNameCache = new Map();
-        const getUserNames = (id) => {
+      const allOrders = db.orders || [];
+      // Single-pass filter combining status and search criteria
+      const needFilter = statusFilter || q;
+      let filtered;
+      if (needFilter) {
+        const userNameCache = q ? new Map() : null;
+        const getUserNames = q ? (id) => {
           let cached = userNameCache.get(id);
           if (!cached) {
             const u = index.usersById.get(id);
@@ -230,12 +231,18 @@ module.exports = function createAdminRoutes(ctx) {
             userNameCache.set(id, cached);
           }
           return cached;
-        };
-        filtered = filtered.filter(o =>
-          (o.id || '').toLowerCase().includes(q) ||
-          getUserNames(o.buyerId).includes(q) ||
-          getUserNames(o.sellerId).includes(q)
-        );
+        } : null;
+        filtered = allOrders.filter(o => {
+          if (statusFilter && o.status !== statusFilter) return false;
+          if (q && !(
+            (o.id || '').toLowerCase().includes(q) ||
+            getUserNames(o.buyerId).includes(q) ||
+            getUserNames(o.sellerId).includes(q)
+          )) return false;
+          return true;
+        });
+      } else {
+        filtered = allOrders;
       }
       const result = slicePage(filtered, offset, limit);
       // Transform in-place to avoid .map() allocation
@@ -374,30 +381,33 @@ module.exports = function createAdminRoutes(ctx) {
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const typeFilter = searchParams.get('type') || '';
       const rawConvs = db.conversations || [];
-      // Filter first to reduce sort input size, then sort the smaller result
-      let convs = rawConvs;
-      if (typeFilter) convs = convs.filter(c => c.type === typeFilter);
-      if (q) {
-        // Pre-build user name cache for conversation member name lookups
-        const memberNameCache = new Map();
-        convs = convs.filter(c => {
-          if ((c.name || '').toLowerCase().includes(q)) return true;
-          const members = c.members || [];
-          for (let mi = 0; mi < members.length; mi++) {
-            const mid = members[mi];
-            let name = memberNameCache.get(mid);
-            if (name === undefined) {
-              const u = index.usersById.get(mid);
-              name = ((u?.displayName || '') + (u?.username || '')).toLowerCase();
-              memberNameCache.set(mid, name);
+      // Single-pass filter combining type and search criteria
+      const needConvFilter = typeFilter || q;
+      let convs;
+      if (needConvFilter) {
+        const memberNameCache = q ? new Map() : null;
+        convs = rawConvs.filter(c => {
+          if (typeFilter && c.type !== typeFilter) return false;
+          if (q) {
+            if ((c.name || '').toLowerCase().includes(q)) return true;
+            const members = c.members || [];
+            for (let mi = 0; mi < members.length; mi++) {
+              const mid = members[mi];
+              let name = memberNameCache.get(mid);
+              if (name === undefined) {
+                const u = index.usersById.get(mid);
+                name = ((u?.displayName || '') + (u?.username || '')).toLowerCase();
+                memberNameCache.set(mid, name);
+              }
+              if (name.includes(q)) return true;
             }
-            if (name.includes(q)) return true;
+            return false;
           }
-          return false;
+          return true;
         });
+      } else {
+        convs = rawConvs.slice();
       }
-      // Sort filtered copy by lastMessageAt descending; only copy if we haven't already
-      if (convs === rawConvs) convs = convs.slice();
       convs.sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
       const result = slicePage(convs, offset, limit);
       // Transform in-place to avoid .map() allocations

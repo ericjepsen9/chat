@@ -1,5 +1,6 @@
 /* admin_console_adv.js — Advanced features: auto-refresh, message search, audit log, admin settings, keyboard, conv management, nav badges */
 /* Depends on: admin_console.js, admin_console_ext.js globals */
+const _RE_REGEX_ESCAPE = /[.*+?^${}()|[\]\\]/g;
 
 /* ═══════════════════════════════════════
    KEYBOARD SHORTCUTS
@@ -102,7 +103,7 @@ function renderMsgSearchResults() {
   if (!s.items.length) { el.innerHTML = '<div class="empty">无匹配消息</div>'; return; }
   // Precompile highlight regex once per render pass instead of per row
   const qEsc = esc(s.q);
-  const hlRe = new RegExp(`(${qEsc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const hlRe = new RegExp(`(${qEsc.replace(_RE_REGEX_ESCAPE, '\\$&')})`, 'gi');
   let html = s.items.map(m => `
     <div class="row-card">
       <div class="row-title">${esc(m.senderName)} <span class="badge badge-gray">${esc(m.type)}</span> <span class="user-cell-sub">${fmtDate(m.createdAt)}</span></div>

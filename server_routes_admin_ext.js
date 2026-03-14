@@ -468,15 +468,20 @@ module.exports = function createAdminExtRoutes(ctx) {
           const conv = index.convById.get(m.conversationId);
           let memberNames = '';
           if (conv) {
-            const members = conv.members || [];
-            const names = new Array(members.length);
-            for (let j = 0; j < members.length; j++) {
-              const mid = members[j];
-              let n = nameCache.get(mid);
-              if (n === undefined) { const u = index.usersById.get(mid); n = u?.displayName || mid; nameCache.set(mid, n); }
-              names[j] = n;
+            // Cache full member-name string per conversation to avoid repeated joins
+            memberNames = conv._adminMemberNames;
+            if (memberNames === undefined) {
+              const members = conv.members || [];
+              const names = new Array(members.length);
+              for (let j = 0; j < members.length; j++) {
+                const mid = members[j];
+                let n = nameCache.get(mid);
+                if (n === undefined) { const u = index.usersById.get(mid); n = u?.displayName || mid; nameCache.set(mid, n); }
+                names[j] = n;
+              }
+              memberNames = names.join(' ↔ ');
+              conv._adminMemberNames = memberNames;
             }
-            memberNames = names.join(' ↔ ');
           }
           results.push({
             id: m.id, text: m.text, type: m.type,

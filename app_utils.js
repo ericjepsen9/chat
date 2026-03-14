@@ -102,7 +102,8 @@ async function api(p, o={}) {
     return d;
 }
 const _escMap = {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'};
-function escapeHTML(s) { return typeof s!=='string'?'':s.replace(/[&<>'"]/g,t=>_escMap[t]); }
+const _RE_ESC_HTML = /[&<>'"]/g;
+function escapeHTML(s) { return typeof s!=='string'?'':s.replace(_RE_ESC_HTML,t=>_escMap[t]); }
 const firstChar = t => String(t||'').trim().charAt(0)||'?';
 // Safe DOM setters — avoid repeated null-check + property-set patterns
 function setText(id, val) { const el = $(id); if (el) el.textContent = val; }

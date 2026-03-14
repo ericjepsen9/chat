@@ -52,13 +52,18 @@ function toast(msg) {
 }
 
 /* ── Modal ── */
-function openModal(title, bodyHtml, footerHtml) {
-  $('modalTitle').textContent = title;
-  $('modalBody').innerHTML = bodyHtml;
-  $('modalFooter').innerHTML = footerHtml || '';
-  $('detailModal').classList.remove('hidden');
+let _modalEls = null;
+function _getModalEls() {
+  return _modalEls || (_modalEls = { title: $('modalTitle'), body: $('modalBody'), footer: $('modalFooter'), modal: $('detailModal') });
 }
-function closeModal() { $('detailModal').classList.add('hidden'); }
+function openModal(title, bodyHtml, footerHtml) {
+  const m = _getModalEls();
+  m.title.textContent = title;
+  m.body.innerHTML = bodyHtml;
+  m.footer.innerHTML = footerHtml || '';
+  m.modal.classList.remove('hidden');
+}
+function closeModal() { _getModalEls().modal.classList.add('hidden'); }
 
 /* ── State ── */
 const state = {
@@ -657,14 +662,17 @@ function initApp() {
   $('adminInfo').textContent = '管理员已登录';
 
   // Tab navigation
-  (_navItems || (_navItems = document.querySelectorAll('.nav-item'))).forEach(n => {
-    n.addEventListener('click', (e) => {
+  // Delegated tab navigation — single listener on parent instead of per-item
+  const navContainer = document.querySelector('.nav-item')?.parentElement;
+  if (navContainer) {
+    navContainer.addEventListener('click', (e) => {
+      const n = e.target.closest('.nav-item');
+      if (!n) return;
       e.preventDefault();
       switchTab(n.dataset.tab);
-      // Close mobile sidebar
       $('sidebar').classList.remove('open');
     });
-  });
+  }
 
   // Menu toggle (mobile)
   $('menuToggle').addEventListener('click', () => $('sidebar').classList.toggle('open'));

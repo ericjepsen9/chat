@@ -59,9 +59,8 @@ function isIgnoredCallPayload(payload) {
 }
 function isCurrentCallPayload(payload) {
   if (!payload || isIgnoredCallPayload(payload)) return false;
-  if (state.rtc.callId && payload.callId) return state.rtc.callId === payload.callId;
-  if (state.rtc.callId && !payload.callId) return false;
-  if (!state.rtc.callId && payload.callId) return false;
+  // Both have callId → compare; either has callId but not the other → mismatch
+  if (state.rtc.callId || payload.callId) return state.rtc.callId === payload.callId;
   return true;
 }
 function buildIncomingCallKey(payload) {
@@ -220,9 +219,9 @@ function getCallDurationSeconds() {
 }
 function syncCallConversationState(conversationId, peerId, fallbackName = '') {
   try {
-    const convs = state.conversations || [];
-    let conv = null;
-    for (let i = 0; i < convs.length; i++) { if (convs[i].id === conversationId) { conv = convs[i]; break; } }
+    // Use state._convById Map for O(1) lookup when available, else linear scan
+    let conv = state._convById ? (state._convById.get(conversationId) || null) : null;
+    if (!conv) { const convs = state.conversations || []; for (let i = 0; i < convs.length; i++) { if (convs[i].id === conversationId) { conv = convs[i]; break; } } }
     const meta = resolveCallPeerMeta(peerId, conv?.title || fallbackName || peerId);
     if (state.activeConversation && state.activeConversation.id === conversationId) {
       state.activeConversation.title = conv?.title || meta.name || state.activeConversation.title || '';
@@ -354,7 +353,8 @@ async function createPeerConnection(mode) {
       clearTimeout(connectTimeoutTimer); connectTimeoutTimer = null;
       setRtcPhase('connected');
       updateCallUIInfo(state.rtc.peerId, state.rtc.mode, '通话中');
-      if(_getCallEls().chatSubtitle) _getCallEls().chatSubtitle.textContent = state.rtc.mode === 'video' ? '视频通话中' : '语音通话中';
+      const _els = _getCallEls();
+      if(_els.chatSubtitle) _els.chatSubtitle.textContent = state.rtc.mode === 'video' ? '视频通话中' : '语音通话中';
       setCallActionLayout('connected');
     }
   };

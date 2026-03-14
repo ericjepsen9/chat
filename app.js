@@ -12,6 +12,7 @@ const DEFAULT_GROUP = '我的好友';
 // Hoisted regex constants — avoid recompilation on every call
 const _RE_CT_ID = /CT\d{5,}/i;
 const _RE_CTID_EXTRACT = /(?:^|chattrade:|ctid:)([A-Za-z0-9_-]{4,})$/i;
+const _RE_REGEX_ESCAPE = /[.*+?^${}()|[\]\\]/g;
 
 // Safe render wrapper — prevents a single render error from crashing the entire page
 function safeRender(fn) {
@@ -450,9 +451,9 @@ function renderOrdersManage(role, listId, ordersKey, emptyMsg) {
   bindOrderListDelegation(list);
   syncOrderFilterInputs(role);
   const rows = (state[ordersKey] || []).filter((o) => orderMatchesFilters(o, role));
-  let sig = '';
-  for (let i = 0; i < rows.length; i++) { const o = rows[i]; if (i) sig += ';'; sig += o.id + '|' + o.status + '|' + (o.updatedAt||0); }
-  sig += '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
+  const _sigParts = new Array(rows.length);
+  for (let i = 0; i < rows.length; i++) { const o = rows[i]; _sigParts[i] = o.id + '|' + o.status + '|' + (o.updatedAt||0); }
+  const sig = _sigParts.join(';') + '|' + state[role + 'OrderSearch'] + '|' + state[role + 'OrderFrom'] + '|' + state[role + 'OrderTo'];
   if (!sigChanged(ordersKey, sig)) return;
   if(!rows.length){ showEmptyState(list, emptyMsg, 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
@@ -545,9 +546,9 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
   populateSellerCategoryFilter();
   updateSellerProductsFilterUI();
   const products = getFilteredSellerProducts();
-  let sig = '';
-  for (let i = 0; i < products.length; i++) { const p = products[i]; if (i) sig += ';'; sig += p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||''); }
-  sig += '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
+  const _sigParts = new Array(products.length);
+  for (let i = 0; i < products.length; i++) { const p = products[i]; _sigParts[i] = p.id + '|' + (p.listed?1:0) + '|' + (p.stock||0) + '|' + (p.price||''); }
+  const sig = _sigParts.join(';') + '|' + state.sellerProductViewTab + '|' + state.sellerProductSearch + '|' + state.sellerProductSort + '|' + (state.sellerProductCategoryFilter||'');
   if (!sigChanged('sellerProducts', sig)) return;
   if(!products.length){ showEmptyState(list, '📦 ' + (state.sellerProductViewTab === 'unlisted' ? '暂无未上架商品' : '暂无已上架商品，可先发布'), 'order-empty-state'); return; }
   const frag = document.createDocumentFragment();
@@ -899,9 +900,9 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   const moreBtn = $("profileStoreMoreBtn");
   if(!list) return;
   const _psi = state.profileStoreItems || [];
-  let sig = '';
-  for (let i = 0; i < _psi.length; i++) { const it = _psi[i]; if (i) sig += ';'; sig += it.id+'|'+(it.listed?'1':'0')+'|'+it.stock+'|'+(it.createdAt||0); }
-  sig += '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
+  const _sigParts = new Array(_psi.length);
+  for (let i = 0; i < _psi.length; i++) { const it = _psi[i]; _sigParts[i] = it.id+'|'+(it.listed?'1':'0')+'|'+it.stock+'|'+(it.createdAt||0); }
+  const sig = _sigParts.join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
   if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []);
   sortedItems.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
@@ -3605,12 +3606,13 @@ function bindAuthEvents() {
       });
     });
   }
+  const _codeBoxCache = {};
   function clearCodeBoxes(containerId) {
     const container = $(containerId);
     if (!container) return;
-    container.querySelectorAll('.auth-code-box').forEach(b => { b.value = ''; });
-    const first = container.querySelector('.auth-code-box');
-    if (first) first.focus();
+    const boxes = _codeBoxCache[containerId] || (_codeBoxCache[containerId] = container.querySelectorAll('.auth-code-box'));
+    boxes.forEach(b => { b.value = ''; });
+    if (boxes[0]) boxes[0].focus();
   }
   const _resendTimers = {};
   function startResendCountdown(btnId, seconds, sendFn) {
@@ -5312,7 +5314,7 @@ function bindSearchAndEmojiEvents() {
         showEmptyState(el, '未找到相关聊天记录');
         return;
       }
-      const kwRe = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      const kwRe = new RegExp(keyword.replace(_RE_REGEX_ESCAPE, '\\$&'), 'gi');
       const highlightInto = (parent, text) => {
         const truncated = text.length > 80 ? text.slice(0, 80) + '...' : text;
         let lastIdx = 0;
