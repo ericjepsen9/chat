@@ -162,7 +162,8 @@ module.exports = function createAdminRoutes(ctx) {
         orderStats: {
           asBuyer: buyerOrders.length,
           asSeller: sellerOrders.length,
-          pending: buyerOrders.reduce((n, o) => n + (o.status === 'pending'), 0) + sellerOrders.reduce((n, o) => n + (o.status === 'pending'), 0),
+          pending: buyerOrders.reduce((n, o) => n + (o.status === 'pending'), 0)
+                 + sellerOrders.reduce((n, o) => n + (o.status === 'pending'), 0),
         },
       });
     }
@@ -213,15 +214,22 @@ module.exports = function createAdminRoutes(ctx) {
       let filtered = db.orders || [];
       if (statusFilter) filtered = filtered.filter(o => o.status === statusFilter);
       if (q) {
-        filtered = filtered.filter(o => {
-          const buyer = index.usersById.get(o.buyerId);
-          const seller = index.usersById.get(o.sellerId);
-          return (o.id || '').toLowerCase().includes(q) ||
-            (buyer?.displayName || '').toLowerCase().includes(q) ||
-            (buyer?.username || '').toLowerCase().includes(q) ||
-            (seller?.displayName || '').toLowerCase().includes(q) ||
-            (seller?.username || '').toLowerCase().includes(q);
-        });
+        // Pre-build user name cache to avoid repeated index lookups in filter
+        const userNameCache = new Map();
+        const getUserNames = (id) => {
+          let cached = userNameCache.get(id);
+          if (!cached) {
+            const u = index.usersById.get(id);
+            cached = ((u?.displayName || '') + ' ' + (u?.username || '')).toLowerCase();
+            userNameCache.set(id, cached);
+          }
+          return cached;
+        };
+        filtered = filtered.filter(o =>
+          (o.id || '').toLowerCase().includes(q) ||
+          getUserNames(o.buyerId).includes(q) ||
+          getUserNames(o.sellerId).includes(q)
+        );
       }
       const result = slicePage(filtered, offset, limit);
       result.items = result.items.map(o => {
@@ -385,12 +393,22 @@ module.exports = function createAdminRoutes(ctx) {
       convs = convs.slice().sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
       if (typeFilter) convs = convs.filter(c => c.type === typeFilter);
       if (q) {
+        // Pre-build user name cache for conversation member name lookups
+        const memberNameCache = new Map();
         convs = convs.filter(c => {
-          const memberNames = (c.members || []).map(mid => {
-            const u = index.usersById.get(mid);
-            return (u?.displayName || '') + (u?.username || '');
-          }).join(' ').toLowerCase();
-          return memberNames.includes(q) || (c.name || '').toLowerCase().includes(q);
+          if ((c.name || '').toLowerCase().includes(q)) return true;
+          const members = c.members || [];
+          for (let mi = 0; mi < members.length; mi++) {
+            const mid = members[mi];
+            let name = memberNameCache.get(mid);
+            if (name === undefined) {
+              const u = index.usersById.get(mid);
+              name = ((u?.displayName || '') + (u?.username || '')).toLowerCase();
+              memberNameCache.set(mid, name);
+            }
+            if (name.includes(q)) return true;
+          }
+          return false;
         });
       }
       const result = slicePage(convs, offset, limit);
@@ -418,8 +436,12 @@ module.exports = function createAdminRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const { limit, offset } = paginate(searchParams);
       const msgs = index.messagesByConv.get(convId) || [];
-      const sorted = msgs.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      const result = slicePage(sorted, offset, limit);
+      // Messages are stored chronologically; iterate in reverse for newest-first without full copy+sort
+      const total = msgs.length;
+      const start = total - 1 - offset;
+      const pageItems = [];
+      for (let mi = start; mi >= 0 && pageItems.length < limit; mi--) pageItems.push(msgs[mi]);
+      const result = { items: pageItems, total, hasMore: start - limit >= 0 };
       result.items = result.items.map(m => {
         const sender = index.usersById.get(m.senderId);
         return {

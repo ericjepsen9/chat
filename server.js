@@ -86,6 +86,7 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SSE_TOKEN_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_AGE_UPLOADS = 2592000;   // 30 days
 const CACHE_MAX_AGE_DEFAULT = 300;       // 5 minutes
+const _staticEtagCache = new Map();      // filePath → etag string
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = MS_PER_DAY;
 const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
@@ -829,27 +830,33 @@ const server = http.createServer(async (req, res) => {
         res.end();
         return;
       }
+      // Check conditional request early using cached ETag to skip stat() call
+      const cachedEtag = _staticEtagCache.get(filePath);
+      const ifNoneMatch = req.headers['if-none-match'];
+      if (cachedEtag && ifNoneMatch && ifNoneMatch === cachedEtag) {
+        res.writeHead(304, { 'ETag': cachedEtag });
+        res.end();
+        return;
+      }
       fs.stat(filePath, (err, stat) => {
         if (err || !stat.isFile()) return res.writeHead(404).end();
         const ext = path.extname(filePath);
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        const headers = { 'Content-Type': contentType, 'Content-Length': stat.size };
-        // ETag based on mtime + size for conditional requests
         const etag = `"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`;
-        headers['ETag'] = etag;
+        _staticEtagCache.set(filePath, etag);
+        // Re-check after stat in case file changed
+        if (ifNoneMatch && ifNoneMatch === etag) {
+          res.writeHead(304, { 'ETag': etag });
+          res.end();
+          return;
+        }
+        const headers = { 'Content-Type': contentType, 'Content-Length': stat.size, 'ETag': etag };
         if (pathname.startsWith('/uploads/')) {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_UPLOADS}, immutable`;
         } else if (ext === '.html') {
           headers['Cache-Control'] = 'no-cache';
         } else {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_DEFAULT}`;
-        }
-        // Conditional request: return 304 if ETag matches
-        const ifNoneMatch = req.headers['if-none-match'];
-        if (ifNoneMatch && ifNoneMatch === etag) {
-          res.writeHead(304, { 'ETag': etag });
-          res.end();
-          return;
         }
         res.writeHead(200, headers);
         const stream = fs.createReadStream(filePath);

@@ -194,25 +194,25 @@ module.exports = function createAdminExtRoutes(ctx) {
       // Deduplicate: only show one record per pair (userId < friendId)
       const seen = new Set();
       let pairs = [];
+      const friendNameCache = new Map();
+      const getFriendName = (id) => {
+        let name = friendNameCache.get(id);
+        if (name === undefined) { const u = index.usersById.get(id); name = u?.displayName || id; friendNameCache.set(id, name); }
+        return name;
+      };
       for (const f of (db.friendships || [])) {
         const key = f.userId < f.friendId ? `${f.userId}:${f.friendId}` : `${f.friendId}:${f.userId}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const u1 = index.usersById.get(f.userId);
-        const u2 = index.usersById.get(f.friendId);
+        const userName = getFriendName(f.userId);
+        const friendName = getFriendName(f.friendId);
+        if (q && !userName.toLowerCase().includes(q) && !friendName.toLowerCase().includes(q)) continue;
         pairs.push({
           userId: f.userId, friendId: f.friendId,
-          userName: u1?.displayName || f.userId,
-          friendName: u2?.displayName || f.friendId,
+          userName, friendName,
           group: f.group || '我的好友',
           remark: f.remark || '',
         });
-      }
-      if (q) {
-        pairs = pairs.filter(p =>
-          p.userName.toLowerCase().includes(q) ||
-          p.friendName.toLowerCase().includes(q)
-        );
       }
       return sendJson(res, 200, slicePage(pairs, offset, limit));
     }
@@ -281,24 +281,25 @@ module.exports = function createAdminExtRoutes(ctx) {
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const now = Date.now();
       let sessionList = [];
+      const sessUserCache = new Map();
       for (const [token, sess] of sessions) {
         if (sess.expiresAt <= now) continue;
-        const user = index.usersById.get(sess.userId);
+        let userInfo = sessUserCache.get(sess.userId);
+        if (!userInfo) {
+          const user = index.usersById.get(sess.userId);
+          userInfo = { displayName: user?.displayName || sess.userId, username: user?.username || '' };
+          sessUserCache.set(sess.userId, userInfo);
+        }
+        if (q && !userInfo.displayName.toLowerCase().includes(q) && !userInfo.username.toLowerCase().includes(q)) continue;
         sessionList.push({
           tokenPrefix: token.slice(0, 8) + '…',
           userId: sess.userId,
-          displayName: user?.displayName || sess.userId,
-          username: user?.username || '',
+          displayName: userInfo.displayName,
+          username: userInfo.username,
           createdAt: sess.createdAt,
           expiresAt: sess.expiresAt,
           remainingHours: Math.round((sess.expiresAt - now) / 3600000),
         });
-      }
-      if (q) {
-        sessionList = sessionList.filter(s =>
-          s.displayName.toLowerCase().includes(q) ||
-          s.username.toLowerCase().includes(q)
-        );
       }
       sessionList.sort((a, b) => b.createdAt - a.createdAt);
       return sendJson(res, 200, slicePage(sessionList, offset, limit));
@@ -365,12 +366,15 @@ module.exports = function createAdminExtRoutes(ctx) {
       const authUser = adminGuard(req, res, searchParams);
       if (!authUser) return true;
       const rows = [['订单号', '买家', '卖家', '金额', '状态', '商品摘要', '备注', '创建时间', '更新时间'].join(',')];
+      const exportNameCache = new Map();
       for (const o of (db.orders || [])) {
-        const buyer = index.usersById.get(o.buyerId);
-        const seller = index.usersById.get(o.sellerId);
+        let buyerName = exportNameCache.get(o.buyerId);
+        if (buyerName === undefined) { const u = index.usersById.get(o.buyerId); buyerName = u?.displayName || o.buyerId; exportNameCache.set(o.buyerId, buyerName); }
+        let sellerName = exportNameCache.get(o.sellerId);
+        if (sellerName === undefined) { const u = index.usersById.get(o.sellerId); sellerName = u?.displayName || o.sellerId; exportNameCache.set(o.sellerId, sellerName); }
         const summary = (o.items || []).map(i => `${i.title}×${i.quantity}`).join('; ');
         rows.push([
-          o.id, buyer?.displayName || o.buyerId, seller?.displayName || o.sellerId,
+          o.id, buyerName, sellerName,
           Number(o.total) || 0, o.status || '',
           `"${summary.replace(/"/g, '""')}"`,
           `"${(o.remark || '').replace(/"/g, '""')}"`,
@@ -429,19 +433,27 @@ module.exports = function createAdminExtRoutes(ctx) {
       const { limit, offset } = paginate(searchParams);
       const results = [];
       const allMsgs = db.messages || [];
-      for (let i = allMsgs.length - 1; i >= 0 && results.length < offset + limit + 100; i--) {
+      const nameCache = new Map();
+      const maxScan = offset + limit + 100;
+      for (let i = allMsgs.length - 1; i >= 0 && results.length < maxScan; i--) {
         const m = allMsgs[i];
         if (!m.text || m.type === 'system') continue;
         if (m.text.toLowerCase().includes(q)) {
-          const sender = index.usersById.get(m.senderId);
+          let senderName = nameCache.get(m.senderId);
+          if (senderName === undefined) {
+            const sender = index.usersById.get(m.senderId);
+            senderName = sender?.displayName || m.senderId || '系统';
+            nameCache.set(m.senderId, senderName);
+          }
           const conv = index.convById.get(m.conversationId);
           const memberNames = conv ? (conv.members || []).map(mid => {
-            const u = index.usersById.get(mid);
-            return u?.displayName || mid;
+            let n = nameCache.get(mid);
+            if (n === undefined) { const u = index.usersById.get(mid); n = u?.displayName || mid; nameCache.set(mid, n); }
+            return n;
           }).join(' ↔ ') : '';
           results.push({
             id: m.id, text: m.text, type: m.type,
-            senderId: m.senderId, senderName: sender?.displayName || m.senderId || '系统',
+            senderId: m.senderId, senderName,
             conversationId: m.conversationId, conversationName: memberNames,
             createdAt: m.createdAt,
           });

@@ -19,8 +19,8 @@ function listConversations({ authUser, directConvBasesByUser, convById, buildCon
     if (!conv) continue;
     const members = conv.members || [];
     const peerId = members.length >= 2 ? (members[0] === uid ? members[1] : members[0]) : null;
-    const pinned = conv.pinnedBy ? conv.pinnedBy.indexOf(uid) !== -1 : false;
-    const muted = conv.mutedBy ? conv.mutedBy.indexOf(uid) !== -1 : false;
+    const pinned = conv.pinnedBy ? conv.pinnedBy.includes(uid) : false;
+    const muted = conv.mutedBy ? conv.mutedBy.includes(uid) : false;
     const meta = buildConversationMeta(conv, uid);
     // Mutate base in-place to avoid two spread copies per conversation
     base.preview = meta.preview;

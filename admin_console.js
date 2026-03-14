@@ -172,21 +172,23 @@ function renderTrendChart(trend) {
   if (!trend.length) { $('trendChart').innerHTML = '<div class="empty">暂无数据</div>'; return; }
   const maxVal = Math.max(1, ...trend.map(t => Math.max(t.users, t.orders, t.messages)));
   const barH = 160;
-  let html = '<div style="display:flex;align-items:flex-end;gap:4px;width:100%;height:' + barH + 'px;padding-bottom:20px">';
+  const barContentH = barH - 30;
+  const parts = [`<div style="display:flex;align-items:flex-end;gap:4px;width:100%;height:${barH}px;padding-bottom:20px">`];
   for (const t of trend) {
-    const h1 = Math.max(2, (t.users / maxVal) * (barH - 30));
-    const h2 = Math.max(2, (t.orders / maxVal) * (barH - 30));
-    const h3 = Math.max(2, (t.messages / maxVal) * (barH - 30));
-    html += `<div class="chart-bar-group">
-      <div style="display:flex;gap:2px;align-items:flex-end;width:100%;height:${barH - 30}px">
+    const h1 = Math.max(2, (t.users / maxVal) * barContentH);
+    const h2 = Math.max(2, (t.orders / maxVal) * barContentH);
+    const h3 = Math.max(2, (t.messages / maxVal) * barContentH);
+    parts.push(`<div class="chart-bar-group">
+      <div style="display:flex;gap:2px;align-items:flex-end;width:100%;height:${barContentH}px">
         <div class="chart-bar b1" style="height:${h1}px" title="用户 ${t.users}"></div>
         <div class="chart-bar b2" style="height:${h2}px" title="订单 ${t.orders}"></div>
         <div class="chart-bar b3" style="height:${h3}px" title="消息 ${t.messages}"></div>
       </div>
       <div class="chart-label">${esc(t.date)}</div>
-    </div>`;
+    </div>`);
   }
-  html += '</div><div class="chart-legend"><span class="legend-1">用户</span><span class="legend-2">订单</span><span class="legend-3">消息</span></div>';
+  parts.push('</div><div class="chart-legend"><span class="legend-1">用户</span><span class="legend-2">订单</span><span class="legend-3">消息</span></div>');
+  const html = parts.join('');
   $('trendChart').innerHTML = html;
 }
 
@@ -241,16 +243,21 @@ function renderPager(pagerId, total, offset, onPage) {
   if (!el || total <= PAGE_SIZE) { if (el) el.innerHTML = ''; return; }
   const pages = Math.ceil(total / PAGE_SIZE);
   const current = Math.floor(offset / PAGE_SIZE);
-  let html = `<span>共 ${total} 条</span><div class="pager-btns">`;
-  html += `<button ${current === 0 ? 'disabled' : ''} data-p="${current - 1}">上一页</button>`;
+  const pParts = [`<span>共 ${total} 条</span><div class="pager-btns">`,
+    `<button ${current === 0 ? 'disabled' : ''} data-p="${current - 1}">上一页</button>`];
   for (let i = 0; i < pages && i < 10; i++) {
-    html += `<button class="${i === current ? 'active' : ''}" data-p="${i}">${i + 1}</button>`;
+    pParts.push(`<button class="${i === current ? 'active' : ''}" data-p="${i}">${i + 1}</button>`);
   }
-  html += `<button ${current >= pages - 1 ? 'disabled' : ''} data-p="${current + 1}">下一页</button></div>`;
+  pParts.push(`<button ${current >= pages - 1 ? 'disabled' : ''} data-p="${current + 1}">下一页</button></div>`);
+  const html = pParts.join('');
   el.innerHTML = html;
-  el.querySelectorAll('button[data-p]').forEach(btn => {
-    btn.addEventListener('click', () => { const p = Number(btn.dataset.p); if (p >= 0 && p < pages) onPage(p * PAGE_SIZE); });
-  });
+  // Single delegated listener instead of per-button listeners
+  el.onclick = (e) => {
+    const btn = e.target.closest('button[data-p]');
+    if (!btn) return;
+    const p = Number(btn.dataset.p);
+    if (p >= 0 && p < pages) onPage(p * PAGE_SIZE);
+  };
 }
 
 /* ═══════════════════════════════════════

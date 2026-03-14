@@ -1002,13 +1002,17 @@ function openProductSpecSheet(item, mode = 'cart'){
     specs.forEach(spec => {
       const chip = createEl('button', 'spec-option-chip' + (spec === state.selectedProfileSpec ? ' active' : ''), spec);
       chip.type = 'button';
-      chip.addEventListener('click', () => {
-        state.selectedProfileSpec = spec;
-        list.querySelectorAll('.spec-option-chip').forEach(el => el.classList.toggle('active', el.textContent === spec));
-      });
       frag.appendChild(chip);
     });
     list.replaceChildren(frag);
+    // Single delegated click handler instead of per-chip listeners
+    list.onclick = (e) => {
+      const chip = e.target.closest('.spec-option-chip');
+      if (!chip) return;
+      state.selectedProfileSpec = chip.textContent;
+      const chips = list.children;
+      for (let ci = 0; ci < chips.length; ci++) chips[ci].classList.toggle('active', chips[ci] === chip);
+    };
   }
   // Reset quantity UI
   setText("specSheetQtyNum", '1');

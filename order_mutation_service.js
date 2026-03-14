@@ -97,8 +97,9 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   if (!Array.isArray(db.orders)) db.orders = [];
   const clientRequestId = resolveClientRequestId(body.clientRequestId);
   if (clientRequestId) {
-    const existing = db.orders.find((o) => o.buyerId === authUser.id
-      && o.sellerId === seller.id
+    // Use buyer's order index for O(buyerOrders) dedup instead of O(allOrders)
+    const buyerOrders = ordersByBuyer.get(authUser.id) || [];
+    const existing = buyerOrders.find((o) => o.sellerId === seller.id
       && String(o.clientRequestId || '') === clientRequestId);
     if (existing) {
       return { ok: true, status: 200, payload: { order: existing, deduplicated: true } };
