@@ -504,11 +504,18 @@ function populateSellerCategoryFilter(){
   sel.value = prev || '';
 }
 
+// Memoization cache for filtered seller products — avoids re-filtering when state hasn't changed
+let _filteredSPCache = null;
+let _filteredSPKey = '';
 function getFilteredSellerProducts(){
   const all = Array.isArray(state.sellerProducts) ? state.sellerProducts : [];
   const showUnlisted = state.sellerProductViewTab === 'unlisted';
   const keyword = String(state.sellerProductSearch || '').trim().toLowerCase();
   const catFilter = String(state.sellerProductCategoryFilter || '').trim();
+  const sortBy = state.sellerProductSort || 'newest';
+  const cacheKey = `${all.length}:${showUnlisted}:${keyword}:${catFilter}:${sortBy}`;
+  if (cacheKey === _filteredSPKey && _filteredSPCache) return _filteredSPCache;
+  _filteredSPKey = cacheKey;
   const visible = all.filter((item) => {
     const listed = item?.listed !== false;
     if (showUnlisted ? listed : !listed) return false;
@@ -521,7 +528,6 @@ function getFilteredSellerProducts(){
     }
     return true;
   });
-  const sortBy = state.sellerProductSort || 'newest';
   if (sortBy === 'price_asc' || sortBy === 'price_desc') {
     for (const p of visible) p._sortPrice = parseMoney(p.price);
     visible.sort((a, b) => sortBy === 'price_asc' ? a._sortPrice - b._sortPrice : b._sortPrice - a._sortPrice);
@@ -530,6 +536,7 @@ function getFilteredSellerProducts(){
   } else {
     visible.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
+  _filteredSPCache = visible;
   return visible;
 }
 
@@ -539,10 +546,22 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
   if (list.dataset.spClickBound !== '1') {
     list.dataset.spClickBound = '1';
     list.addEventListener('click', (e) => {
-      if (e.target.closest('.sp-card-actions')) return;
       const card = e.target.closest('.sp-card[data-product-id]');
       if (!card) return;
-      const item = state._sellerProductsById ? state._sellerProductsById.get(card.dataset.productId) : (state.sellerProducts || []).find(p => String(p.id) === card.dataset.productId);
+      const _findSP = (pid) => state._sellerProductsById ? state._sellerProductsById.get(pid) : (state.sellerProducts || []).find(p => String(p.id) === pid);
+      const actionBtn = e.target.closest('.sp-action-btn');
+      if (actionBtn) {
+        const pid = card.dataset.productId;
+        const act = actionBtn.dataset.action;
+        const item = _findSP(pid);
+        if (!item) return;
+        if (act === 'edit') openPublishProductPage('sellerProductsPage', item);
+        else if (act === 'stock') window.updateSellerProductStock(item.id, item.stock || 0);
+        else if (act === 'toggle') withButtonLock(actionBtn, () => window.toggleSellerProductListed(item.id, item.listed === false));
+        else if (act === 'delete') window.deleteMyProduct(item.id);
+        return;
+      }
+      const item = _findSP(card.dataset.productId);
       if (item) openProductDetail(item, true);
     });
   }
@@ -584,12 +603,10 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
 
     const actions = createEl('div', 'sp-card-actions');
 
-    const editBtn = createStopBtn('sp-action-btn', '编辑', () => openPublishProductPage('sellerProductsPage', item));
-    const stockBtn = createStopBtn('sp-action-btn', '改库存', () => window.updateSellerProductStock(item.id, item.stock || 0));
-    const listedBtn = createStopBtn('sp-action-btn' + (item.listed === false ? ' accent' : ''), item.listed === false ? '上架' : '下架', (e, btn) => {
-      withButtonLock(btn, () => window.toggleSellerProductListed(item.id, item.listed === false));
-    });
-    const delBtn = createStopBtn('sp-action-btn danger', '删除', () => window.deleteMyProduct(item.id));
+    const editBtn = createEl('button', 'sp-action-btn', '编辑'); editBtn.dataset.action = 'edit';
+    const stockBtn = createEl('button', 'sp-action-btn', '改库存'); stockBtn.dataset.action = 'stock';
+    const listedBtn = createEl('button', 'sp-action-btn' + (item.listed === false ? ' accent' : ''), item.listed === false ? '上架' : '下架'); listedBtn.dataset.action = 'toggle';
+    const delBtn = createEl('button', 'sp-action-btn danger', '删除'); delBtn.dataset.action = 'delete';
 
     actions.append(editBtn, stockBtn, listedBtn, delBtn);
     body.appendChild(actions);
@@ -974,10 +991,14 @@ const renderProfileStore = safeRender(function renderProfileStore(){
     list.addEventListener('click', (e) => {
       const card = e.target.closest('.profile-store-item[data-product-id]');
       if (!card) return;
-      const item = (state._storeItemsById || _storeItemsById)?.get(card.dataset.productId);
+      const item = state._storeItemsById?.get(card.dataset.productId);
       if (!item) return;
-      // Check if a stepper/spec button was clicked (these stop propagation, but just in case)
-      if (e.target.closest('.profile-qty-stepper') || e.target.closest('.secondary-btn')) return;
+      // Delegated stepper/spec button handling
+      const specBtn = e.target.closest('.secondary-btn');
+      if (specBtn) { e.stopPropagation(); openProductSpecSheet(item); return; }
+      const qtyBtn = e.target.closest('.qty-btn');
+      if (qtyBtn) { e.stopPropagation(); adjustProfileStoreItemQuantity(item, qtyBtn.dataset.delta === '-1' ? -1 : 1); return; }
+      if (e.target.closest('.profile-qty-stepper')) return;
       openProductDetail(item, false);
     });
   }
@@ -1007,27 +1028,15 @@ const renderProfileStore = safeRender(function renderProfileStore(){
     if(hasMultiSpecs){
       const btn = createEl('button', 'secondary-btn', qty > 0 ? `选规格 (${qty})` : '选规格');
       btn.type = 'button';
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openProductSpecSheet(item);
-      });
       side.appendChild(btn);
     }else{
       const stepper = createEl('div', 'profile-qty-stepper');
       const minus = createEl('button', 'qty-btn', '−');
-      minus.type = 'button';
+      minus.type = 'button'; minus.dataset.delta = '-1';
       minus.disabled = qty <= 0;
-      minus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        adjustProfileStoreItemQuantity(item, -1);
-      });
       const qtyText = createEl('span', 'qty-num', String(qty));
       const plus = createEl('button', 'qty-btn primary', '+');
-      plus.type = 'button';
-      plus.addEventListener('click', (e) => {
-        e.stopPropagation();
-        adjustProfileStoreItemQuantity(item, 1);
-      });
+      plus.type = 'button'; plus.dataset.delta = '1';
       stepper.append(minus, qtyText, plus);
       side.appendChild(stepper);
     }
@@ -2245,8 +2254,7 @@ function appendMessageToView(msg) {
   const prev = state.messages.length > 1 ? state.messages[state.messages.length - 2] : null;
   chatView.appendChild(buildMessageChunk(msg, prev?.createdAt || 0));
   if (wasNearBottom) requestAnimationFrame(() => { chatView.scrollTop = chatView.scrollHeight; });
-  refreshMessageReadReceipts();
-  applyLastOutgoingReadState();
+  scheduleReceiptRefresh();
 }
 function prependMessagesToView(messages, oldFirstMessage = null) {
   const chatView = $('chatView');
@@ -2268,8 +2276,7 @@ function prependMessagesToView(messages, oldFirstMessage = null) {
   }
   // Defer scroll position restoration to next frame to batch reflow
   requestAnimationFrame(() => { chatView.scrollTop = chatView.scrollHeight - oldHeight; });
-  refreshMessageReadReceipts();
-  applyLastOutgoingReadState();
+  scheduleReceiptRefresh();
 }
 function replaceMessageInView(msg) {
   const chatView = $('chatView');
@@ -2282,8 +2289,7 @@ function replaceMessageInView(msg) {
   if (msg.id) _msgElCache.delete(String(msg.id));
   if (msg.clientMessageId) _msgElCacheByClient.delete(String(msg.clientMessageId));
   existing.replaceWith(buildMessageChunk(msg, prev?.createdAt || 0));
-  refreshMessageReadReceipts();
-  applyLastOutgoingReadState();
+  scheduleReceiptRefresh();
   return true;
 }
 function removeMessageFromView(messageId) {
@@ -2312,7 +2318,7 @@ function removeMessageFromView(messageId) {
       next.before(stamp);
     }
   }
-  refreshMessageReadReceipts();
+  scheduleReceiptRefresh();
   return true;
 }
 function applyRecalledMessageLocally(messageId, senderId) {
@@ -2324,19 +2330,19 @@ function applyRecalledMessageLocally(messageId, senderId) {
   msg.imageUrl = null; msg.audioUrl = null; msg.card = null;
   return replaceMessageInView(msg) || false;
 }
+// Pre-allocated preview strings to avoid repeated allocations in hot path
+const _PREVIEW_BY_TYPE = { image: '[图片]', audio: '[语音]', order_card: '[订单]', broadcast_card: '[图文通知]' };
 function summarizeMessagePreview(msg) {
   if (!msg) return '';
   if (msg.type === 'system') return String(msg.text || '');
-  if (msg.type === 'image') return '[图片]';
-  if (msg.type === 'audio') return '[语音]';
+  const quick = _PREVIEW_BY_TYPE[msg.type];
+  if (quick) return quick;
   if (msg.type === 'card') {
     if (isContactCardPayload(msg.card || {})) return '[名片]';
     const ct = String((msg.card || {}).cardType || '').trim();
     if (ct === '收款码') return '[收款码]';
     return '[商品]';
   }
-  if (msg.type === 'order_card') return '[订单]';
-  if (msg.type === 'broadcast_card') return '[图文通知]';
   return String(msg.text || '');
 }
 
@@ -3462,7 +3468,7 @@ window.openConversation = async (id, options = {}) => {
       api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal }).catch(() => {})
     ]);
     if (signal?.aborted) return;
-    refreshMessageReadReceipts();
+    scheduleReceiptRefresh();
   } else {
     Promise.resolve().then(async () => {
       try {
@@ -3472,7 +3478,7 @@ window.openConversation = async (id, options = {}) => {
           api(`/api/conversations/${id}/read`, { method: "POST", body: JSON.stringify({ userId: state.currentUser.id }), signal }).catch(() => {})
         ]);
         if (signal?.aborted || state.activeConversation?.id !== id) return;
-        refreshMessageReadReceipts();
+        scheduleReceiptRefresh();
       } catch(_) {}
     });
   }
@@ -3536,10 +3542,9 @@ window.sendMessage = async (payload) => {
       } else {
         appendMessageToView(res.message);
       }
-      applyLastOutgoingReadState();
       syncActiveConversationListMeta();
       renderConversationListFromState();
-      refreshMessageReadReceipts();
+      scheduleReceiptRefresh();
     }
     loadConversations();
     loadSystemMessages();
@@ -5029,8 +5034,11 @@ function bindChatEvents() {
   on("toggleActionsBtn", "click", () => { hideEl("emojiPanel"); toggleEl("actionPanel", "hidden"); });
 
   let typingDebounceTimer = null;
+  let _inputResizeRaf = 0;
   on("messageInput", "input", function() {
-      this.style.height = '0'; this.style.height = this.scrollHeight + 'px';
+      // Defer height recalculation to next frame to avoid per-keystroke layout thrashing
+      const el = this;
+      if (!_inputResizeRaf) _inputResizeRaf = requestAnimationFrame(() => { _inputResizeRaf = 0; el.style.height = '0'; el.style.height = el.scrollHeight + 'px'; });
       const hasText = this.value.trim().length > 0;
       toggleEl("toggleActionsBtn", "hidden", hasText); toggleEl("sendMsgBtn", "hidden", !hasText);
       if(state.activeConversation?.type === 'direct' && !typingDebounceTimer) { const _peerId = conversationPeerId(state.activeConversation); if (_peerId) { api(`/api/conversations/${state.activeConversation.id}/signal`, { method:'POST', body: JSON.stringify({ senderId: state.currentUser.id, targetUserId: _peerId, signal: {type:'typing'} }) }); } typingDebounceTimer = setTimeout(() => { typingDebounceTimer = null; }, 3000); }
@@ -5806,8 +5814,14 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
 });
 
 
+// RAF-deduplicated receipt refresh: coalesces multiple calls in the same frame
+let _receiptRafId = 0;
+function scheduleReceiptRefresh() {
+  if (_receiptRafId) return;
+  _receiptRafId = requestAnimationFrame(() => { _receiptRafId = 0; refreshMessageReadReceipts(); });
+}
 function applyLastOutgoingReadState(){
-  refreshMessageReadReceipts();
+  scheduleReceiptRefresh();
 }
 function markConversationRead(convId) {
   if (!convId || !state.currentUser) return;
@@ -5866,7 +5880,7 @@ const renderMessages = safeRender(function renderMessages(preserveScroll = false
   }
   chatView.appendChild(fragment);
   if (preserveScroll) { chatView.scrollTop = chatView.scrollHeight - oldScrollHeight; } else { setTimeout(() => chatView.scrollTo({ top: chatView.scrollHeight, behavior: 'smooth' }), 10); }
-  refreshMessageReadReceipts();
+  scheduleReceiptRefresh();
 });
 
 async function fetchMessages(before = 0) {
@@ -6176,6 +6190,12 @@ function sortConversationsInPlace() {
     return (b.lastMessageAt || b.createdAt || 0) - (a.lastMessageAt || a.createdAt || 0);
   });
 }
+// Debounced sort + render: coalesces rapid SSE-driven updates
+let _sortRenderTimer = 0;
+function scheduleSortAndRender() {
+  sortConversationsInPlace();
+  if (!_sortRenderTimer) _sortRenderTimer = requestAnimationFrame(() => { _sortRenderTimer = 0; renderConversationListFromState(); });
+}
 /* ===== Sidebar Avatar Bar ===== */
 let _sidebarSignature = '';
 let _sidebarDelegated = false;
@@ -6449,9 +6469,8 @@ const loadConversations = singleFlight(async function _loadConversationsImpl() {
       });
       applyChatRelationshipState();
     }
-    sortConversationsInPlace();
-    renderConversationListFromState();
-    refreshMessageReadReceipts();
+    scheduleSortAndRender();
+    scheduleReceiptRefresh();
   } catch(e) { console.error(e); }
 });
 

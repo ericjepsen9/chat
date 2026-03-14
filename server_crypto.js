@@ -241,8 +241,10 @@ function recordPhoneCodeIpAttempt(ip, success) { recordRateLimitAttempt(phoneCod
 
 function cleanupAuthState({ sessions, sseSessionTokens }) {
   const now = Date.now();
+  const deletedTokens = [];
   for (const [token, session] of sessions.entries()) {
     if (session?.expiresAt && Number(session.expiresAt) < now) {
+      deletedTokens.push(token);
       sessions.delete(token);
       csrfTokens.delete(token);
     }
@@ -250,6 +252,7 @@ function cleanupAuthState({ sessions, sseSessionTokens }) {
   cleanupExpiredMap(sseSessionTokens, (_k, e, n) => !e?.expiresAt || Number(e.expiresAt) < n);
   cleanupExpiredMap(loginAttempts, isRateLimitEntryStale);
   cleanupExpiredPhoneCodeState();
+  return deletedTokens;
 }
 
 module.exports = {

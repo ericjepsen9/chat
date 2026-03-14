@@ -38,7 +38,7 @@
 .action-panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px 16px; border-top: 1px solid #e5e5ea; }
 .action-panel button { background: #fff; border-radius: var(--radius-card); padding: 16px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: var(--font-caption); color: var(--text-muted); border: none; outline:none; cursor:pointer; font-weight: 500;}
 .emoji-panel { display: grid; grid-template-columns: repeat(8, 1fr); gap: 12px; padding: 16px; border-top: 1px solid #e5e5ea; max-height: 250px; overflow-y: auto; }
-.emoji-panel span { font-size: 26px; text-align: center; cursor: pointer; user-select: none; transition: transform 0.1s; }
+.emoji-panel span { font-size: 26px; text-align: center; cursor: pointer; user-select: none; transition: transform 0.1s; will-change: transform; }
 .emoji-panel span:active { transform: scale(1.2); }
 
 /* 下拉与上下文菜单 */

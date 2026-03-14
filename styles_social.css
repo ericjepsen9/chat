@@ -868,6 +868,7 @@
   border-right:0.5px solid var(--line);
   overflow:hidden;
   transition:width .2s ease;
+  contain:layout style;
 }
 .sidebar-panel.sidebar-collapsed{
   width:62px;

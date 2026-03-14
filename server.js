@@ -251,16 +251,15 @@ function addSseClient(userId, res) {
   if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
   let conns = sseClientsByUser.get(userId);
   if (conns.size >= MAX_SSE_PER_USER) {
+    // Directly prune from the Set without redundant Map lookups via removeSseClient
     const snapshot = Array.from(conns);
     for (let i = 0; i < snapshot.length; i++) {
       try { snapshot[i].end(); } catch (_) {}
-      removeSseClient(userId, snapshot[i]);
-      if ((sseClientsByUser.get(userId)?.size || 0) < MAX_SSE_PER_USER) break;
+      conns.delete(snapshot[i]);
+      if (conns.size < MAX_SSE_PER_USER) break;
     }
+    if (!conns.size) { sseClientsByUser.delete(userId); sseClientsByUser.set(userId, new Set()); conns = sseClientsByUser.get(userId); }
   }
-  // Re-fetch or create: removeSseClient may have deleted the Map entry
-  if (!sseClientsByUser.has(userId)) sseClientsByUser.set(userId, new Set());
-  conns = sseClientsByUser.get(userId);
   conns.add(res);
   _ensureSseHeartbeat();
 }
@@ -587,15 +586,14 @@ function consumeUserBySseSessionToken(token) {
 
 // Wrap cleanupAuthState to pass server-local maps; also prune reverse session index
 function runCleanupAuthState() {
-  const sizeBefore = sessions.size;
-  cleanupAuthState({ sessions, sseSessionTokens });
-  // Prune sessionsByUserId only if tokens were actually removed
-  if (sessions.size < sizeBefore) {
-    for (const [userId, tokens] of sessionsByUserId.entries()) {
-      for (const token of tokens) {
-        if (!sessions.has(token)) tokens.delete(token);
+  const deletedTokens = cleanupAuthState({ sessions, sseSessionTokens });
+  // Forward-delete from sessionsByUserId using the list of expired tokens — O(M) instead of O(N×M)
+  if (deletedTokens.length) {
+    for (let i = 0; i < deletedTokens.length; i++) {
+      const token = deletedTokens[i];
+      for (const [userId, tokens] of sessionsByUserId.entries()) {
+        if (tokens.delete(token) && !tokens.size) sessionsByUserId.delete(userId);
       }
-      if (!tokens.size) sessionsByUserId.delete(userId);
     }
   }
 }

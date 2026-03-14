@@ -183,8 +183,8 @@ function openSqliteStore(sqliteFilePath, jsonFilePath, defaultSnapshotFactory) {
         for (const u of snap.users) {
           const arr = bySeller.get(u.id);
           if (arr) {
-            for (let i = 0; i < arr.length; i++) delete arr[i].sellerId;
-            u.products = arr;
+            // Avoid delete operator which deoptimizes V8 hidden classes; use destructuring instead
+            u.products = arr.map(({ sellerId: _, ...rest }) => rest);
           }
         }
       }

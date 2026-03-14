@@ -241,8 +241,8 @@ function rebuildIndexes() {
   for (const msg of db.messages) {
     if (!Array.isArray(msg.deletedBy)) msg.deletedBy = [];
     if (msg.deletedBy.length) msg._deletedBySet = new Set(msg.deletedBy);
-    // Pre-lowercase text for O(1) search cache (avoids repeated toLowerCase at query time)
-    if (msg.type === 'text' && msg.text && !msg._lcText) msg._lcText = msg.text.toLowerCase();
+    // Always pre-compute lowercase text during index rebuild for O(1) search
+    if (msg.type === 'text' && msg.text) msg._lcText = msg.text.toLowerCase();
     addToMapArray(index.messagesByConv, msg.conversationId, msg);
     index.messagesById.set(msg.id, msg);
     if (msg.clientMessageId && msg.senderId) index.messageByClientKey.set(`${msg.conversationId}:${msg.senderId}:${msg.clientMessageId}`, msg);
