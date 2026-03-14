@@ -99,21 +99,35 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   }
 
   if (action === 'mute') {
-    const idx = conv.mutedBy.indexOf(authUser.id);
-    if (idx !== -1) conv.mutedBy.splice(idx, 1);
-    else conv.mutedBy.push(authUser.id);
-    schedulePersist('conversation_mute', { conversationId, userId: authUser.id });
-    broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-    return { ok: true, status: 200, payload: { ok: true, muted: idx === -1 } };
+    const uid = authUser.id;
+    const muted = !(conv._mutedBySet ? conv._mutedBySet.has(uid) : conv.mutedBy.indexOf(uid) !== -1);
+    if (muted) {
+      conv.mutedBy.push(uid);
+      if (conv._mutedBySet) conv._mutedBySet.add(uid);
+    } else {
+      const idx = conv.mutedBy.indexOf(uid);
+      if (idx !== -1) conv.mutedBy.splice(idx, 1);
+      if (conv._mutedBySet) conv._mutedBySet.delete(uid);
+    }
+    schedulePersist('conversation_mute', { conversationId, userId: uid });
+    broadcastToUser(uid, 'conversation_updated', { conversationId });
+    return { ok: true, status: 200, payload: { ok: true, muted } };
   }
 
   if (action === 'pin') {
-    const idx = conv.pinnedBy.indexOf(authUser.id);
-    if (idx !== -1) conv.pinnedBy.splice(idx, 1);
-    else conv.pinnedBy.push(authUser.id);
-    schedulePersist('conversation_pin', { conversationId, userId: authUser.id });
-    broadcastToUser(authUser.id, 'conversation_updated', { conversationId });
-    return { ok: true, status: 200, payload: { ok: true, pinned: idx === -1 } };
+    const uid = authUser.id;
+    const pinned = !(conv._pinnedBySet ? conv._pinnedBySet.has(uid) : conv.pinnedBy.indexOf(uid) !== -1);
+    if (pinned) {
+      conv.pinnedBy.push(uid);
+      if (conv._pinnedBySet) conv._pinnedBySet.add(uid);
+    } else {
+      const idx = conv.pinnedBy.indexOf(uid);
+      if (idx !== -1) conv.pinnedBy.splice(idx, 1);
+      if (conv._pinnedBySet) conv._pinnedBySet.delete(uid);
+    }
+    schedulePersist('conversation_pin', { conversationId, userId: uid });
+    broadcastToUser(uid, 'conversation_updated', { conversationId });
+    return { ok: true, status: 200, payload: { ok: true, pinned } };
   }
 
   if (action === 'clear') {

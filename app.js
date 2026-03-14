@@ -862,15 +862,15 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []);
   sortedItems.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  // Use cached parsed categories to avoid repeated regex splitting
+  // Single-pass: cache parsed categories and collect unique categories
+  const cats = new Set();
   for (const item of sortedItems) {
     if (item.category && !item._parsedCats) item._parsedCats = item.category.split(CATEGORY_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+    if (item._parsedCats) for (let ci = 0; ci < item._parsedCats.length; ci++) cats.add(item._parsedCats[ci]);
   }
   // Build category tabs
   const catTabsEl = $("profileStoreCategoryTabs");
   if (catTabsEl) {
-    const cats = new Set();
-    for (const item of sortedItems) if (item._parsedCats) item._parsedCats.forEach(c => cats.add(c));
     catTabsEl.replaceChildren();
     if (cats.size > 0) {
       if (!catTabsEl.dataset.delegated) {
@@ -2510,7 +2510,7 @@ function bindRequestsListDelegation() {
   });
 }
 
-function attachConversationSwipeDelete(wrap, onDelete) {
+function attachConversationSwipeDelete(wrap, onDelete, delBtn) {
   let startX = 0;
   let startY = 0;
   let dragDx = 0;
@@ -2618,7 +2618,7 @@ function attachConversationSwipeDelete(wrap, onDelete) {
     e.stopPropagation();
   }, true);
 
-  const delBtn = wrap.querySelector('.chat-swipe-delete-btn');
+  if (!delBtn) delBtn = wrap.querySelector('.chat-swipe-delete-btn');
   if (delBtn) {
     delBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -2703,11 +2703,10 @@ function buildConversationRow(conv) {
     } catch (err) {
       showModal(err?.message || '删除失败');
     }
-  });
+  }, deleteBtn);
 
-  const swipePinBtn = wrap.querySelector('.chat-swipe-pin-btn');
-  if (swipePinBtn) {
-    swipePinBtn.addEventListener('click', async (e) => {
+  if (pinBtn) {
+    pinBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       wrap.classList.remove('revealed');
       try {
