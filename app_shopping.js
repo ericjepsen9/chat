@@ -514,11 +514,16 @@ function renderCartHubPage(){
     const line = createEl('div', 'cart-hub-line');
     const goBtn = createEl('button', 'primary-btn', '去结算');
     goBtn.type = 'button';
-    goBtn.addEventListener('click', () => {
+    const navigateToCart = () => {
       state.currentCartSellerId = sellerId;
       renderProfileCartPage();
       window.openSecondaryPage('profileCartPage', 'cartHubPage');
+    };
+    goBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigateToCart();
     });
+    card.addEventListener('click', navigateToCart);
     line.appendChild(createEl('span', ''));
     line.appendChild(goBtn);
     card.append(head, sub, line);
