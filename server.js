@@ -927,7 +927,7 @@ const server = http.createServer(async (req, res) => {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_UPLOADS}, immutable`;
         } else if (ext === '.html') {
           headers['Cache-Control'] = 'no-cache';
-          headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; media-src 'self' blob:; font-src 'self';";
+          headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src 'self'; media-src 'self' blob:; font-src 'self';";
           headers['X-Content-Type-Options'] = 'nosniff';
           headers['X-Frame-Options'] = 'SAMEORIGIN';
         } else {

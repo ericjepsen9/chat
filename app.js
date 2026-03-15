@@ -1715,8 +1715,8 @@ window.openUserProfile = async (userId, fallbackName) => {
       setText("profileAppId", `ID：${data.profile.appNumberId}`);
       setText("profileSignature", data.profile.signature || '这个人很神秘，还没有填写签名');
       updateProfileDetailActions();
-      await loadProfileStore(data.profile.id);
       window.openSecondaryPage('profileDetailPage', getSecondaryBackTarget(state.activeConversation ? 'chat' : 'home'));
+      await loadProfileStore(data.profile.id);
     }
   } catch (e) {
     console.warn('openUserProfile failed', e);
