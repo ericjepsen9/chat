@@ -68,6 +68,8 @@ function buildOrderCardPayload(order, extras) {
     items: items,
     summary: formatOrderSummary(items),
     total: order.total,
+    originalTotal: order.originalTotal ?? null,
+    orderNo: order.orderNo || null,
     status: order.status,
     createdAt: order.createdAt || null,
     remark: order.remark || '',
@@ -172,8 +174,14 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   const total = clampOrderTotal(_sum);
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
+  // Generate human-readable order number: YYYYMMDDHHmmss + 4 random digits
+  const _d = new Date(now);
+  const _pad = (n, l = 2) => String(n).padStart(l, '0');
+  const orderNo = `${_d.getFullYear()}${_pad(_d.getMonth() + 1)}${_pad(_d.getDate())}${_pad(_d.getHours())}${_pad(_d.getMinutes())}${_pad(_d.getSeconds())}${_pad(Math.floor(Math.random() * 10000), 4)}`;
+
   const order = {
     id: uid('order'),
+    orderNo,
     buyerId: authUser.id,
     sellerId: seller.id,
     items: normalized,
@@ -252,6 +260,10 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   const versionError = assertOrderVersion(order, body.expectedUpdatedAt);
   if (versionError) return versionError;
 
+  // Record original total before first price change
+  if (order.originalTotal == null) {
+    order.originalTotal = order.total;
+  }
   order.total = clampOrderTotal(body.total);
   order.updatedAt = Date.now();
 

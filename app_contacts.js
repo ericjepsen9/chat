@@ -281,7 +281,7 @@ async function renderOrderCardPicker(filterTab){
     const card = createEl('button', 'picker-order-card');
     card.type = 'button';
     const top = createEl('div', 'picker-order-top');
-    top.append(createEl('span', 'picker-order-id', `#${formatOrderId(o.id)}`), createEl('span', `picker-order-role ${role}`, roleLabel));
+    top.append(createEl('span', 'picker-order-id', `#${formatOrderId(o.id, o.orderNo)}`), createEl('span', `picker-order-role ${role}`, roleLabel));
     const bottom = createEl('div', 'picker-order-bottom');
     bottom.append(createEl('span', 'picker-order-total', formatMoney(o.total)), createEl('span', 'picker-order-status', formatOrderStatusLabel(o.status)));
     card.append(top, createEl('div', 'picker-order-items', itemsSummary), bottom);
@@ -289,7 +289,7 @@ async function renderOrderCardPicker(filterTab){
       // Find first item imageUrl without .find()
       let orderImgUrl = '';
       for (let k = 0; k < oItems.length; k++) { if (oItems[k] && oItems[k].imageUrl) { orderImgUrl = oItems[k].imageUrl; break; } }
-      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl: orderImgUrl, pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
+      await window.sendMessage({ type:'order_card', order:{ id:o.id, buyerId:o.buyerId, sellerId:o.sellerId, title:`订单 #${formatOrderId(o.id, o.orderNo)}`, summary:itemsSummary, total:o.total, status:o.status, imageUrl: orderImgUrl, pendingPrice:o.pendingPrice||null, pendingPriceRequestedBy:o.pendingPriceRequestedBy||null, priceAdjustmentLocked:!!o.priceAdjustmentLocked, role } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);

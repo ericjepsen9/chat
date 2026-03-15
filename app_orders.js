@@ -128,7 +128,7 @@ function orderMatchesFilters(order, role = 'buyer'){
   const createdAt = Number(order?.createdAt || 0);
   if (keyword) {
     const counterpartyName = role === 'buyer' ? (order?.sellerName || '') : (order?.buyerName || '');
-    const hay = `#${formatOrderId(order?.id)} ${getOrderItemSummary(order)} ${counterpartyName}`.toLowerCase();
+    const hay = `#${formatOrderId(order?.id, order?.orderNo)} ${getOrderItemSummary(order)} ${counterpartyName}`.toLowerCase();
     if (!hay.includes(keyword)) return false;
   }
   if (fromVal) {
@@ -231,7 +231,7 @@ function buildOrderCard(order, role){
 
   const statusCls = orderStatusCls('order-card-status', order.status);
   const header = createEl('div', 'order-card-header');
-  header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id)}`), createEl('span', statusCls, formatOrderStatusLabel(order.status)));
+  header.append(createEl('span', 'order-card-id', `#${formatOrderId(order.id, order.orderNo)}`), createEl('span', statusCls, formatOrderStatusLabel(order.status)));
 
   const body = createEl('div', 'order-card-body');
   body.appendChild(createEl('div', 'order-card-items', (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，') || '订单内容'));
@@ -376,7 +376,7 @@ function renderOrderDetailPage(){
   if(!box) return;
   const order = state.selectedOrderDetail;
   const role = state.selectedOrderRole || 'buyer';
-  const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.updatedAt||0)+'|'+role) : '';
+  const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.originalTotal??'')+'|'+(order.updatedAt||0)+'|'+role) : '';
   if (!sigChanged('orderDetail', sig)) return;
   if(!order){
     box.textContent = '暂无订单详情';
@@ -395,7 +395,7 @@ function renderOrderDetailPage(){
   // Order number & time
   const headerDiv = createEl('div', 'od-section');
   headerDiv.append(
-    odRow('订单编号', String(order.id || '-')),
+    odRow('订单编号', order.orderNo || formatOrderId(order.id, order.orderNo) || '-'),
     odRow('下单时间', order.createdAt ? formatTime(order.createdAt) : '-'),
     odRow('订单状态', formatOrderStatusLabel(order.status), `od-value od-status-${order.status === ORDER_STATUS.COMPLETED ? 'done' : 'active'}`)
   );
@@ -438,9 +438,23 @@ function renderOrderDetailPage(){
   });
   box.appendChild(itemsDiv);
 
-  // Total
+  // Total — show original price with strikethrough if price was modified
   const totalDiv = createEl('div', 'od-section od-total-section');
-  totalDiv.appendChild(odRow('合计', formatMoney(order.total), 'od-value od-total'));
+  if(order.originalTotal != null && order.originalTotal !== order.total){
+    const totalRow = createEl('div', 'od-row');
+    totalRow.appendChild(createEl('span', 'od-label', '合计'));
+    const priceWrap = createEl('span', 'od-value od-total');
+    const origSpan = createEl('span', 'od-original-price', formatMoney(order.originalTotal));
+    origSpan.style.textDecoration = 'line-through';
+    origSpan.style.color = '#999';
+    origSpan.style.marginRight = '8px';
+    origSpan.style.fontSize = '0.9em';
+    priceWrap.append(origSpan, document.createTextNode(formatMoney(order.total)));
+    totalRow.appendChild(priceWrap);
+    totalDiv.appendChild(totalRow);
+  } else {
+    totalDiv.appendChild(odRow('合计', formatMoney(order.total), 'od-value od-total'));
+  }
   if(order.pendingPrice != null && order.pendingPriceRequestedBy){
     const pendingVal = createEl('span', 'od-value od-pending-price', formatMoney(order.pendingPrice));
     const pendingRow = createEl('div', 'od-row');

@@ -254,7 +254,7 @@ function buildOrderCardMessage(msg){
     wrap.appendChild(cover);
   }
 
-  appendTradeCardHeader(wrap, order.title || `订单 #${formatOrderId(order.id) || '-'}`, order.summary || '订单通知');
+  appendTradeCardHeader(wrap, order.title || `订单 #${formatOrderId(order.id, order.orderNo) || '-'}`, order.summary || '订单通知');
   const statusCls = tradeStatusCls(order.status);
   wrap.append(createEl('div', 'trade-card-price', formatMoney(order.total || 0)), createEl('div', statusCls, formatOrderStatusLabel(order.status)));
 

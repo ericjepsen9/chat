@@ -45,7 +45,7 @@ function _splitCategories(str) {
   }
   return result;
 }
-const formatOrderId = (id) => String(id || '').slice(-6);
+const formatOrderId = (id, orderNo) => orderNo ? String(orderNo) : String(id || '').slice(-6);
 const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
 const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'processing' || s === 'in_progress') ? ' s-active' : ' s-pending'); };
 const tradeStatusCls = (st) => 'trade-card-status' + (st === 'completed' ? ' done' : st === 'accepted' ? ' active' : '');
@@ -445,7 +445,7 @@ function addAdminTag(card, text, warn) {
 
 function renderAdminOrders() {
   renderAdminList('adminOrdersList', 'adminOrders', 'recentOrders', o => o.id+'|'+o.status, '暂无平台订单', (order) => {
-    const card = buildProfileCard(`订单 #${formatOrderId(order.id)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
+    const card = buildProfileCard(`订单 #${formatOrderId(order.id, order.orderNo)} · ${formatMoney(order.total || 0)}`, `${order.buyerName || '买家'} → ${order.sellerName || '卖家'} · ${order.summary || '订单内容'}`);
     return addAdminTag(card, order.status === 'completed' ? '已完成' : '处理中', order.status !== 'completed');
   });
 }
@@ -500,7 +500,7 @@ function renderProfileOrders(){
   const frag = document.createDocumentFragment();
   state.profileOrders.forEach(order => {
     const names = order._itemSummary || (order._itemSummary = (order.items || []).map(i => `${i.title}(${i.spec || '默认'}) x${i.quantity || 1}`).join('，'));
-    const card = buildProfileCard(`订单 #${formatOrderId(order.id) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
+    const card = buildProfileCard(`订单 #${formatOrderId(order.id, order.orderNo) || '-'} · ${formatMoney(order.total)}`, names || '订单内容');
     const status = createEl('div', 'profile-order-status' + (order.status === 'completed' ? ' done' : ''));
     status.textContent = formatOrderStatusLabel(order.status);
 
