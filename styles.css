@@ -277,7 +277,6 @@ input, textarea { font-size: var(--font-body); }
 }
 
 /* Ensure all full-page sections fill height properly */
-#chatView,
 #profileView,
 #settingsPage,
 #editProfilePage,
@@ -292,6 +291,12 @@ input, textarea { font-size: var(--font-body); }
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* chatView needs overflow-y:auto for message scrolling (handled by .messages class) */
+#chatView {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Mobile small screen (≤500px) - enhanced */

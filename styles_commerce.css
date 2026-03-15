@@ -2090,21 +2090,15 @@
 
 /* ── Collapsible filter drawer ── */
 .order-filter-drawer{
-  max-height:0;
-  overflow:hidden;
-  transition:max-height .3s cubic-bezier(.4,0,.2,1), padding .3s cubic-bezier(.4,0,.2,1), margin .3s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  display:none;
   background:#fff;
   border-radius: var(--radius-lg);
-  padding:0 12px;
-  margin-bottom:0;
-  box-shadow:0 1px 4px rgba(0,0,0,.06);
-  opacity:0;
-}
-.order-filter-drawer.open{
-  max-height:260px;
   padding:14px;
   margin-bottom:12px;
-  opacity:1;
+  box-shadow:0 1px 4px rgba(0,0,0,.06);
+}
+.order-filter-drawer.open{
+  display:block;
 }
 .order-filter-grid{
   display:grid;
