@@ -2696,7 +2696,37 @@ function bindProfileEvents() {
     window.openSecondaryPage('sellerProductsPage', 'sellerCenterPage');
   });
 
-  // Seller action buttons on product detail page
+  // Seller action buttons on product detail page — use event delegation on
+  // the container so clicks always reach the handler even if individual button
+  // bindings are lost (e.g. after DOM re-renders or lazy element insertion).
+  const _pdSellerActionsEl = $("productDetailSellerActions");
+  if (_pdSellerActionsEl) {
+    _pdSellerActionsEl.addEventListener("click", async (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const item = state.selectedProductDetail;
+      if (!item) return;
+      const btnId = btn.id;
+      if (btnId === 'productDetailEditBtn') {
+        openPublishProductPage('productDetailPage', item);
+      } else if (btnId === 'productDetailStockBtn') {
+        window.updateSellerProductStock(item.id, item.stock || 0);
+      } else if (btnId === 'productDetailListedBtn') {
+        const nextListed = item.listed === false;
+        await window.toggleSellerProductListed(item.id, nextListed);
+        state.selectedProductDetail.listed = nextListed;
+        const _listedBtn = $("productDetailListedBtn");
+        if (_listedBtn) {
+          _listedBtn.textContent = nextListed ? '下架' : '上架';
+          _listedBtn.classList.toggle('accent', !nextListed);
+        }
+      } else if (btnId === 'productDetailDeleteBtn') {
+        await window.deleteMyProduct(item.id);
+        if ($("backBtn")) $("backBtn").click();
+      }
+    });
+  }
+  // Also keep direct bindings as fallback for accessibility
   on("productDetailEditBtn", "click", () => {
     const item = state.selectedProductDetail;
     if (!item) return;
@@ -2712,7 +2742,6 @@ function bindProfileEvents() {
     if (!item) return;
     const nextListed = item.listed === false;
     await window.toggleSellerProductListed(item.id, nextListed);
-    // Update the in-memory detail so the button reflects the new state
     state.selectedProductDetail.listed = nextListed;
     const _listedBtn = $("productDetailListedBtn");
     if (_listedBtn) {

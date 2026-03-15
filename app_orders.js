@@ -325,8 +325,9 @@ function openProductDetail(item, fromSeller = false){
     specs.forEach(spec => frag.appendChild(createEl('span', 'spec-option-chip', spec)));
     specsEl.replaceChildren(frag);
   }
-  const effectiveSellerId = item.sellerId || state.currentProfileUser?.id || '';
-  const isOwnProduct = !fromSeller && effectiveSellerId && effectiveSellerId === state.currentUser?.id;
+  const effectiveSellerId = String(item.sellerId || state.currentProfileUser?.id || '');
+  const currentUserId = String(state.currentUser?.id || '');
+  const isOwnProduct = !fromSeller && effectiveSellerId && currentUserId && effectiveSellerId === currentUserId;
   const showSellerControls = fromSeller || isOwnProduct;
   toggleEl("productDetailOpenSellerBtn", 'hidden', !fromSeller);
   toggleEl("productDetailBuyNowBtn", 'hidden', showSellerControls);
@@ -334,7 +335,12 @@ function openProductDetail(item, fromSeller = false){
   toggleEl("productDetailChatBtn", 'hidden', showSellerControls);
   // Hide the entire bottom bar when seller controls are shown to prevent
   // the sticky bar (with padding) from intercepting touch events on seller action buttons
-  toggleEl("productDetailBottomBar", 'hidden', showSellerControls);
+  const _pdBottomBar = $("productDetailBottomBar");
+  if (_pdBottomBar) {
+    _pdBottomBar.classList.toggle('hidden', showSellerControls);
+    // Also reset pointer-events and position to prevent any residual touch interception
+    _pdBottomBar.style.pointerEvents = showSellerControls ? 'none' : '';
+  }
   // Disable buy/cart buttons when out of stock
   const outOfStock = stock <= 0;
   const _pdBuyBtn = $("productDetailBuyNowBtn");
@@ -342,7 +348,12 @@ function openProductDetail(item, fromSeller = false){
   if(_pdBuyBtn) _pdBuyBtn.disabled = outOfStock;
   if(_pdCartBtn) _pdCartBtn.disabled = outOfStock;
   // Show seller management buttons on detail page for own products
-  toggleEl("productDetailSellerActions", 'hidden', !showSellerControls);
+  const _pdSellerActions = $("productDetailSellerActions");
+  if (_pdSellerActions) {
+    _pdSellerActions.classList.toggle('hidden', !showSellerControls);
+    // Ensure seller actions are interactive when visible
+    _pdSellerActions.style.pointerEvents = showSellerControls ? 'auto' : '';
+  }
   const _pdListedBtn = $("productDetailListedBtn");
   if(showSellerControls && _pdListedBtn) {
     const isUnlisted = item.listed === false;
