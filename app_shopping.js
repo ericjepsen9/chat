@@ -403,6 +403,15 @@ function renderProfileCartPage(){
     const info = createEl('div', 'checkout-item-info');
     info.append(createEl('div', 'order-cart-title', item.title || '商品'), createEl('div', 'order-cart-sub', item.spec || '默认规格'));
     row.appendChild(info);
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => {
+      const detail = {
+        id: item.productId, title: item.title, desc: item.desc || '',
+        image: item.image || '', price: item.unitPrice,
+        specs: item.spec ? [item.spec] : [], sellerId: item.sellerId
+      };
+      openProductDetail(detail, false);
+    });
     card.appendChild(row);
 
     // Price + quantity + remove row
