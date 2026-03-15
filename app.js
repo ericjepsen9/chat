@@ -253,7 +253,7 @@ const renderSellerProductsManage = safeRender(function renderSellerProductsManag
         const act = actionBtn.dataset.action;
         const item = _findSP(pid);
         if (!item) return;
-        if (act === 'edit') openPublishProductPage('sellerProductsPage', item);
+        if (act === 'edit') window.openPublishProductPage('sellerProductsPage', item);
         else if (act === 'stock') window.updateSellerProductStock(item.id, item.stock || 0);
         else if (act === 'toggle') withButtonLock(actionBtn, () => window.toggleSellerProductListed(item.id, item.listed === false));
         else if (act === 'delete') window.deleteMyProduct(item.id);
@@ -2447,6 +2447,7 @@ function bindProductEvents() {
     if ($("chatTitle")) $("chatTitle").textContent = state.publishEditingProductId ? '编辑商品' : '发布商品';
     setPublishProductHint(state.publishEditingProductId ? "修改后将同步到商品管理、发现和个人主页" : "可发布多个商品，买家可在你的主页直接多选下单", "muted");
   }
+  window.openPublishProductPage = openPublishProductPage;
 
   on("publishProductEntryBtn", "click", () => { openPublishProductPage('mall'); });
 
