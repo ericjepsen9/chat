@@ -118,6 +118,9 @@ input, textarea { font-size: var(--font-body); }
 .topbar h2 { margin:0; font-size:var(--font-title-primary); font-weight:600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .topbar p { margin:2px 0 0; font-size:var(--font-micro); color:var(--text-muted); }
 .icon-btn { border:none; background:transparent; padding:0; font-size:26px; color:#333; display:flex; align-items:center; justify-content:center; width:36px; height:36px; cursor:pointer;}
+#backBtn { color:#000; font-weight:700; }
+#backBtn svg { width:28px; height:28px; filter:drop-shadow(0 0 1px rgba(0,0,0,.1)); }
+#backBtn:active { opacity:.6; transform:scale(.9); }
 
 /* 列表UI */
 .main-content-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
@@ -217,3 +220,162 @@ input, textarea { font-size: var(--font-body); }
 .audio-playing,.playing{ box-shadow: 0 0 0 2px rgba(59,130,246,.18) inset; }
 #imageViewer{ cursor: zoom-out; }
 #contextMenu{ will-change: transform, opacity; }
+
+/* ── Mobile Compatibility & Style Consistency Optimizations ── */
+
+/* Ensure all scrollable areas have consistent touch scrolling */
+.chat-list-view,
+.messages,
+.sidebar-list,
+.legal-content,
+.ccp-list,
+#chatList,
+#friendsList,
+#groupManageList,
+#blacklistList,
+#friendRequestsList {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Consistent touch targets - minimum 44px for all interactive elements */
+.chat-item,
+.ccp-friend-row,
+.contact-row,
+.profile-detail-row,
+.settings-form-input,
+.add-friend-search-bar button,
+.qq-group-header {
+  min-height: 44px;
+}
+
+/* Smooth transitions for all interactive elements */
+.chat-item,
+.tab-item,
+.sidebar-item,
+.ccp-friend-row,
+.contact-row,
+.profile-detail-row,
+.icon-btn {
+  transition: background var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+/* Consistent active states */
+.icon-btn:active {
+  opacity: 0.6;
+}
+
+/* Topbar consistency - ensure all secondary pages have same topbar height */
+.topbar {
+  min-height: 56px;
+  box-sizing: border-box;
+}
+
+/* Bottom tabbar safe area and consistent styling */
+.home-tabbar {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgba(250,250,250,0.92);
+}
+
+/* Ensure all full-page sections fill height properly */
+#chatView,
+#profileView,
+#settingsPage,
+#editProfilePage,
+#profileDetailPage,
+#friendListView,
+#mallView,
+#contactCardPickerPage,
+#groupManagePage,
+#friendRequestsPage,
+#blacklistPage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Mobile small screen (≤500px) - enhanced */
+@media (max-width: 500px) {
+  /* Sidebar auto-collapse on small screens */
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) {
+    width: 56px;
+  }
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) .sidebar-item-name,
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) .sidebar-item-preview {
+    display: none;
+  }
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) .sidebar-item {
+    padding: 8px 4px;
+  }
+
+  /* Tighter padding on small screens */
+  .topbar {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .chat-item {
+    padding: 11px 12px;
+  }
+  .toolbar {
+    padding: 6px 12px;
+  }
+  .messages {
+    padding: 12px;
+    gap: 12px;
+  }
+  .composer-wrapper {
+    padding: 8px 10px;
+  }
+
+  /* Profile page adjustments */
+  .profile-hero {
+    padding: 16px 14px 14px;
+  }
+  .profile-detail-card {
+    margin: 8px 10px 0;
+  }
+  .profile-primary-actions {
+    padding: 10px;
+  }
+
+  /* Mall grid single column on very small screens */
+  .mall-grid {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  /* Action panel responsive */
+  .action-panel {
+    gap: 8px;
+    padding: 14px 12px;
+  }
+}
+
+/* Extra small screens (≤360px) */
+@media (max-width: 360px) {
+  .mall-grid {
+    grid-template-columns: 1fr;
+  }
+  .action-panel {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .emoji-panel {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+  }
+}
+
+/* Ensure text doesn't overflow anywhere */
+.topbar h2,
+.chat-item strong,
+.chat-item .preview,
+.sidebar-item-name,
+.contact-title,
+.profile-hero-name,
+.ccp-friend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
