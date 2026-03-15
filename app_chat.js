@@ -158,6 +158,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
         card.appendChild(head);
       } else if (safeImage) {
         const img = createEl('img', 'trade-card-img');
+        img.onerror = function() { this.style.display = 'none'; };
         img.src = safeImage;
         card.appendChild(img);
       }

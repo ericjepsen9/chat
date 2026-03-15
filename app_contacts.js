@@ -198,6 +198,16 @@ function renderContactCardPicker(keyword){
 async function renderProductCardPicker(){
   const list = $("productCardPickerList");
   if(!list) return;
+  // Always fetch fresh products from the store API to ensure product list is up-to-date
+  if (state.currentUser?.id) {
+    try {
+      const data = await api(`/api/users/${state.currentUser.id}/store`);
+      const items = Array.isArray(data.items) ? data.items : [];
+      state.currentUser.products = items;
+    } catch (e) {
+      console.warn('[renderProductCardPicker] fetch products failed', e);
+    }
+  }
   const srcProducts = Array.isArray(state.currentUser?.products) ? state.currentUser.products : [];
   // Count valid products first to check emptiness without allocating a filtered array
   let hasProducts = false;
@@ -220,7 +230,7 @@ async function renderProductCardPicker(){
     info.append(createEl('div', 'picker-product-name', p.title || '商品'), createEl('div', 'picker-product-price', formatMoney(p.price)));
     card.append(img, info);
     card.addEventListener('click', async () => {
-      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: p.image || p.imageUrl || '', sellerId: p.sellerId || state.currentUser?.id || '', productId: p.id || '' } });
+      await window.sendMessage({ type:'card', card:{ cardType:'闲置商品', title: p.title || '商品', description: `售价：${formatMoney(p.price)}`, meta: String(p.price || 0), imageUrl: normalizeMediaUrl(p.image || p.imageUrl) || '', sellerId: p.sellerId || state.currentUser?.id || '', productId: p.id || '' } });
       if($("backBtn")) $("backBtn").click();
     });
     frag.appendChild(card);

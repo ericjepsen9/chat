@@ -364,14 +364,33 @@ function renderProfileCartPage(){
   const sellerId = state.currentCartSellerId || state.currentProfileUser?.id || '';
   const currentCart = getCurrentSellerCart(sellerId);
 
-  // Seller info header
+  // Seller info header with avatar and prominent name
   const sellerInfo = $("profileCartSellerInfo");
   if(sellerInfo){
     const profile = sellerId === state.currentProfileUser?.id ? state.currentProfileUser : null;
     const _sName = (!profile && state.sellerNameCache) ? (state.sellerNameCache.get(sellerId) || '') : '';
     const sellerName = profile?.displayName || profile?.nickname || _sName || `商家 ${sellerId.slice(-6)}`;
-    sellerInfo.textContent = sellerName;
+    const sellerAvatarUrl = profile?.avatarUrl || '';
+    sellerInfo.replaceChildren();
+    const sellerUserObj = { avatarUrl: sellerAvatarUrl, displayName: sellerName };
+    const avatarNode = createAvatarNode(sellerUserObj, sellerName);
+    avatarNode.classList.add('checkout-seller-avatar');
+    const nameNode = createEl('span', 'checkout-seller-name', sellerName);
+    sellerInfo.append(avatarNode, nameNode);
     sellerInfo.classList.toggle('hidden', !sellerId);
+    // Fetch seller profile for avatar if not already loaded
+    if (!sellerAvatarUrl && sellerId) {
+      api(`/api/users/${sellerId}/profile?viewerId=${encodeURIComponent(state.currentUser?.id || '')}`).then(data => {
+        if (data?.profile?.avatarUrl) {
+          const freshAvatar = createAvatarNode({ avatarUrl: data.profile.avatarUrl, displayName: data.profile.nickname || sellerName }, sellerName);
+          freshAvatar.classList.add('checkout-seller-avatar');
+          const oldAvatar = sellerInfo.querySelector('.checkout-seller-avatar');
+          if (oldAvatar) oldAvatar.replaceWith(freshAvatar);
+          // Update name if available
+          if (data.profile.nickname) nameNode.textContent = data.profile.nickname;
+        }
+      }).catch(() => {});
+    }
   }
 
   if(!currentCart.length){
@@ -428,11 +447,19 @@ function renderProfileCartPage(){
         saveCartToStorage();
       });
     };
-    priceLabel.addEventListener('click', editPrice);
-    const priceEditBtn = createEl('button', 'checkout-price-edit-btn', '改价');
-    priceEditBtn.type = 'button';
-    priceEditBtn.addEventListener('click', editPrice);
-    priceWrap.append(priceLabel, priceEditBtn);
+    // Only allow price editing for the seller, not the buyer
+    const isSeller = state.currentUser?.id === sellerId;
+    if (isSeller) {
+      priceLabel.addEventListener('click', editPrice);
+      const priceEditBtn = createEl('button', 'checkout-price-edit-btn', '改价');
+      priceEditBtn.type = 'button';
+      priceEditBtn.addEventListener('click', editPrice);
+      priceWrap.append(priceLabel, priceEditBtn);
+    } else {
+      priceLabel.classList.remove('checkout-price-editable');
+      priceLabel.title = '';
+      priceWrap.append(priceLabel);
+    }
 
     // Quantity controls
     const qtyWrap = createEl('div', 'checkout-qty-wrap');
