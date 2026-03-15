@@ -58,6 +58,13 @@ module.exports = function createOrderRoutes(ctx) {
         ordersByBuyer: index.ordersByBuyer,
         ordersBySeller: index.ordersBySeller,
       });
+      // Broadcast stock changes so other buyers' carts can update
+      if (result.ok && result.payload?.stockChanges?.length) {
+        broadcastAll('product_changed', {
+          sellerId: context.body.sellerId,
+          stockUpdates: result.payload.stockChanges,
+        });
+      }
       return sendResult(res, result);
     }
 

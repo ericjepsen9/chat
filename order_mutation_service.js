@@ -137,6 +137,9 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     const safeSpec = specSet ? reqItem.spec : '默认规格';
     const productPrice = parseProductPrice(sellerProduct.price);
     const unitPrice = productPrice;
+    // Track if client-submitted price differs from current product price
+    const clientPrice = reqItem.price;
+    const priceChanged = clientPrice !== null && Math.abs(clientPrice - unitPrice) > 0.001;
     normalized.push({
       productId: sellerProduct.id,
       title: String(sellerProduct.title || '').trim() || '商品',
@@ -144,6 +147,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
       quantity: reqItem.quantity,
       price: unitPrice,
       imageUrl: sellerProduct.image || '',
+      clientPrice: priceChanged ? clientPrice : undefined,
+      priceChanged: priceChanged || undefined,
     });
 
     neededByProduct.set(
@@ -182,8 +187,10 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   };
 
   // Apply stock deduction and order insertion together after all validation passes
+  const stockChanges = [];
   for (let i = 0; i < stockUpdates.length; i++) {
     stockUpdates[i].sellerProduct.stock = stockUpdates[i].nextStock;
+    stockChanges.push({ productId: stockUpdates[i].sellerProduct.id, stock: stockUpdates[i].nextStock });
   }
   db.orders.unshift(order);
   if (ordersById) ordersById.set(order.id, order);
@@ -202,8 +209,9 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   conv.updatedAt = Date.now();
   if (typeof rebuildMallIndex === 'function') rebuildMallIndex();
   if (typeof broadcastAll === 'function') broadcastAll('mall_updated', {});
+  const hasPriceChanges = normalized.some(item => item.priceChanged);
   schedulePersist('order_create', { orderId: order.id, buyerId: authUser.id, sellerId: seller.id });
-  return { ok: true, status: 201, payload: { order, deduplicated: false } };
+  return { ok: true, status: 201, payload: { order, deduplicated: false, stockChanges, priceChanged: hasPriceChanges } };
 }
 
 function acceptOrder({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {

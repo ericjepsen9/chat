@@ -102,6 +102,14 @@ module.exports = function createProductRoutes(ctx) {
         schedulePersist,
         broadcastAll,
       });
+      // Broadcast granular product changes so buyers can update their carts
+      if (result.ok && result.payload?.changes && Object.keys(result.payload.changes).length > 0) {
+        broadcastAll('product_changed', {
+          sellerId: context.authUser.id,
+          productId: result.payload.product?.id,
+          changes: result.payload.changes,
+        });
+      }
       return sendResult(res, result);
     }
 

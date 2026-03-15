@@ -74,6 +74,11 @@ async function connectRealtime() {
   _on('friends_updated', async () => { await loadFriends(); if (state.activeConversation) applyChatRelationshipState(); });
   _on('friend_request_updated', loadFriendRequests);
   _on('mall_updated', async () => { await loadMall(); await syncProductViewsIfVisible(); });
+  _on('product_changed', (e) => {
+    const data = safeParseEventData(e);
+    if (!data) return;
+    syncCartWithProductChanges(data);
+  });
   _on('system_message', (e) => { const data = safeParseEventData(e); if(!data || !data.message) return; const sysArr = state.systemMessages || []; const dupIdx = sysArr.findIndex(m => m.id === data.message.id); if (dupIdx !== -1) sysArr.splice(dupIdx, 1); sysArr.unshift(data.message); if (sysArr.length > 30) sysArr.length = 30; state.systemMessages = sysArr; scheduleRenderConversationList(); });
   _on('order_updated', () => { scheduleTradeReminderRefresh(120); });
   _on('typing_indicator', (e) => {

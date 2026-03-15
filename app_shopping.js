@@ -518,10 +518,153 @@ function renderCartHubPage(){
   list.replaceChildren(frag);
 }
 
+// --- Real-time cart sync when product changes arrive via SSE ---
+function syncCartWithProductChanges(data) {
+  if (!data || !state.profileCartBySeller) return;
+  const sellerId = data.sellerId;
+  if (!sellerId) return;
+  const cart = state.profileCartBySeller[sellerId];
+  if (!Array.isArray(cart) || !cart.length) return;
+
+  const alerts = [];
+
+  // Handle single-product changes (from updateProduct)
+  if (data.productId && data.changes) {
+    const ch = data.changes;
+    for (let i = cart.length - 1; i >= 0; i--) {
+      const item = cart[i];
+      if (String(item.productId) !== String(data.productId)) continue;
+
+      if (ch.listed === false) {
+        alerts.push(`"${item.title}" 已下架`);
+        cart.splice(i, 1);
+        continue;
+      }
+      if (ch.price !== undefined) {
+        const newPrice = Number(String(ch.price).replace(/[^\d.]/g, '')) || 0;
+        if (item.unitPrice !== newPrice) {
+          alerts.push(`"${item.title}" 价格变为 ${ch.price}`);
+          item.unitPrice = newPrice;
+        }
+      }
+      if (ch.stock !== undefined) {
+        const newStock = Math.max(0, Math.floor(Number(ch.stock)));
+        if (item.quantity > newStock) {
+          if (newStock <= 0) {
+            alerts.push(`"${item.title}" 已无库存`);
+            cart.splice(i, 1);
+          } else {
+            alerts.push(`"${item.title}" 库存不足，数量已调整为 ${newStock}`);
+            item.quantity = newStock;
+          }
+        }
+      }
+    }
+  }
+
+  // Handle bulk stock updates (from order creation by other buyers)
+  if (Array.isArray(data.stockUpdates)) {
+    for (const su of data.stockUpdates) {
+      const newStock = Math.max(0, Math.floor(Number(su.stock)));
+      for (let i = cart.length - 1; i >= 0; i--) {
+        const item = cart[i];
+        if (String(item.productId) !== String(su.productId)) continue;
+        if (item.quantity > newStock) {
+          if (newStock <= 0) {
+            alerts.push(`"${item.title}" 已无库存`);
+            cart.splice(i, 1);
+          } else {
+            alerts.push(`"${item.title}" 库存不足，数量已调整为 ${newStock}`);
+            item.quantity = newStock;
+          }
+        }
+      }
+    }
+  }
+
+  if (alerts.length) {
+    invalidateCartQtyCache();
+    updateProfileCartBar();
+    renderProfileCartPage();
+    renderProfileStore();
+    showToast(alerts.join('；'));
+  }
+}
+
+// --- Pre-submit validation: fetch latest product data and compare with cart ---
+async function preCheckCartBeforeSubmit(sellerId) {
+  const cart = getCurrentSellerCart(sellerId);
+  if (!cart.length) return { ok: false, reason: '购物车为空' };
+
+  let storeItems;
+  try {
+    const data = await api(`/api/users/${encodeURIComponent(sellerId)}/store`);
+    storeItems = data.items || [];
+  } catch (e) {
+    return { ok: true }; // Network error — let server-side validation handle it
+  }
+
+  const productMap = new Map();
+  for (const p of storeItems) if (p.id) productMap.set(String(p.id), p);
+
+  const warnings = [];
+  for (let i = cart.length - 1; i >= 0; i--) {
+    const item = cart[i];
+    const product = productMap.get(String(item.productId));
+
+    if (!product) {
+      warnings.push(`"${item.title}" 已下架或不存在`);
+      cart.splice(i, 1);
+      continue;
+    }
+
+    // Sync price
+    const currentPrice = Number(String(product.price).replace(/[^\d.]/g, '')) || 0;
+    if (Math.abs((item.unitPrice || 0) - currentPrice) > 0.001) {
+      warnings.push(`"${item.title}" 价格已变更：${formatMoney(item.unitPrice)} → ${formatMoney(currentPrice)}`);
+      item.unitPrice = currentPrice;
+    }
+
+    // Check stock
+    const stock = Math.max(0, Math.floor(Number(product.stock || 0)));
+    if (item.quantity > stock) {
+      if (stock <= 0) {
+        warnings.push(`"${item.title}" 已无库存`);
+        cart.splice(i, 1);
+      } else {
+        warnings.push(`"${item.title}" 库存不足，数量已从 ${item.quantity} 调整为 ${stock}`);
+        item.quantity = stock;
+      }
+    }
+  }
+
+  if (warnings.length) {
+    invalidateCartQtyCache();
+    updateProfileCartBar();
+    renderProfileCartPage();
+    return { ok: false, reason: warnings.join('\n'), adjusted: true };
+  }
+
+  return { ok: true };
+}
+
 async function submitProfileOrder(){
   const sellerId = state.currentCartSellerId || state.currentProfileUser?.id || '';
   const currentCart = getCurrentSellerCart(sellerId);
   if(!sellerId || !currentCart.length) return showModal('请先选择商品');
+
+  // Pre-submit validation: check latest prices, stock, and availability
+  const preCheck = await preCheckCartBeforeSubmit(sellerId);
+  if (!preCheck.ok) {
+    if (preCheck.adjusted) {
+      // Items were adjusted — show what changed and let user review
+      showModal('购物车已更新，请确认后重新提交：\n' + preCheck.reason);
+      return;
+    }
+    showModal(preCheck.reason || '无法提交订单');
+    return;
+  }
+
   showLoading('提交订单中...');
   try{
     const remark = ($("orderRemarkInput")?.value || '').trim();
@@ -536,7 +679,13 @@ async function submitProfileOrder(){
         price: Number(item.unitPrice || 0)
       }))
     };
-    await api('/api/orders', { method:'POST', body: JSON.stringify(payload) });
+    const result = await api('/api/orders', { method:'POST', body: JSON.stringify(payload) });
+
+    // Alert user if server used different prices than what they saw
+    if (result.priceChanged) {
+      showToast('注意：部分商品价格在下单时已变更，以实际订单金额为准');
+    }
+
     if($("orderRemarkInput")) $("orderRemarkInput").value = '';
     state.profileCartBySeller[sellerId] = [];
     updateProfileCartBar();

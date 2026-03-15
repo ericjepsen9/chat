@@ -104,9 +104,8 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
   for (let i = 0; i < products.length; i++) { if (products[i].id === productId) { product = products[i]; break; } }
   if (!product) return { ok: false, status: 404, error: 'not_found' };
 
-  // Track whether significant fields changed (price/image) to auto-delist
-  let significantChange = false;
-  const wasListed = product.listed !== false;
+  // Track field-level changes for downstream notifications
+  const changes = {};
 
   if (body.title !== undefined) {
     const title = normalizeText(body.title, 80);
@@ -118,19 +117,20 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
   if (body.price !== undefined) {
     const price = normalizeText(body.price, 24);
     if (!price) return { ok: false, status: 400, error: 'invalid_price' };
-    if (product.price !== price) significantChange = true;
+    if (product.price !== price) changes.price = price;
     product.price = price;
   }
   if (body.stock !== undefined) {
     const stock = normalizeStock(body.stock);
     if (stock <= 0) return { ok: false, status: 400, error: 'invalid_stock' };
+    if (product.stock !== stock) changes.stock = stock;
     product.stock = stock;
   }
   if (body.image !== undefined) {
     const image = String(body.image || '').trim().slice(0, 512);
     if (!image) return { ok: false, status: 400, error: 'invalid_image_url' };
     if (!isValidMediaUrl(image)) return { ok: false, status: 400, error: 'invalid_image_url' };
-    if (product.image !== image) significantChange = true;
+    if (product.image !== image) changes.image = true;
     product.image = image;
   }
   if (body.specs !== undefined) {
@@ -146,20 +146,15 @@ function updateProduct({ authUser, body, rebuildMallIndex, schedulePersist, broa
     }
   }
   if (body.listed !== undefined) {
-    product.listed = normalizeListed(body.listed, product.listed !== false);
-  }
-
-  // Auto-delist on significant changes (price/image) unless listing status was explicitly set
-  let autoDelisted = false;
-  if (significantChange && wasListed && body.listed === undefined) {
-    product.listed = false;
-    autoDelisted = true;
+    const newListed = normalizeListed(body.listed, product.listed !== false);
+    if (product.listed !== newListed) changes.listed = newListed;
+    product.listed = newListed;
   }
 
   rebuildMallIndex();
   schedulePersist('product_update', { userId: authUser.id, productId: product.id });
   broadcastAll('mall_updated', {});
-  return { ok: true, status: 200, payload: { ok: true, product, autoDelisted } };
+  return { ok: true, status: 200, payload: { ok: true, product, changes } };
 }
 
 module.exports = {
