@@ -123,8 +123,8 @@ input, textarea { font-size: var(--font-body); }
 #backBtn:active { opacity:.6; transform:scale(.9); }
 
 /* 列表UI */
-.main-content-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
-.chat-list-view { flex: 1; overflow-y: auto; background: var(--surface); display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
+.main-content-wrapper { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.chat-list-view { flex: 1; min-height: 0; overflow-y: auto; background: var(--surface); display: flex; flex-direction: column; -webkit-overflow-scrolling: touch; }
 .toolbar { padding: 8px 16px; background: #f2f2f6; flex-shrink: 0; display:flex; gap:10px; align-items:center; }
 .toolbar input { flex:1; padding:10px 14px; border-radius: var(--radius-pill); border:none; background:#e5e5ea; outline:none; box-sizing: border-box; font-size: var(--font-body-sm);}
 .toolbar-search-btn { flex-shrink:0; padding:8px 16px; border:none; border-radius: var(--radius-pill); background:var(--brand); color:#fff; font-size: var(--font-body-sm); font-weight:500; cursor:pointer; transition: opacity .2s, background .2s; }
@@ -273,9 +273,7 @@ input, textarea { font-size: var(--font-body); }
 
 /* Bottom tabbar safe area and consistent styling */
 .home-tabbar {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  background: rgba(250,250,250,0.92);
+  background: #fafafa;
 }
 
 /* Ensure all full-page sections fill height properly */
