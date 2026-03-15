@@ -725,11 +725,15 @@
   border-color:var(--brand);
 }
 .order-flow-footer{
+  position:sticky;
+  bottom:0;
+  z-index:10;
   margin-top:14px;
   background:#fff;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   padding:14px 16px;
-  box-shadow:0 1px 3px rgba(15,23,42,.06);
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  box-shadow:0 -2px 8px rgba(15,23,42,.08);
 }
 .order-flow-footer strong{
   font-size: var(--font-title-primary);
@@ -1221,11 +1225,18 @@
   box-shadow:0 1px 3px rgba(15,23,42,.06);
 }
 .order-detail-actions{
+  position:sticky;
+  bottom:0;
+  z-index:10;
   margin-top:14px;
   display:flex;
   flex-wrap:wrap;
   gap:10px;
-  padding:0;
+  padding:14px 16px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  background:#fff;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow:0 -2px 8px rgba(15,23,42,.08);
 }
 .order-detail-actions > button{
   flex:1; min-width:0;
