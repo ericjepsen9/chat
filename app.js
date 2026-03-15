@@ -2709,7 +2709,7 @@ function bindProfileEvents() {
       if (!item) return;
       const btnId = btn.id;
       if (btnId === 'productDetailEditBtn') {
-        openPublishProductPage('productDetailPage', item);
+        window.openPublishProductPage('productDetailPage', item);
       } else if (btnId === 'productDetailStockBtn') {
         window.updateSellerProductStock(item.id, item.stock || 0);
       } else if (btnId === 'productDetailListedBtn') {
@@ -2731,7 +2731,7 @@ function bindProfileEvents() {
   on("productDetailEditBtn", "click", () => {
     const item = state.selectedProductDetail;
     if (!item) return;
-    openPublishProductPage('productDetailPage', item);
+    window.openPublishProductPage('productDetailPage', item);
   });
   on("productDetailStockBtn", "click", () => {
     const item = state.selectedProductDetail;
