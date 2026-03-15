@@ -44,6 +44,7 @@ async function refreshAllOrderData() {
     loadProfileOrders(),
     state.activeConversation?.id ? reloadActiveConversationMessages() : Promise.resolve()
   ]);
+  syncSelectedOrderDetail();
   renderConversationListFromState();
 }
 
@@ -51,11 +52,22 @@ let tradeRefreshTimer = null;
 function scheduleTradeReminderRefresh(delayMs = 300) {
   if (!state.currentUser) return;
   if (tradeRefreshTimer) clearTimeout(tradeRefreshTimer);
-  tradeRefreshTimer = setTimeout(() => {
+  tradeRefreshTimer = setTimeout(async () => {
     tradeRefreshTimer = null;
-    loadBuyerOrders();
-    loadSellerOrders();
+    await Promise.all([loadBuyerOrders(), loadSellerOrders()]);
+    syncSelectedOrderDetail();
   }, Math.max(0, Number(delayMs) || 0));
+}
+
+// Keep selectedOrderDetail in sync with refreshed order data
+function syncSelectedOrderDetail() {
+  const sel = state.selectedOrderDetail;
+  if (!sel?.id || !state.ordersById) return;
+  const fresh = state.ordersById.get(sel.id);
+  if (fresh && fresh !== sel) {
+    state.selectedOrderDetail = fresh;
+    renderOrderDetailPage();
+  }
 }
 
 function _rebuildSellerProductsById() {
@@ -477,7 +489,7 @@ function renderOrderDetailPage(){
   const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
   toggleEl("orderDetailAcceptBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
   toggleEl("orderDetailEditPriceBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
-  toggleEl("orderDetailPriceRequestBtn", 'hidden', role !== 'buyer' || order.status !== 'pending');
+  toggleEl("orderDetailPriceRequestBtn", 'hidden', true);
   toggleEl("orderDetailCompleteBtn", 'hidden', order.status !== 'accepted');
   if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").textContent = role === 'buyer' ? '确认收货' : '标记已完成';
   toggleEl("orderDetailChatBtn", 'hidden', !counterId);
