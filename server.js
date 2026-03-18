@@ -630,14 +630,22 @@ function consumeUserBySseSessionToken(token) {
 
 // Wrap cleanupAuthState to pass server-local maps; also prune reverse session index
 function runCleanupAuthState() {
-  const deletedTokens = cleanupAuthState({ sessions, sseSessionTokens });
-  // Forward-delete from sessionsByUserId using the list of expired tokens — O(M) instead of O(N×M)
-  if (deletedTokens.length) {
-    for (let i = 0; i < deletedTokens.length; i++) {
-      const token = deletedTokens[i];
-      for (const [userId, tokens] of sessionsByUserId.entries()) {
-        if (tokens.delete(token) && !tokens.size) sessionsByUserId.delete(userId);
-      }
+  // Snapshot userId for each token BEFORE cleanup deletes them from the sessions map
+  const aboutToExpire = [];
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (session?.expiresAt && Number(session.expiresAt) < now) {
+      aboutToExpire.push({ token, userId: session.userId });
+    }
+  }
+  cleanupAuthState({ sessions, sseSessionTokens });
+  // O(M) direct lookup instead of O(N×M) full scan
+  for (let i = 0; i < aboutToExpire.length; i++) {
+    const { token, userId } = aboutToExpire[i];
+    const tokens = sessionsByUserId.get(userId);
+    if (tokens) {
+      tokens.delete(token);
+      if (!tokens.size) sessionsByUserId.delete(userId);
     }
   }
 }

@@ -64,14 +64,14 @@ module.exports = function createAuthRoutes(ctx) {
       const scene = String(body.scene || 'login');
       if (!phone) return sendJson(res, 400, { error: '手机号格式错误' });
       if (!VALID_PHONE_CODE_SCENES.has(scene)) return sendJson(res, 400, { error: '验证码场景不支持' });
-      const now1 = Date.now();
+      const now = Date.now();
       const clientIp = getClientIp(req);
       if (clientIp) {
         const ipCooldownUntil = Number(phoneCodeIpCooldownStore.get(clientIp) || 0);
-        if (ipCooldownUntil > now1) {
-          return sendJson(res, 429, { error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((ipCooldownUntil - now1) / 1000) });
+        if (ipCooldownUntil > now) {
+          return sendJson(res, 429, { error: '请求过于频繁，请稍后再试', retryAfterSec: Math.ceil((ipCooldownUntil - now) / 1000) });
         }
-        phoneCodeIpCooldownStore.set(clientIp, now1 + PHONE_CODE_IP_COOLDOWN_MS);
+        phoneCodeIpCooldownStore.set(clientIp, now + PHONE_CODE_IP_COOLDOWN_MS);
       }
       const issueResult = issuePhoneCode(phone, scene);
       if (!issueResult.ok) {
@@ -84,11 +84,11 @@ module.exports = function createAuthRoutes(ctx) {
       const body = await parseBody(req);
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
-      const now2 = Date.now();
+      const now = Date.now();
       const clientIp = getClientIp(req);
       const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
-      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > now2) {
-        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - now2) / 1000) });
+      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > now) {
+        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - now) / 1000) });
       }
       if (!phone || !RE_CODE_DIGITS.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'login');
@@ -135,11 +135,11 @@ module.exports = function createAuthRoutes(ctx) {
       const phone = normalizePhone(body.phone || '');
       const code = String(body.code || '').trim();
       const nextPassword = String(body.newPassword || '');
-      const now3 = Date.now();
+      const now = Date.now();
       const clientIp = getClientIp(req);
       const ipAttempt = getPhoneCodeIpAttemptState(clientIp);
-      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > now3) {
-        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - now3) / 1000) });
+      if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > now) {
+        return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - now) / 1000) });
       }
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
       const pwErr1 = validatePasswordLength(nextPassword);

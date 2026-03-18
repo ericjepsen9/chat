@@ -359,19 +359,29 @@ function rebuildMessageIndexes() {
   }
 }
 
-// Trim per-conversation message arrays that exceed the cap, removing oldest entries from indexes
+// Trim per-conversation message arrays that exceed the cap, removing oldest entries from indexes AND db.messages
 const MAX_MESSAGES_PER_CONV = 2000;
 function trimMessageIndexes() {
+  const removedIds = new Set();
   for (const [convId, msgs] of index.messagesByConv.entries()) {
     if (msgs.length <= MAX_MESSAGES_PER_CONV) continue;
     const overflow = msgs.length - MAX_MESSAGES_PER_CONV;
     const removed = msgs.splice(0, overflow);
     for (const msg of removed) {
+      removedIds.add(msg.id);
       index.messagesById.delete(msg.id);
       if (msg.clientMessageId && msg.senderId) {
         index.messageByClientKey.delete(`${convId}:${msg.senderId}:${msg.clientMessageId}`);
       }
     }
+  }
+  // Also remove from db.messages so trimmed messages don't reappear after rebuild
+  if (removedIds.size > 0) {
+    let write = 0;
+    for (let i = 0; i < db.messages.length; i++) {
+      if (!removedIds.has(db.messages[i].id)) db.messages[write++] = db.messages[i];
+    }
+    db.messages.length = write;
   }
 }
 

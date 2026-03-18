@@ -24,13 +24,21 @@ module.exports = function createUserRoutes(ctx) {
     if (matchRoute(pathname, '/api/users') && method === 'GET') {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 50, 1), 200);
+      const offset = Math.max(parseInt(searchParams.get('offset')) || 0, 0);
       const users = [];
+      let total = 0;
+      const end = offset + limit;
       for (let i = 0; i < db.users.length; i++) {
         const u = db.users[i];
         if (u.status === 'disabled') continue;
-        if (u.id !== authUser.id) users.push({ id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, appNumberId: u.appNumberId });
+        if (u.id === authUser.id) continue;
+        if (total >= offset && total < end) {
+          users.push({ id: u.id, username: u.username, displayName: u.displayName, avatarUrl: u.avatarUrl, appNumberId: u.appNumberId });
+        }
+        total++;
       }
-      return sendJson(res, 200, { users });
+      return sendJson(res, 200, { users, total, limit, offset, hasMore: end < total });
     }
 
     if (matchRoute(pathname, '/api/users/update') && method === 'POST') {

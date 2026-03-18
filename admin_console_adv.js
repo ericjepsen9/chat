@@ -115,11 +115,22 @@ function renderMsgSearchResults() {
     </div>
   `).join('');
   if (s.total > PAGE_SIZE) {
-    html += `<div class="pager" style="margin-top:8px"><span>共 ${s.total} 条</span></div>`;
+    const curPage = Math.floor(s.offset / PAGE_SIZE) + 1;
+    const totalPages = Math.ceil(s.total / PAGE_SIZE);
+    html += `<div class="pager" style="margin-top:8px;display:flex;align-items:center;gap:8px;justify-content:center">`;
+    if (curPage > 1) html += `<button class="btn-outline btn-sm" onclick="window._msgSearchPage(${s.offset - PAGE_SIZE})">上一页</button>`;
+    html += `<span>第 ${curPage}/${totalPages} 页 (共 ${s.total} 条)</span>`;
+    if (curPage < totalPages) html += `<button class="btn-outline btn-sm" onclick="window._msgSearchPage(${s.offset + PAGE_SIZE})">下一页</button>`;
+    html += `</div>`;
   }
   el.innerHTML = html;
 }
 
+
+window._msgSearchPage = function(newOffset) {
+  state.msgSearch.offset = Math.max(0, newOffset);
+  loadMessageSearch();
+};
 
 /* ═══════════════════════════════════════
    CONVERSATION DELETE
