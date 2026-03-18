@@ -44,7 +44,7 @@ module.exports = function createAdminExtRoutes(ctx) {
   const {
     sendJson, matchRoute,
     getAuthedUser, getAuthedBody,
-    isAdmin, requireAdmin,
+    isAdmin, isSuperAdmin, requireAdmin,
     sessions, index, db,
     uid,
     hashPasswordAsync,
@@ -90,7 +90,11 @@ module.exports = function createAdminExtRoutes(ctx) {
       const password = String(b.password || '').trim();
       if (!password || password.length < 8 || password.length > 64) return sendJson(res, 400, { error: '密码长度需 8-64 位' });
       const displayName = String(b.displayName || username).trim().slice(0, 40);
-      const role = b.role === 'admin' ? 'admin' : 'user';
+      let role = 'user';
+      if (b.role === 'admin') {
+        if (!isSuperAdmin(context.authUser)) return sendJson(res, 403, { error: 'only_super_admin_can_assign_admin_role' });
+        role = 'admin';
+      }
       const phone = String(b.phone || '').trim();
 
       const user = {

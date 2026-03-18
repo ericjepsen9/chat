@@ -1,6 +1,6 @@
 /* app_calling.js — WebRTC calling & native bridge extracted from app.js */
 
-let callTimer = null; let callStartTime = 0; let outgoingTimeoutTimer = null; let incomingTimeoutTimer = null; let connectTimeoutTimer = null; let lastCallAttemptAt = 0;
+let callTimer = null; let callStartTime = 0; let outgoingTimeoutTimer = null; let incomingTimeoutTimer = null; let connectTimeoutTimer = null; let lastCallAttemptAt = 0; let _iceDisconnectTimer = null;
 // Cached call-panel DOM elements (populated lazily, cleared on stopCall)
 let _callEls = null;
 function _getCallEls() {
@@ -323,7 +323,7 @@ window.stopCall = () => {
   isMuted = false; isCameraOff = false; isSpeaker = true;
   if(els.toggleMuteBtn) { els.toggleMuteBtn.classList.add('active'); els.toggleMuteBtn.style.color = '#fff'; } if(els.muteText) els.muteText.textContent = "静音";
   if(els.toggleCameraBtn) { els.toggleCameraBtn.classList.add('active'); els.toggleCameraBtn.style.color = '#fff'; } if(els.cameraText) els.cameraText.textContent = "镜头";
-  clearInterval(callTimer); callTimer = null; callStartTime = 0; clearAllCallTimers();
+  clearInterval(callTimer); callTimer = null; callStartTime = 0; clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; clearAllCallTimers();
   if(els.callDuration) { els.callDuration.classList.add('hidden'); els.callDuration.textContent = "00:00"; }
   _clearCallEls(); // Invalidate cache for next call session
   refreshAfterCallStateChange(convId);
@@ -365,7 +365,7 @@ async function createPeerConnection(mode) {
     updateCallUIInfo(state.rtc.peerId, state.rtc.mode, '通话中');
     setCallActionLayout('connected');
   };
-  let _iceDisconnectTimer = null;
+  _iceDisconnectTimer = null;
   pc.onconnectionstatechange = () => {
     const st = pc.connectionState;
     if (st === 'connected') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; markConnected(); return; }

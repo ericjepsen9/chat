@@ -138,7 +138,7 @@ function issuePhoneCode(phone, scene = 'login') {
     // No valid code exists but still in cooldown — issue a new code anyway
     // (previous code was consumed or expired, user needs a fresh one)
   }
-  const code = '1234'; // Mock code for testing (SMS service not configured)
+  const code = String(crypto.randomInt(100000, 999999)); // 6-digit random code
   phoneCodeStore.set(key, { code, expiresAt: now + 5 * 60 * 1000 });
   phoneCodeCooldownStore.set(key, now + PHONE_CODE_COOLDOWN_MS);
   phoneCodeVerifyAttempts.delete(key);

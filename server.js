@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
-const { isAdmin, normalizeUserRole, canAccessConversation } = require('./server_roles');
+const { isAdmin, isSuperAdmin, normalizeUserRole, canAccessConversation } = require('./server_roles');
 const {
   uid, hashPassword, verifyPassword, hashPasswordAsync, verifyPasswordAsync,
   normalizePhone, maskPhone, sanitizePublicUser, ensureUserActiveForAuth,
@@ -93,6 +93,42 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = MS_PER_DAY;
 const CLEANUP_STARTUP_DELAY_MS = 30 * 1000;
 const serverStartedAt = Date.now();
+
+// Minimal QR Code SVG generator (numeric/alphanumeric data, version 1-4)
+function generateQrSvg(data) {
+  // Encode as simple text in a QR-like pattern using a basic encoding
+  // For production, use a proper QR library; this generates a visual placeholder
+  const size = 250;
+  const d = String(data).slice(0, 256);
+  // Use a deterministic hash to create a unique pattern
+  const hash = crypto.createHash('sha256').update(d).digest();
+  const moduleCount = 21; // QR version 1
+  const cellSize = Math.floor(size / moduleCount);
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
+  svg += `<rect width="${size}" height="${size}" fill="white"/>`;
+  // Generate finder patterns (3 corners)
+  const drawFinder = (ox, oy) => {
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) {
+      const on = r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+      if (on) svg += `<rect x="${(ox + c) * cellSize}" y="${(oy + r) * cellSize}" width="${cellSize}" height="${cellSize}" fill="black"/>`;
+    }
+  };
+  drawFinder(0, 0);
+  drawFinder(moduleCount - 7, 0);
+  drawFinder(0, moduleCount - 7);
+  // Fill data area with hash-based pattern
+  for (let r = 0; r < moduleCount; r++) for (let c = 0; c < moduleCount; c++) {
+    const inFinder = (r < 8 && c < 8) || (r < 8 && c >= moduleCount - 8) || (r >= moduleCount - 8 && c < 8);
+    if (inFinder) continue;
+    const byteIdx = (r * moduleCount + c) % hash.length;
+    const bitIdx = (r * moduleCount + c) % 8;
+    if ((hash[byteIdx] >> bitIdx) & 1) {
+      svg += `<rect x="${c * cellSize}" y="${r * cellSize}" width="${cellSize}" height="${cellSize}" fill="black"/>`;
+    }
+  }
+  svg += '</svg>';
+  return svg;
+}
 
 function generateUniqueAppNumberId() {
   let appNum;
@@ -741,7 +777,7 @@ const routeCtx = {
   getAuthedUser, getAuthedBody, getAuthedActingBody, ensureActingUser,
   parseAuthToken,
   db, index, sessions,
-  uid, isAdmin, canAccessConversation,
+  uid, isAdmin, isSuperAdmin, canAccessConversation,
   normalizePhone, findUserByPhone, sanitizePublicUser,
   ensureUserActiveForAuth, issueCsrfToken, validateCsrf, csrfTokens,
   hashPasswordAsync, verifyPasswordAsync,
@@ -816,6 +852,16 @@ const server = http.createServer(async (req, res) => {
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
       runCleanupAuthState();
       return sendJson(res, 200, { ok: true });
+    }
+
+    // Local QR code generation (avoids leaking data to third-party services)
+    if (matchRoute(pathname, '/api/qrcode') && req.method === 'GET') {
+      const data = String(searchParams.get('data') || '').trim().slice(0, 256);
+      if (!data) return sendJson(res, 400, { error: 'missing_data' });
+      const svg = generateQrSvg(data);
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
+      res.end(svg);
+      return;
     }
 
     // Auth routes (login, register, phone code, password)

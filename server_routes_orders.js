@@ -21,23 +21,22 @@ module.exports = function createOrderRoutes(ctx) {
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
       const data = queryOrders({ db, authUser, searchParams, isAdmin, index });
-      const orders = data.orders;
-      // Cache display names to avoid repeated Map lookups for same buyer/seller
+      // Build view objects with display names to avoid mutating original order objects
       const nameCache = new Map();
-      for (let i = 0; i < orders.length; i++) {
-        const o = orders[i];
-        if (!o.buyerName) {
-          let n = nameCache.get(o.buyerId);
-          if (n === undefined) { n = index.usersById.get(o.buyerId)?.displayName || ''; nameCache.set(o.buyerId, n); }
-          o.buyerName = n;
+      const orders = data.orders.map(o => {
+        let buyerName = o.buyerName;
+        if (!buyerName) {
+          buyerName = nameCache.get(o.buyerId);
+          if (buyerName === undefined) { buyerName = index.usersById.get(o.buyerId)?.displayName || ''; nameCache.set(o.buyerId, buyerName); }
         }
-        if (!o.sellerName) {
-          let n = nameCache.get(o.sellerId);
-          if (n === undefined) { n = index.usersById.get(o.sellerId)?.displayName || ''; nameCache.set(o.sellerId, n); }
-          o.sellerName = n;
+        let sellerName = o.sellerName;
+        if (!sellerName) {
+          sellerName = nameCache.get(o.sellerId);
+          if (sellerName === undefined) { sellerName = index.usersById.get(o.sellerId)?.displayName || ''; nameCache.set(o.sellerId, sellerName); }
         }
-      }
-      return sendJson(res, 200, data);
+        return { ...o, buyerName, sellerName };
+      });
+      return sendJson(res, 200, { ...data, orders });
     }
 
     if (matchRoute(pathname, '/api/orders') && method === 'POST') {

@@ -2,7 +2,7 @@
 
 const SYSTEM_MSG_LIMITS = { TITLE: 80, SUMMARY: 240, COVER: 512, LIST_MAX: 30, STORE_MAX: 100 };
 const ADMIN_PAGE_LIMIT = 50;
-const VALID_ORDER_STATUSES = new Set(['pending', 'accepted', 'processing', 'in_progress', 'completed']);
+const VALID_ORDER_STATUSES = new Set(['pending', 'accepted', 'processing', 'in_progress', 'completed', 'cancelled', 'refunded']);
 
 // Pre-compiled route regexes
 const RE_SYS_DEL = /^\/api\/admin\/system\/messages\/([^/]+)\/delete$/;
@@ -20,7 +20,7 @@ module.exports = function createAdminRoutes(ctx) {
   const {
     sendJson, matchRoute,
     getAuthedUser, getAuthedBody,
-    isAdmin, requireAdmin,
+    isAdmin, isSuperAdmin, requireAdmin,
     sessions, index, db,
     uid,
     buildAdminDashboardData,
@@ -192,7 +192,11 @@ module.exports = function createAdminRoutes(ctx) {
       if (b.displayName !== undefined) user.displayName = String(b.displayName || '').trim().slice(0, 40) || user.displayName;
       if (b.signature !== undefined) user.signature = String(b.signature || '').trim().slice(0, 160);
       if (b.status !== undefined && (b.status === 'active' || b.status === 'disabled')) user.status = b.status;
-      if (b.role !== undefined && (b.role === 'admin' || b.role === 'user')) user.role = b.role;
+      if (b.role !== undefined && (b.role === 'admin' || b.role === 'user')) {
+        // Only super admins (in ADMIN_USERNAMES) can change roles
+        if (!isSuperAdmin(context.authUser)) return sendJson(res, 403, { error: 'only_super_admin_can_change_roles' });
+        user.role = b.role;
+      }
       rebuildFriendViewsIndex();
       rebuildConversationBaseIndex();
       schedulePersist('admin_user_update', { userId: user.id });

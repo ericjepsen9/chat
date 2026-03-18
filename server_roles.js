@@ -16,6 +16,12 @@ function normalizeUserRole(user) {
   return user.role || 'user';
 }
 
+// Super admins are those in ADMIN_USERNAMES env config — only they can promote/demote roles
+function isSuperAdmin(user) {
+  if (!user) return false;
+  return ADMIN_USERNAMES.has(String(user.username || ''));
+}
+
 function canAccessConversation(userId, conv) {
   if (!conv) return false;
   return conv._memberSet ? conv._memberSet.has(userId) : (Array.isArray(conv.members) && conv.members.includes(userId));
@@ -24,6 +30,7 @@ function canAccessConversation(userId, conv) {
 module.exports = {
   ADMIN_USERNAMES,
   isAdmin,
+  isSuperAdmin,
   normalizeUserRole,
   canAccessConversation,
 };

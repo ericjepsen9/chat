@@ -2,8 +2,10 @@
 
 const conversationPeerId = c => {
   if (!c || !c.members || !state.currentUser) return null;
-  if (c._peerId !== undefined) return c._peerId;
   const uid = state.currentUser.id;
+  // Invalidate cache if current user changed
+  if (c._peerIdFor === uid && c._peerId !== undefined) return c._peerId;
+  c._peerIdFor = uid;
   c._peerId = c.members.length >= 2 ? ((c.members[0] === uid ? c.members[1] : c.members[0]) || null) : null;
   return c._peerId;
 };

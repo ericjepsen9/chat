@@ -285,14 +285,15 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
 }
 
 // Hoisted constants — avoid re-creating on every call
-const _STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受' };
+const _STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受', cancelled: '订单已取消', refunded: '订单已退款' };
 
 // Allowed status transitions: currentStatus -> { nextStatus -> Set of allowed roles }
 const ALLOWED_TRANSITIONS = {
-  pending:     new Map([['accepted', new Set(['seller'])]]),
-  accepted:    new Map([['completed', new Set(['buyer', 'seller'])], ['processing', new Set(['seller'])], ['in_progress', new Set(['seller'])]]),
-  processing:  new Map([['completed', new Set(['buyer', 'seller'])]]),
-  in_progress: new Map([['completed', new Set(['buyer', 'seller'])]]),
+  pending:     new Map([['accepted', new Set(['seller'])], ['cancelled', new Set(['buyer', 'seller'])]]),
+  accepted:    new Map([['completed', new Set(['buyer', 'seller'])], ['processing', new Set(['seller'])], ['in_progress', new Set(['seller'])], ['cancelled', new Set(['buyer', 'seller'])]]),
+  processing:  new Map([['completed', new Set(['buyer', 'seller'])], ['cancelled', new Set(['seller'])]]),
+  in_progress: new Map([['completed', new Set(['buyer', 'seller'])], ['cancelled', new Set(['seller'])]]),
+  completed:   new Map([['refunded', new Set(['seller'])]]),
 };
 
 function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
@@ -316,6 +317,21 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
   const actorRole = actor.isSeller ? 'seller' : 'buyer';
   if (!allowedRoles.has(actorRole)) {
     return { ok: false, status: 403, error: 'forbidden' };
+  }
+
+  // Restore inventory on cancellation/refund
+  if (nextStatus === 'cancelled' || nextStatus === 'refunded') {
+    if (Array.isArray(order.items)) {
+      const seller = usersById.get(order.sellerId);
+      if (seller && Array.isArray(seller.products)) {
+        for (const item of order.items) {
+          const product = seller.products.find(p => p.id === item.productId);
+          if (product && typeof product.stock === 'number') {
+            product.stock += item.quantity || 0;
+          }
+        }
+      }
+    }
   }
 
   order.status = nextStatus;

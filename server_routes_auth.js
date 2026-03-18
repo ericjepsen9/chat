@@ -105,7 +105,7 @@ module.exports = function createAuthRoutes(ctx) {
         user = {
           id: uid('u'),
           username: phone,
-          password: '',
+          password: '__phone_code_only__', // Placeholder; user must set a real password to use password login
           displayName: `用户${phone.slice(-4)}`,
           signature: '暂未填写签名',
           avatarUrl: null,

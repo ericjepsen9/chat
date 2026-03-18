@@ -1106,7 +1106,8 @@ function patchMallCard(card, product) {
 // ==========================================
 
 // ---- WeChat-style auth step navigation ----
-window._authState = { loginPhone: '', regPhone: '', regCode: '' };
+// Auth state kept in module scope to avoid exposing sensitive data on window
+let _authState = { loginPhone: '', regPhone: '', regCode: '' };
 let _cachedAuthSteps = null;
 window.authGotoStep = (stepId) => {
   if (!_cachedAuthSteps) _cachedAuthSteps = document.querySelectorAll('#authScreen .auth-step');
@@ -1341,6 +1342,7 @@ function bindMessageContextMenu(node, msg) {
     window.showContextMenu(e, msg);
   });
 }
+let _forwardListBound = false;
 window.forwardMsg = (msgId) => {
   const _fwdIdx = state.messagesById.get(msgId); msgToForward = _fwdIdx !== undefined ? state.messages[_fwdIdx] : undefined; if(!msgToForward) return;
   hideEl("contextMenu");
@@ -1355,10 +1357,13 @@ window.forwardMsg = (msgId) => {
       appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
       list.appendChild(btn);
     }
-    list.addEventListener('click', (e) => {
-      const item = e.target.closest('.chat-item');
-      if (item?.dataset.convId) window.confirmForward(item.dataset.convId);
-    });
+    if (!_forwardListBound) {
+      _forwardListBound = true;
+      list.addEventListener('click', (e) => {
+        const item = e.target.closest('.chat-item');
+        if (item?.dataset.convId) window.confirmForward(item.dataset.convId);
+      });
+    }
   }
   showEl("forwardModal");
 };
@@ -1914,7 +1919,7 @@ function bindAuthEvents() {
   async function sendCodeAndNext({ phoneInputId, btnId, scene, stateKey, displayId, codeBoxesId, stepId, resendBtnId, enterInputId }) {
     const phone = normalizePhoneInput($(phoneInputId)?.value.trim());
     if (!phone) return;
-    window._authState[stateKey] = phone;
+    _authState[stateKey] = phone;
     const btn = $(btnId);
     btn.disabled = true;
     btn.textContent = '发送中...';
@@ -1947,11 +1952,11 @@ function bindAuthEvents() {
 
   // ---- Login: SMS code auto-submit ----
   setupCodeBoxes('loginCodeBoxes', async (code) => {
-    const phone = window._authState.loginPhone;
+    const phone = _authState.loginPhone;
     if (!phone) return;
     try {
       const res = await api('/api/login/phone-code', { method: 'POST', body: JSON.stringify({ phone, code }) });
-      window._authState = { loginPhone: '', regPhone: '', regCode: '' };
+      _authState = { loginPhone: '', regPhone: '', regCode: '' };
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (e) {
@@ -1994,7 +1999,7 @@ function bindAuthEvents() {
 
   // ---- Register: SMS code → Profile ----
   setupCodeBoxes('regCodeBoxes', (code) => {
-    window._authState.regCode = code;
+    _authState.regCode = code;
     authGotoStep('authRegProfile');
     setTimeout(() => $("registerDisplayName")?.focus(), 100);
   });
@@ -2003,15 +2008,15 @@ function bindAuthEvents() {
   on("doRegisterBtn", "click", async () => {
     const n = $("registerDisplayName")?.value.trim();
     const p = $("registerPassword")?.value;
-    const phone = window._authState.regPhone;
+    const phone = _authState.regPhone;
     if (!n || !p) return showModal("请填写完整信息");
     if (p.length < 8) return showModal('密码至少8位');
     const btn = $("doRegisterBtn");
     btn.disabled = true;
     btn.textContent = "注册中...";
     try {
-      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, password: p, phone, code: window._authState.regCode }) });
-      window._authState = { loginPhone: '', regPhone: '', regCode: '' };
+      const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, password: p, phone, code: _authState.regCode }) });
+      _authState = { loginPhone: '', regPhone: '', regCode: '' };
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
@@ -2649,7 +2654,7 @@ function bindProfileEvents() {
   on("clearCacheBtn", "click", () => { showConfirm("确定清理本地缓存吗？", () => { localStorage.clear(); location.reload(); }); });
   on("openSettingsBtn", "click", () => { window.openSecondaryPage('settingsPage', 'profile'); });
   on("globalNotifyBtn", "click", () => { showModal("新消息通知目前跟随系统默认设置开启"); });
-  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`; setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`); });
+  on("myQrCodeBtn", "click", () => { window.openSecondaryPage("qrCodePage", "profile"); if($("myQrCodeImg")) $("myQrCodeImg").src = `/api/qrcode?data=${encodeURIComponent(state.currentUser.appNumberId)}`; setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`); });
   on("myProductsBtn", "click", () => { window.openSecondaryPage('myProductsPage', 'profile'); loadMyProducts(); });
   on("myBuyerOrdersBtn", "click", async () => { await loadBuyerOrders(); window.openSecondaryPage('buyerOrdersManagePage', 'profile'); });
   on("sellerCenterBtn", "click", async () => {
@@ -3080,7 +3085,7 @@ function bindSocialEvents() {
   });
   on("scanMyQrBtn", "click", () => {
     window.openSecondaryPage("qrCodePage", "scanPage");
-    if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`;
+    if($("myQrCodeImg")) $("myQrCodeImg").src = `/api/qrcode?data=${encodeURIComponent(state.currentUser.appNumberId)}`;
     setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`);
   });
   on("scanCaptureInput", "change", async (e) => {
@@ -4012,13 +4017,17 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     state.friendsById = new Map();
     for (const f of data.friends) if (f.friend?.id) state.friendsById.set(f.friend.id, f);
     const grouped = new Map();
-    grouped.set(DEFAULT_GROUP, filteredFriends);
+    const defaultGroupList = [];
+    grouped.set(DEFAULT_GROUP, defaultGroupList);
     for (let i = 0; i < filteredFriends.length; i++) {
       const f = filteredFriends[i];
       const groupName = f.group && f.group !== DEFAULT_GROUP ? f.group : '';
-      if (!groupName) continue;
-      if (!grouped.has(groupName)) grouped.set(groupName, []);
-      grouped.get(groupName).push(f);
+      if (!groupName) {
+        defaultGroupList.push(f);
+      } else {
+        if (!grouped.has(groupName)) grouped.set(groupName, []);
+        grouped.get(groupName).push(f);
+      }
     }
     const customGroups = getCustomGroups();
     state.currentUser.customGroups = customGroups;
