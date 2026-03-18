@@ -95,7 +95,7 @@ module.exports = function createUserRoutes(ctx) {
       const targetId = profileMatch[1];
       if (targetId !== authUser.id) {
         const targetUser = index.usersById.get(targetId);
-        if (!targetUser) return sendJson(res, 404, { error: '用户不存在' });
+        if (!targetUser || targetUser.status === 'disabled') return sendJson(res, 404, { error: '用户不存在' });
       }
       const result = buildUserProfileView({
         authUser,

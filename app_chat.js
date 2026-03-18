@@ -119,7 +119,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
 
     if (msg.type === 'audio') {
       const bubble = createEl('div', 'bubble audio-bubble');
-      bubble.dataset.audioUrl = msg.audioUrl || '';
+      bubble.dataset.audioUrl = normalizeMediaUrl(msg.audioUrl) || '';
       bubble.append(createEl('span', null, '🔊'), createEl('span', null, '语音'));
       // Click handled via delegation on chatView
       wrap.appendChild(bubble);

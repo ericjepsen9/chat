@@ -93,6 +93,7 @@ module.exports = function createChatRoutes(ctx) {
       if (method === 'GET') {
         const authUser = getAuthedUser(req, res, { searchParams });
         if (!authUser) return true;
+        if (!(conv._memberSet ? conv._memberSet.has(authUser.id) : conv.members.includes(authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
         const result = listConversationMessages({
           conv,
           authUser,
@@ -105,6 +106,7 @@ module.exports = function createChatRoutes(ctx) {
       if (method === 'POST') {
         const context = await getAuthedBody(req, res);
         if (!context) return true;
+        if (!(conv._memberSet ? conv._memberSet.has(context.authUser.id) : conv.members.includes(context.authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
         ensureActingUser(context.body, context.authUser, 'senderId');
         const result = createConversationMessage({
           conversationId,

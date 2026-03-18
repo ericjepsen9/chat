@@ -1,9 +1,9 @@
 /* app_shopping.js — Cart, checkout & profile store extracted from app.js */
 
 function sumCartTotals(items) {
-  let count = 0, total = 0;
-  for (let i = 0; i < items.length; i++) { const q = Number(items[i].quantity)||0; count += q; total += (Number(items[i].unitPrice)||0)*q; }
-  return { count, total };
+  let count = 0, totalCents = 0;
+  for (let i = 0; i < items.length; i++) { const q = Number(items[i].quantity)||0; count += q; totalCents += Math.round((Number(items[i].unitPrice)||0)*100)*q; }
+  return { count, total: totalCents / 100 };
 }
 
 // Cached cart quantity map: productId → totalQuantity (invalidated on cart change)
@@ -309,14 +309,15 @@ function buyNowAndCheckout(){
   if(!sellerId) return showToast('无法确定卖家');
   if(sellerId === state.currentUser?.id) return showToast('不能购买自己的商品');
   const availableStock = getItemAvailableStock(item);
-  if(addQty > availableStock){ showToast('库存不足'); return; }
-  invalidateCartQtyCache();
-  // Add to cart then navigate to checkout
   const key = `${item.id}__${spec}`;
   const cart = getCurrentSellerCart(sellerId);
   const found = cart.find(i => i.key === key);
+  const existingQty = found ? (Number(found.quantity) || 0) : 0;
+  if(existingQty + addQty > availableStock){ showToast('库存不足'); return; }
+  invalidateCartQtyCache();
+  // Add to cart then navigate to checkout
   if(found){
-    found.quantity = (Number(found.quantity) || 0) + addQty;
+    found.quantity = existingQty + addQty;
   }else{
     cart.push({
       key, productId: item.id, title: item.title || '商品', desc: item.desc || '',
@@ -380,7 +381,7 @@ function renderProfileCartPage(){
     sellerInfo.classList.toggle('hidden', !sellerId);
     // Fetch seller profile for avatar if not already loaded
     if (!sellerAvatarUrl && sellerId) {
-      api(`/api/users/${sellerId}/profile?viewerId=${encodeURIComponent(state.currentUser?.id || '')}`).then(data => {
+      api(`/api/users/${encodeURIComponent(sellerId)}/profile?viewerId=${encodeURIComponent(state.currentUser?.id || '')}`).then(data => {
         if (data?.profile?.avatarUrl) {
           const freshAvatar = createAvatarNode({ avatarUrl: data.profile.avatarUrl, displayName: data.profile.nickname || sellerName }, sellerName);
           freshAvatar.classList.add('checkout-seller-avatar');
@@ -486,7 +487,7 @@ function renderProfileCartPage(){
     plusBtn.addEventListener('click', () => {
       const currentQty = Number(item.quantity) || 1;
       const productInStore = (state._storeItemsById || new Map()).get(String(item.productId));
-      const availableStock = productInStore ? getItemAvailableStock(productInStore) : Infinity;
+      const availableStock = productInStore ? getItemAvailableStock(productInStore) : 999;
       if (currentQty >= availableStock) { showToast('库存不足'); return; }
       item.quantity = currentQty + 1;
       qtySpan.textContent = String(item.quantity);

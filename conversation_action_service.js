@@ -95,6 +95,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   }
 
   if (action === 'read') {
+    if (!conv.lastRead) conv.lastRead = {};
     conv.lastRead[authUser.id] = Date.now();
     if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
     schedulePersist('conversation_read', { conversationId, userId: authUser.id });
@@ -103,39 +104,41 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   }
 
   if (action === 'mute') {
-    const uid = authUser.id;
-    const muted = !conv._mutedBySet.has(uid);
+    const auid = authUser.id;
+    const muted = !conv._mutedBySet.has(auid);
     if (muted) {
-      conv.mutedBy.push(uid);
-      conv._mutedBySet.add(uid);
+      conv.mutedBy.push(auid);
+      conv._mutedBySet.add(auid);
     } else {
-      conv._mutedBySet.delete(uid);
+      conv._mutedBySet.delete(auid);
       // Rebuild array from Set to avoid indexOf scan
       conv.mutedBy = [...conv._mutedBySet];
     }
-    schedulePersist('conversation_mute', { conversationId, userId: uid });
-    broadcastToUser(uid, 'conversation_updated', { conversationId });
+    schedulePersist('conversation_mute', { conversationId, userId: auid });
+    broadcastToUser(auid, 'conversation_updated', { conversationId });
     return { ok: true, status: 200, payload: { ok: true, muted } };
   }
 
   if (action === 'pin') {
-    const uid = authUser.id;
-    const pinned = !conv._pinnedBySet.has(uid);
+    const auid = authUser.id;
+    const pinned = !conv._pinnedBySet.has(auid);
     if (pinned) {
-      conv.pinnedBy.push(uid);
-      conv._pinnedBySet.add(uid);
+      conv.pinnedBy.push(auid);
+      conv._pinnedBySet.add(auid);
     } else {
-      conv._pinnedBySet.delete(uid);
+      conv._pinnedBySet.delete(auid);
       // Rebuild array from Set to avoid indexOf scan
       conv.pinnedBy = [...conv._pinnedBySet];
     }
-    schedulePersist('conversation_pin', { conversationId, userId: uid });
-    broadcastToUser(uid, 'conversation_updated', { conversationId });
+    schedulePersist('conversation_pin', { conversationId, userId: auid });
+    broadcastToUser(auid, 'conversation_updated', { conversationId });
     return { ok: true, status: 200, payload: { ok: true, pinned } };
   }
 
   if (action === 'clear') {
     const clearNow = Date.now();
+    if (!conv.clearedAt) conv.clearedAt = {};
+    if (!conv.lastRead) conv.lastRead = {};
     conv.clearedAt[authUser.id] = clearNow;
     conv.lastRead[authUser.id] = clearNow;
     if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);

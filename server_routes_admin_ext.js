@@ -6,7 +6,11 @@ const adminAuditLog = []; // in-memory ring buffer
 
 // CSV helper: single-scan approach — check all special chars in one pass
 function csvField(val) {
-  const s = String(val ?? '');
+  let s = String(val ?? '');
+  // Prevent CSV injection: strip leading formula characters
+  if (s.length > 0 && (s[0] === '=' || s[0] === '+' || s[0] === '-' || s[0] === '@' || s[0] === '\t' || s[0] === '\r')) {
+    s = "'" + s;
+  }
   let hasQuote = false, needsQuote = false;
   for (let i = 0; i < s.length; i++) {
     const ch = s.charCodeAt(i);
@@ -84,7 +88,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       if (!/^[a-z0-9_]+$/.test(username)) return sendJson(res, 400, { error: '用户名只允许小写字母、数字、下划线' });
       if (index.usersByName.get(username)) return sendJson(res, 400, { error: '用户名已存在' });
       const password = String(b.password || '').trim();
-      if (!password || password.length < 4 || password.length > 64) return sendJson(res, 400, { error: '密码长度需 4-64 位' });
+      if (!password || password.length < 8 || password.length > 64) return sendJson(res, 400, { error: '密码长度需 8-64 位' });
       const displayName = String(b.displayName || username).trim().slice(0, 40);
       const role = b.role === 'admin' ? 'admin' : 'user';
       const phone = String(b.phone || '').trim();
@@ -381,7 +385,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       const users = db.users;
       for (let i = 0; i < users.length; i++) {
         const u = users[i];
-        res.write(`${u.id},${u.username},${csvField(u.displayName)},${u.phone || ''},${u.appNumberId || ''},${u.role || 'user'},${u.status || 'active'},${Array.isArray(u.products) ? u.products.length : 0},${u.createdAt ? new Date(u.createdAt).toISOString() : ''}\n`);
+        res.write(`${csvField(u.id)},${csvField(u.username)},${csvField(u.displayName)},${csvField(u.phone)},${csvField(u.appNumberId)},${u.role || 'user'},${u.status || 'active'},${Array.isArray(u.products) ? u.products.length : 0},${u.createdAt ? new Date(u.createdAt).toISOString() : ''}\n`);
       }
       res.end();
       return true;
@@ -408,7 +412,7 @@ module.exports = function createAdminExtRoutes(ctx) {
         const items = o.items || [];
         const parts = new Array(items.length);
         for (let j = 0; j < items.length; j++) parts[j] = items[j].title + '×' + items[j].quantity;
-        res.write(`${o.id},${buyerName},${sellerName},${Number(o.total) || 0},${o.status || ''},${csvField(parts.join('; '))},${csvField(o.remark)},${o.createdAt ? new Date(o.createdAt).toISOString() : ''},${o.updatedAt ? new Date(o.updatedAt).toISOString() : ''}\n`);
+        res.write(`${csvField(o.id)},${csvField(buyerName)},${csvField(sellerName)},${Number(o.total) || 0},${o.status || ''},${csvField(parts.join('; '))},${csvField(o.remark)},${o.createdAt ? new Date(o.createdAt).toISOString() : ''},${o.updatedAt ? new Date(o.updatedAt).toISOString() : ''}\n`);
       }
       res.end();
       return true;
@@ -510,7 +514,7 @@ module.exports = function createAdminExtRoutes(ctx) {
       const { verifyPasswordAsync } = ctx;
       const valid = await verifyPasswordAsync(oldPassword, context.authUser.password);
       if (!valid) return sendJson(res, 400, { error: '旧密码不正确' });
-      if (newPassword.length < 4 || newPassword.length > 64) return sendJson(res, 400, { error: '新密码长度需 4-64 位' });
+      if (newPassword.length < 8 || newPassword.length > 64) return sendJson(res, 400, { error: '新密码长度需 8-64 位' });
       context.authUser.password = await hashPasswordAsync(newPassword);
       await schedulePersistCritical('admin_change_password', { userId: context.authUser.id });
       return sendJson(res, 200, { ok: true });

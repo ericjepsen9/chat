@@ -4,8 +4,9 @@ const SESSION_KEY = 'chattrade_api_session_user';
 const ADMIN_SESSION_KEY = 'chattrade_admin_session';
 
 /* ── Helpers ── */
-const _adminEscMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'};
-function esc(v) { return String(v == null ? '' : v).replace(/[&<>"]/g, t => _adminEscMap[t]); }
+const _adminEscMap = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, t => _adminEscMap[t]); }
+function safeImgUrl(v) { const s = String(v || '').trim(); if (s.startsWith('/uploads/') || s.startsWith('https://') || s.startsWith('http://')) return esc(s); return ''; }
 function money(v) { return '¥' + (Number(v) || 0).toFixed(2); }
 function fmtDate(ts) { if (!ts) return '-'; const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
 function fmtDateShort(ts) { if (!ts) return '-'; const d = new Date(ts); return String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
@@ -294,7 +295,7 @@ function renderUsers() {
   const s = state.users;
   const rows = s.items.map(u => `<tr>
     <td><div class="user-cell">
-      <div class="avatar-sm">${u.avatarUrl ? `<img src="${esc(u.avatarUrl)}">` : esc((u.displayName || u.username || '?')[0])}</div>
+      <div class="avatar-sm">${u.avatarUrl ? `<img src="${safeImgUrl(u.avatarUrl)}">` : esc((u.displayName || u.username || '?')[0])}</div>
       <div><div class="user-cell-name">${esc(u.displayName || u.username)}</div><div class="user-cell-sub">@${esc(u.username)} · ${esc(u.appNumberId || '')}</div></div>
     </div></td>
     <td>${esc(u.phone || '-')}</td>
@@ -396,6 +397,8 @@ window.saveUser = async function(userId) {
 async function loadOrders() {
   const s = state.orders;
   const params = new URLSearchParams({ limit: PAGE_SIZE, offset: s.offset, q: s.q, status: s.status });
+  if (s.dateFrom) params.set('dateFrom', s.dateFrom);
+  if (s.dateTo) params.set('dateTo', s.dateTo);
   try {
     const data = await api(`/api/admin/orders?${params}`);
     s.items = data.items || []; s.total = data.total || 0;
@@ -483,7 +486,7 @@ function renderProductsTable() {
   const s = state.products;
   const rows = s.items.map(p => `<tr>
     <td><div class="user-cell">
-      ${p.image ? `<div class="avatar-sm"><img src="${esc(p.image)}"></div>` : ''}
+      ${p.image ? `<div class="avatar-sm"><img src="${safeImgUrl(p.image)}"></div>` : ''}
       <div><div class="user-cell-name">${esc(p.title)}</div><div class="user-cell-sub">${esc(p.category || '-')}</div></div>
     </div></td>
     <td>${esc(p.sellerName)}</td>

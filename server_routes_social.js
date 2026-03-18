@@ -77,6 +77,10 @@ module.exports = function createSocialRoutes(ctx) {
         index,
         rebuildBlacklistViewsIndex,
         schedulePersist,
+        removeFriendshipPair,
+        rebuildFriendViewsIndex,
+        rebuildConversationBaseIndex,
+        broadcastToUser,
       });
       return sendResult(res, result);
     }

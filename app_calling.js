@@ -101,9 +101,9 @@ async function enqueueSignal(conversationId, payload) {
 }
 
 // Cached friends lookup map — rebuilt lazily when friends change
-let _friendsById = null; let _friendsByIdSig = 0;
+let _friendsById = null; let _friendsByIdSig = null;
 function _getFriendsById() {
-  const sig = state.friends ? state.friends.length : 0;
+  const sig = state.friends || null;
   if (_friendsById && _friendsByIdSig === sig) return _friendsById;
   _friendsById = new Map();
   if (state.friends) {

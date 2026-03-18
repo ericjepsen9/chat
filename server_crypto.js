@@ -9,7 +9,7 @@ const RE_NON_DIGIT = /\D+/g;
 const RE_IP_CHARS = /^[0-9a-fA-F:.]+$/;
 
 function uid(prefix) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 }
 
 function makeSalt() {
@@ -23,7 +23,13 @@ function hashPassword(password, salt = makeSalt()) {
 
 function verifyPassword(password, stored) {
   if (typeof stored !== 'string' || !stored) return false;
-  if (!stored.includes(':')) return String(password) === stored;
+  if (!stored.includes(':')) {
+    // Legacy plaintext password: compare using timing-safe method, then force migration
+    const a = Buffer.from(String(password));
+    const b = Buffer.from(stored);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
   const [salt, hash] = stored.split(':');
   const actual = crypto.scryptSync(String(password), salt, 64).toString('hex');
   const a = Buffer.from(hash, 'hex');
@@ -38,7 +44,12 @@ async function hashPasswordAsync(password, salt = makeSalt()) {
 
 async function verifyPasswordAsync(password, stored) {
   if (typeof stored !== 'string' || !stored) return false;
-  if (!stored.includes(':')) return String(password) === stored;
+  if (!stored.includes(':')) {
+    const a = Buffer.from(String(password));
+    const b = Buffer.from(stored);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
   const [salt, hash] = stored.split(':');
   const actual = (await scryptAsync(String(password), salt, 64)).toString('hex');
   const a = Buffer.from(hash, 'hex');
@@ -67,7 +78,10 @@ function validateCsrf(req, sessionToken) {
   const expected = csrfTokens.get(sessionToken);
   if (!expected) return false;
   const provided = req.headers['x-csrf-token'] || '';
-  return provided === expected;
+  if (!provided || provided.length !== expected.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  } catch (_) { return false; }
 }
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
@@ -175,8 +189,8 @@ function maskPhone(phone) {
   if (p.length < 7) return p ? p.replace(/.(?=.{2})/g, '*') : '';
   return p.slice(0, 3) + '****' + p.slice(-4);
 }
-function sanitizePublicUser(user, { includePhone = false } = {}) {
-  return {
+function sanitizePublicUser(user, { includePhone = false, includePaymentCodes = false } = {}) {
+  const result = {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
@@ -186,9 +200,12 @@ function sanitizePublicUser(user, { includePhone = false } = {}) {
     customGroups: user.customGroups,
     role: normalizeUserRole(user),
     status: user.status || 'active',
-    paymentCodes: user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' },
     phone: includePhone ? (user.phone || '') : maskPhone(user.phone),
   };
+  if (includePaymentCodes) {
+    result.paymentCodes = user.paymentCodes || { wechat:'', alipay:'', cloudpay:'' };
+  }
+  return result;
 }
 
 function normalizeIpForThrottle(raw) {

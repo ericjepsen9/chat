@@ -96,7 +96,11 @@ const serverStartedAt = Date.now();
 
 function generateUniqueAppNumberId() {
   let appNum;
-  do { appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`; } while (index.usersByAppNumber && index.usersByAppNumber.has(appNum));
+  let attempts = 0;
+  do {
+    if (++attempts > 1000) throw new Error('unable to generate unique app number after 1000 attempts');
+    appNum = `CT${Math.floor(Math.random() * 900000 + 100000)}`;
+  } while (index.usersByAppNumber && index.usersByAppNumber.has(appNum));
   return appNum;
 }
 
@@ -111,10 +115,14 @@ function defaultDb() {
   const bob = uid('u');
   const conv = uid('c');
   const now = Date.now();
+  const defaultAdminPw = process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(12).toString('base64url');
+  const defaultUserPw = process.env.DEFAULT_USER_PASSWORD || crypto.randomBytes(12).toString('base64url');
+  if (!process.env.DEFAULT_ADMIN_PASSWORD) console.log(`[SETUP] Default admin password for alice: ${defaultAdminPw}`);
+  if (!process.env.DEFAULT_USER_PASSWORD) console.log(`[SETUP] Default user password for bob: ${defaultUserPw}`);
   return {
     users: [
-      { id: alice, username: 'alice', password: hashPassword('1234'), displayName: 'Alice', signature: '热爱生活', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '家人', '同事'], appNumberId: 'CT10001', createdAt: now, role: 'admin', status: 'active', paymentCodes: { wechat:'', alipay:'', cloudpay:'' }, phone: '13800000001' },
-      { id: bob, username: 'bob', password: hashPassword('1234'), displayName: 'Bob', signature: '专注数码', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '同学'], appNumberId: 'CT10002', createdAt: now, role: 'user', status: 'active', paymentCodes: { wechat:'', alipay:'', cloudpay:'' }, phone: '13800000002' },
+      { id: alice, username: 'alice', password: hashPassword(defaultAdminPw), displayName: 'Alice', signature: '热爱生活', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '家人', '同事'], appNumberId: 'CT10001', createdAt: now, role: 'admin', status: 'active', paymentCodes: { wechat:'', alipay:'', cloudpay:'' }, phone: '13800000001' },
+      { id: bob, username: 'bob', password: hashPassword(defaultUserPw), displayName: 'Bob', signature: '专注数码', avatarUrl: null, products: [], blacklist: [], customGroups: ['我的好友', '同学'], appNumberId: 'CT10002', createdAt: now, role: 'user', status: 'active', paymentCodes: { wechat:'', alipay:'', cloudpay:'' }, phone: '13800000002' },
     ],
     friendships: [
       { id: uid('f'), userId: alice, friendId: bob, group: '我的好友', remark: '' },
@@ -807,14 +815,7 @@ const server = http.createServer(async (req, res) => {
   }
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
       runCleanupAuthState();
-      return sendJson(res, 200, {
-        ok: true,
-        uptimeMs: Date.now() - serverStartedAt,
-        walExists: fs.existsSync(MSG_WAL_FILE),
-        pendingSseUsers: sseClientsByUser.size,
-        activeSessions: sessions.size,
-        persistence: getPersistenceStats(),
-      });
+      return sendJson(res, 200, { ok: true });
     }
 
     // Auth routes (login, register, phone code, password)
@@ -833,7 +834,7 @@ const server = http.createServer(async (req, res) => {
       ensureUploadRoot();
       const originalName = safeUploadFileName(req.headers['x-file-name'] || 'upload.bin');
       const ext = fileExtFromType(contentType, originalName);
-      const storedName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+      const storedName = `${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`;
       const filePath = path.join(UPLOAD_ROOT, storedName);
       await fs.promises.writeFile(filePath, raw);
       appendWal('upload', { userId: authUser.id, file: storedName, size: raw.length });
@@ -964,12 +965,16 @@ async function gracefulShutdown(signal) {
   }, 10_000);
   hardExitTimer.unref?.();
   // Close all SSE connections so their heartbeat timers are cleared
-  for (const [userId, conns] of sseClientsByUser.entries()) {
-    for (const res of conns) {
+  // Snapshot entries first to avoid modifying Map during iteration
+  const sseSnapshot = Array.from(sseClientsByUser.entries());
+  for (const [userId, conns] of sseSnapshot) {
+    const connArr = Array.from(conns);
+    for (const res of connArr) {
       try { res.end(); } catch (_) {}
-      removeSseClient(userId, res);
     }
+    sseClientsByUser.delete(userId);
   }
+  _stopSseHeartbeatIfEmpty();
   try {
     runCleanupAuthState();
     await flushPersistenceNow();

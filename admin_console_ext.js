@@ -149,7 +149,7 @@ async function loadOnlineUsers() {
     if (!items.length) { el.innerHTML = '<div class="empty">当前无在线用户</div>'; return; }
     el.innerHTML = `<div class="stats-row" style="margin-bottom:12px"><div class="stat-card highlight"><div class="stat-label">在线人数</div><div class="stat-val">${items.length}</div></div></div>` +
       items.map(u => `<div class="row-card" style="display:flex;align-items:center;gap:10px">
-        <div class="avatar-sm">${u.avatarUrl ? `<img src="${esc(u.avatarUrl)}">` : esc((u.displayName || '?')[0])}</div>
+        <div class="avatar-sm">${u.avatarUrl ? `<img src="${safeImgUrl(u.avatarUrl)}">` : esc((u.displayName || '?')[0])}</div>
         <div style="flex:1"><div class="user-cell-name">${esc(u.displayName)}</div><div class="user-cell-sub">@${esc(u.username)} · ${u.connections} 个连接</div></div>
       </div>`).join('');
   } catch (_) {}
@@ -275,20 +275,29 @@ window.doRemoveBlacklist = async function(userId, targetId) {
 /* ═══════════════════════════════════════
    DATA EXPORT
    ═══════════════════════════════════════ */
-window.exportUsers = function() {
-  const token = getToken();
-  window.open(`/api/admin/export/users?token=${encodeURIComponent(token)}`, '_blank');
-};
+async function _downloadExport(url, filename) {
+  try {
+    const headers = { Authorization: `Bearer ${getToken()}` };
+    const csrf = getCsrfToken();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+    const res = await fetch(url, { headers });
+    if (!res.ok) { toast('导出失败'); return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+  } catch (e) { toast('导出失败: ' + (e.message || e)); }
+}
 
-window.exportOrders = function() {
-  const token = getToken();
-  window.open(`/api/admin/export/orders?token=${encodeURIComponent(token)}`, '_blank');
-};
+window.exportUsers = function() { _downloadExport('/api/admin/export/users', 'users_export.csv'); };
+window.exportOrders = function() { _downloadExport('/api/admin/export/orders', 'orders_export.csv'); };
 
 /* ═══════════════════════════════════════
    TAB LOADING (extends loadTabData)
    ═══════════════════════════════════════ */
-const _origLoadTabData = window._loadTabData || loadTabData;
 window._loadTabDataExt = function(tab) {
   if (tab === 'friends') { loadFriends(); loadFriendRequests(); }
   else if (tab === 'sessions') { loadSessions(); loadOnlineUsers(); }

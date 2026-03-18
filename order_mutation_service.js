@@ -170,14 +170,17 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     stockUpdates[si++] = { sellerProduct, nextStock: currentStock - neededQty };
   }
 
-  let _sum = 0; for (let ti = 0; ti < normalized.length; ti++) _sum += normalized[ti].price * normalized[ti].quantity;
-  const total = clampOrderTotal(_sum);
+  // Use integer arithmetic (cents) to avoid floating-point precision issues
+  let _sumCents = 0;
+  for (let ti = 0; ti < normalized.length; ti++) _sumCents += Math.round(normalized[ti].price * 100) * normalized[ti].quantity;
+  const total = clampOrderTotal(_sumCents / 100);
   const remark = String(body.remark || '').trim().slice(0, 200) || '';
   const now = Date.now();
   // Generate human-readable order number: YYYYMMDDHHmmss + 4 random digits
   const _d = new Date(now);
   const _pad = (n, l = 2) => String(n).padStart(l, '0');
-  const orderNo = `${_d.getFullYear()}${_pad(_d.getMonth() + 1)}${_pad(_d.getDate())}${_pad(_d.getHours())}${_pad(_d.getMinutes())}${_pad(_d.getSeconds())}${_pad(Math.floor(Math.random() * 10000), 4)}`;
+  const _rnd = require('crypto').randomBytes(2).readUInt16BE(0) % 10000;
+  const orderNo = `${_d.getFullYear()}${_pad(_d.getMonth() + 1)}${_pad(_d.getDate())}${_pad(_d.getHours())}${_pad(_d.getMinutes())}${_pad(_d.getSeconds())}${_pad(_rnd, 4)}`;
 
   const order = {
     id: uid('order'),
@@ -284,12 +287,12 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
 // Hoisted constants — avoid re-creating on every call
 const _STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受' };
 
-// Allowed status transitions: currentStatus -> Set of valid nextStatuses
+// Allowed status transitions: currentStatus -> { nextStatus -> Set of allowed roles }
 const ALLOWED_TRANSITIONS = {
-  pending:     new Set(['accepted']),
-  accepted:    new Set(['completed', 'processing', 'in_progress']),
-  processing:  new Set(['completed']),
-  in_progress: new Set(['completed']),
+  pending:     new Map([['accepted', new Set(['seller'])]]),
+  accepted:    new Map([['completed', new Set(['buyer', 'seller'])], ['processing', new Set(['seller'])], ['in_progress', new Set(['seller'])]]),
+  processing:  new Map([['completed', new Set(['buyer', 'seller'])]]),
+  in_progress: new Map([['completed', new Set(['buyer', 'seller'])]]),
 };
 
 function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
@@ -304,9 +307,15 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
   if (order.status === nextStatus) {
     return { ok: true, status: 200, payload: { order, deduplicated: true } };
   }
-  const allowed = ALLOWED_TRANSITIONS[order.status];
-  if (!allowed || !allowed.has(nextStatus)) {
+  const transitionMap = ALLOWED_TRANSITIONS[order.status];
+  if (!transitionMap || !transitionMap.has(nextStatus)) {
     return { ok: false, status: 400, error: 'invalid_status_transition' };
+  }
+  // Check role authorization for this transition
+  const allowedRoles = transitionMap.get(nextStatus);
+  const actorRole = actor.isSeller ? 'seller' : 'buyer';
+  if (!allowedRoles.has(actorRole)) {
+    return { ok: false, status: 403, error: 'forbidden' };
   }
 
   order.status = nextStatus;
@@ -381,7 +390,11 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   order.pendingPrice = null;
   order.pendingPriceRequestedBy = null;
   order.updatedAt = Date.now();
-  order.status = 'accepted';
+  // Only set to 'accepted' if not already in a later status
+  const laterStatuses = new Set(['processing', 'in_progress', 'completed']);
+  if (!laterStatuses.has(order.status)) {
+    order.status = 'accepted';
+  }
   order.priceAdjustmentLocked = true;
   const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
   addTradeMessage(conv.id, {

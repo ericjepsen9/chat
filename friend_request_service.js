@@ -95,6 +95,14 @@ function acceptFriendRequest({
 }) {
   const request = index.friendRequestsById.get(requestId);
   if (!request || request.targetId !== authUser.id || request.status !== 'pending') return { ok: false, status: 404, error: 'not_found' };
+  // Check blacklist before accepting
+  const requester = index.usersById ? index.usersById.get(request.userId) : null;
+  if (requester) {
+    if (!authUser._blacklistSet) authUser._blacklistSet = new Set(authUser.blacklist || []);
+    if (authUser._blacklistSet.has(requester.id)) return { ok: false, status: 403, error: '该用户在你的黑名单中' };
+    if (!requester._blacklistSet) requester._blacklistSet = new Set(requester.blacklist || []);
+    if (requester._blacklistSet.has(authUser.id)) return { ok: false, status: 403, error: '对方已将你拉黑' };
+  }
   request.status = 'accepted';
   if (!index.friendshipByPair.has(`${authUser.id}:${request.userId}`)) {
     db.friendships.push({ id: uid('f'), userId: authUser.id, friendId: request.userId, group: '我的好友', remark: '' });
@@ -104,7 +112,11 @@ function acceptFriendRequest({
   }
   const existed = getDirectConversation(authUser.id, request.userId);
   if (!existed) {
-    db.conversations.push({ id: uid('c'), type: 'direct', name: '', ownerId: authUser.id, members: [authUser.id, request.userId], announcement: '', mutedBy: [], pinnedBy: [], lastRead: {}, clearedAt: {}, createdAt: Date.now(), lastMessageAt: Date.now() });
+    const newConv = { id: uid('c'), type: 'direct', name: '', ownerId: authUser.id, members: [authUser.id, request.userId], announcement: '', mutedBy: [], pinnedBy: [], lastRead: {}, clearedAt: {}, createdAt: Date.now(), lastMessageAt: Date.now() };
+    newConv._memberSet = new Set(newConv.members);
+    newConv._pinnedBySet = new Set();
+    newConv._mutedBySet = new Set();
+    db.conversations.push(newConv);
   }
   rebuildFriendshipAndRequestIndexes();
   schedulePersist('friend_accept', { requestId: request.id });

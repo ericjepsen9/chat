@@ -111,7 +111,9 @@ function createPersistence({ msgWalFile, dbFile, getStore, getDb, onError = null
         if (sqliteStore) {
           sqliteStore.save(db);
         } else {
-          await fs.promises.writeFile(dbFile, JSON.stringify(db, (key, value) => key === '_deletedBySet' ? undefined : value));
+          const tmpFile = dbFile + '.tmp.' + Date.now();
+          await fs.promises.writeFile(tmpFile, JSON.stringify(db, (key, value) => key.length > 1 && key[0] === '_' ? undefined : value));
+          await fs.promises.rename(tmpFile, dbFile);
         }
         persistOk = true;
       } catch (error) {

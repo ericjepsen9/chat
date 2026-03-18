@@ -22,15 +22,21 @@ function listConversations({ authUser, directConvBasesByUser, convById, buildCon
     const pinned = conv._pinnedBySet.has(uid);
     const muted = conv._mutedBySet.has(uid);
     const meta = buildConversationMeta(conv, uid);
-    // Mutate base in-place to avoid two spread copies per conversation
-    base.preview = meta.preview;
-    base.unread = meta.unread;
-    base.pinned = pinned;
-    base.muted = muted;
-    base.clearedAt = conv?.clearedAt?.[uid] || 0;
-    base.peerLastReadAt = peerId ? (conv?.lastRead?.[peerId] || 0) : 0;
-    base._sortKey = (meta.lastMessageAt || base.lastMessageAt || base.createdAt || 0);
-    conversations.push(base);
+    // Build view object instead of mutating shared base
+    const view = {
+      id: base.id, type: base.type, name: base.name,
+      members: base.members, peerId: base.peerId, peerName: base.peerName,
+      peerAvatar: base.peerAvatar, peerRemark: base.peerRemark,
+      lastMessageAt: base.lastMessageAt, createdAt: base.createdAt,
+      preview: meta.preview,
+      unread: meta.unread,
+      pinned,
+      muted,
+      clearedAt: conv?.clearedAt?.[uid] || 0,
+      peerLastReadAt: peerId ? (conv?.lastRead?.[peerId] || 0) : 0,
+      _sortKey: (meta.lastMessageAt || base.lastMessageAt || base.createdAt || 0),
+    };
+    conversations.push(view);
   }
   conversations.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;

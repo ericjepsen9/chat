@@ -39,7 +39,10 @@ function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipP
   if (!usersById.has(friendId)) return { ok: false, status: 404, error: 'not_found' };
   removeFriendshipPair(authUser.id, friendId);
   const conv = getDirectConversation(authUser.id, friendId);
-  if (conv) conv.clearedAt[authUser.id] = Date.now();
+  if (conv) {
+    if (!conv.clearedAt) conv.clearedAt = {};
+    conv.clearedAt[authUser.id] = Date.now();
+  }
   schedulePersist('friend_delete', { userId: authUser.id, friendId });
   broadcastToUser(authUser.id, 'friends_updated', {});
   broadcastToUser(friendId, 'friends_updated', {});

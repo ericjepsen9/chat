@@ -57,12 +57,13 @@ function updateUserProfile({ authUser, body, normalizeUserCustomGroups, normaliz
   broadcastToUser(authUser.id, 'profile_updated', {});
   if (viewFieldsChanged) broadcastAll('mall_updated', {});
 
-  return { ok: true, status: 200, payload: { user: sanitizePublicUser(authUser, { includePhone: true }) } };
+  return { ok: true, status: 200, payload: { user: sanitizePublicUser(authUser, { includePhone: true, includePaymentCodes: true }) } };
 }
 
 function buildUserProfileView({ authUser, targetId, usersById, friendshipByPair }) {
   const target = usersById.get(targetId);
   if (!target) return { ok: false, status: 404, error: 'not_found' };
+  if (target.status === 'disabled' && target.id !== authUser.id) return { ok: false, status: 404, error: 'not_found' };
   const rel = friendshipByPair.get(`${authUser.id}:${targetId}`);
   const profile = {
     id: target.id,

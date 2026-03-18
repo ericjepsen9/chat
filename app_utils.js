@@ -328,10 +328,10 @@ function createStopBtn(className, text, handler) {
   return btn;
 }
 function renderAvatarHtml(userObj, fallbackName) {
-  if (!userObj) return `<div class="avatar">${firstChar(fallbackName)}</div>`;
+  if (!userObj) return `<div class="avatar">${escapeHTML(firstChar(fallbackName))}</div>`;
   const safeAvatar = normalizeMediaUrl(userObj.avatarUrl);
-  if (safeAvatar) return `<div class="avatar"><img src="${safeAvatar}" alt="avatar" /></div>`;
-  return `<div class="avatar">${firstChar(userObj.displayName || userObj.username || fallbackName)}</div>`;
+  if (safeAvatar) return `<div class="avatar"><img src="${escapeHTML(safeAvatar)}" alt="avatar" /></div>`;
+  return `<div class="avatar">${escapeHTML(firstChar(userObj.displayName || userObj.username || fallbackName))}</div>`;
 }
 function createAvatarNode(userObj, fallbackName) {
   const wrap = document.createElement('div');
@@ -551,7 +551,7 @@ function reconcileList(container, items, opts) {
     }
   }
   if (needsOrderUpdate) { container.replaceChildren(); for (let i = 0; i < orderedNodes.length; i++) container.appendChild(orderedNodes[i]); }
-  else { for (let i = existingNodes.length - 1; i >= 0; i--) existingNodes[i].remove(); }
+  else { for (const [, node] of existingNodes) node.remove(); }
   return nextSigs;
 }
 

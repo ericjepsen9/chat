@@ -1,4 +1,4 @@
-function updateBlacklist({ authUser, targetId, action, index, rebuildBlacklistViewsIndex, schedulePersist }) {
+function updateBlacklist({ authUser, targetId, action, index, rebuildBlacklistViewsIndex, schedulePersist, removeFriendshipPair, rebuildFriendViewsIndex, rebuildConversationBaseIndex, broadcastToUser }) {
   if (action !== 'add' && action !== 'remove') return { ok: false, status: 400, error: 'invalid_action' };
   const target = index.usersById.get(targetId);
   if (!target) return { ok: false, status: 404, error: 'not_found' };
@@ -10,6 +10,16 @@ function updateBlacklist({ authUser, targetId, action, index, rebuildBlacklistVi
     if (!authUser._blacklistSet.has(target.id)) {
       authUser.blacklist.push(target.id);
       authUser._blacklistSet.add(target.id);
+    }
+    // Remove friendship when adding to blacklist
+    if (typeof removeFriendshipPair === 'function' && index.friendshipByPair && index.friendshipByPair.has(`${authUser.id}:${target.id}`)) {
+      removeFriendshipPair(authUser.id, target.id);
+      if (typeof rebuildFriendViewsIndex === 'function') rebuildFriendViewsIndex();
+      if (typeof rebuildConversationBaseIndex === 'function') rebuildConversationBaseIndex();
+      if (typeof broadcastToUser === 'function') {
+        broadcastToUser(authUser.id, 'friends_updated', {});
+        broadcastToUser(target.id, 'friends_updated', {});
+      }
     }
   } else {
     if (authUser._blacklistSet.has(target.id)) {

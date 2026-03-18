@@ -153,7 +153,6 @@ module.exports = function createAdminRoutes(ctx) {
           appNumberId: user.appNumberId, role: user.role || 'user',
           status: user.status || 'active', createdAt: user.createdAt,
           customGroups: user.customGroups,
-          paymentCodes: user.paymentCodes || {},
           productCount: Array.isArray(user.products) ? user.products.length : 0,
           blacklistCount: Array.isArray(user.blacklist) ? user.blacklist.length : 0,
           blacklist: (() => {
@@ -208,7 +207,7 @@ module.exports = function createAdminRoutes(ctx) {
       const user = index.usersById.get(userResetPwMatch[1]);
       if (!user) return sendJson(res, 404, { error: 'not_found' });
       const newPw = String(context.body.password || '').trim();
-      if (!newPw || newPw.length < 4 || newPw.length > 64) return sendJson(res, 400, { error: '密码长度需 4-64 位' });
+      if (!newPw || newPw.length < 8 || newPw.length > 64) return sendJson(res, 400, { error: '密码长度需 8-64 位' });
       user.password = await hashPasswordAsync(newPw);
       schedulePersist('admin_user_reset_password', { userId: user.id });
       return sendJson(res, 200, { ok: true });
@@ -225,9 +224,11 @@ module.exports = function createAdminRoutes(ctx) {
       const { limit, offset } = paginate(searchParams);
       const q = String(searchParams.get('q') || '').trim().toLowerCase();
       const statusFilter = searchParams.get('status') || '';
+      const dateFrom = Number(searchParams.get('dateFrom') || 0) || 0;
+      const dateTo = Number(searchParams.get('dateTo') || 0) || 0;
       const allOrders = db.orders || [];
       // Single-pass filter combining status and search criteria
-      const needFilter = statusFilter || q;
+      const needFilter = statusFilter || q || dateFrom || dateTo;
       let filtered;
       if (needFilter) {
         const userNameCache = q ? new Map() : null;
@@ -242,6 +243,8 @@ module.exports = function createAdminRoutes(ctx) {
         } : null;
         filtered = allOrders.filter(o => {
           if (statusFilter && o.status !== statusFilter) return false;
+          if (dateFrom && (o.createdAt || 0) < dateFrom) return false;
+          if (dateTo && (o.createdAt || 0) > dateTo) return false;
           if (q) {
             // Use cached lowercase id to avoid repeated toLowerCase
             const lid = o._lcId || (o._lcId = (o.id || '').toLowerCase());
@@ -285,12 +288,21 @@ module.exports = function createAdminRoutes(ctx) {
       if (!order) return sendJson(res, 404, { error: 'not_found' });
       const buyer = index.usersById.get(order.buyerId);
       const seller = index.usersById.get(order.sellerId);
-      // Attach view-only fields directly instead of spread-copying entire order
-      order.buyerName = buyer?.displayName || order.buyerId;
-      order.sellerName = seller?.displayName || order.sellerId;
-      order.buyerAvatar = buyer?.avatarUrl || '';
-      order.sellerAvatar = seller?.avatarUrl || '';
-      return sendJson(res, 200, { order });
+      // Build response object without polluting the original order
+      const orderView = {
+        id: order.id, orderNo: order.orderNo,
+        buyerId: order.buyerId, sellerId: order.sellerId,
+        items: order.items, total: order.total, originalTotal: order.originalTotal,
+        remark: order.remark, status: order.status,
+        createdAt: order.createdAt, updatedAt: order.updatedAt,
+        pendingPrice: order.pendingPrice, pendingPriceRequestedBy: order.pendingPriceRequestedBy,
+        priceAdjustmentLocked: order.priceAdjustmentLocked,
+        buyerName: buyer?.displayName || order.buyerId,
+        sellerName: seller?.displayName || order.sellerId,
+        buyerAvatar: buyer?.avatarUrl || '',
+        sellerAvatar: seller?.avatarUrl || '',
+      };
+      return sendJson(res, 200, { order: orderView });
     }
 
     // Update order status (admin force)

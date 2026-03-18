@@ -1259,7 +1259,7 @@ window.deleteLocalMsg = async (id) => {
     syncAndRenderConvList();
     loadConversations();
   } catch(e) {
-    if (removedMsg !== null) { state.messages.splice(removedIdx, 0, removedMsg); }
+    if (removedMsg !== null) { const insertIdx = Math.min(removedIdx, state.messages.length); state.messages.splice(insertIdx, 0, removedMsg); }
     rebuildMessagesById();
     renderMessages();
     applyLastOutgoingReadState();
@@ -1951,6 +1951,7 @@ function bindAuthEvents() {
     if (!phone) return;
     try {
       const res = await api('/api/login/phone-code', { method: 'POST', body: JSON.stringify({ phone, code }) });
+      window._authState = { loginPhone: '', regPhone: '', regCode: '' };
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (e) {
@@ -2010,6 +2011,7 @@ function bindAuthEvents() {
     btn.textContent = "注册中...";
     try {
       const res = await api("/api/register", { method: "POST", body: JSON.stringify({ displayName: n, password: p, phone, code: window._authState.regCode }) });
+      window._authState = { loginPhone: '', regPhone: '', regCode: '' };
       writeSession(res.user, res.token, res.csrfToken);
       location.reload();
     } catch (err) {
@@ -2995,9 +2997,10 @@ function bindSocialEvents() {
       const card = createEl('div', 'add-friend-card');
       const cardTop = createEl('div', 'add-friend-card-top');
       const avatarDiv = createEl('div', 'add-friend-avatar');
-      if (user.avatarUrl) {
+      const safeAvatarUrl = normalizeMediaUrl(user.avatarUrl);
+      if (safeAvatarUrl) {
         const avatarImg = createEl('img');
-        avatarImg.src = user.avatarUrl;
+        avatarImg.src = safeAvatarUrl;
         avatarImg.alt = '';
         avatarDiv.appendChild(avatarImg);
       } else {
@@ -3077,7 +3080,7 @@ function bindSocialEvents() {
   });
   on("scanMyQrBtn", "click", () => {
     window.openSecondaryPage("qrCodePage", "scanPage");
-    if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${state.currentUser.appNumberId}`;
+    if($("myQrCodeImg")) $("myQrCodeImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(state.currentUser.appNumberId)}`;
     setText("myQrCodeIdTxt", `ID: ${state.currentUser.appNumberId}`);
   });
   on("scanCaptureInput", "change", async (e) => {
@@ -4168,7 +4171,7 @@ window.addEventListener('pagehide', () => {
   if (typeof stopScanCamera === 'function') stopScanCamera();
   if (!hasActiveCallSession()) return;
   const event = state.rtc.phase === 'connected' ? 'end' : (isRingingPhase() ? 'cancel' : 'end');
-  const reason = state.rtc.phase === 'connected' ? 'pagehide' : 'pagehide';
+  const reason = 'pagehide';
   finalizeCall({ event, reason });
 });
 

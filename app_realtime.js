@@ -2,6 +2,7 @@
 
 let _connectRealtimeInFlight = false;
 let _convUpdateTimer = null;
+let _fetchMessagesInFlight = false;
 async function connectRealtime() {
   if (_connectRealtimeInFlight) return;
   _connectRealtimeInFlight = true;
@@ -41,7 +42,10 @@ async function connectRealtime() {
       syncAndRenderConvList(true);
       markConversationRead(state.activeConversation.id);
     } else if(state.activeConversation && state.activeConversation.id === data.conversationId) {
-      await fetchMessages();
+      if (!_fetchMessagesInFlight) {
+        _fetchMessagesInFlight = true;
+        try { await fetchMessages(); } finally { _fetchMessagesInFlight = false; }
+      }
       markConversationRead(state.activeConversation.id);
       syncAndRenderConvList(true);
     } else if (data.message) {
@@ -252,7 +256,10 @@ async function connectRealtime() {
 
 // Reconnect SSE when page becomes visible again
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && state.currentUser && !state.eventSource && navigator.onLine) {
-    connectRealtime().catch(() => {});
+  if (!document.hidden && state.currentUser && navigator.onLine) {
+    state._sseRetryCount = 0;
+    if (!state.eventSource) {
+      connectRealtime().catch(() => {});
+    }
   }
 });

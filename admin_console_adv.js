@@ -169,9 +169,9 @@ window.showChangePassword = function() {
 window.doChangePassword = async function() {
   const oldPw = $('cp_old').value;
   const newPw = $('cp_new').value;
-  const confirm = $('cp_confirm').value;
+  const confirmPw = $('cp_confirm').value;
   if (!oldPw || !newPw) { toast('请填写所有字段'); return; }
-  if (newPw !== confirm) { toast('两次密码输入不一致'); return; }
+  if (newPw !== confirmPw) { toast('两次密码输入不一致'); return; }
   try {
     await api('/api/admin/change-password', { method: 'POST', body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw }) });
     closeModal(); toast('密码修改成功');

@@ -6,7 +6,8 @@ const ADMIN_USERNAMES = new Set(
 );
 
 function isAdmin(user) {
-  return !!(user && user.role === 'admin');
+  if (!user) return false;
+  return user.role === 'admin' || ADMIN_USERNAMES.has(String(user.username || ''));
 }
 
 function normalizeUserRole(user) {
