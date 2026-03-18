@@ -36,6 +36,10 @@ module.exports = function createAdminRoutes(ctx) {
     return requireAdmin(req, res, searchParams, sessions, index, sendJson, isAdmin);
   }
 
+  function auditLog(action, adminUser, details) {
+    console.info('[admin-audit] %s by %s(%s): %j', action, adminUser.username || adminUser.id, adminUser.id, details || {});
+  }
+
   function paginate(searchParams) {
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 20, 1), ADMIN_PAGE_LIMIT);
     const offset = Math.max(parseInt(searchParams.get('offset')) || 0, 0);
@@ -199,6 +203,7 @@ module.exports = function createAdminRoutes(ctx) {
       }
       rebuildFriendViewsIndex();
       rebuildConversationBaseIndex();
+      auditLog('user_update', context.authUser, { userId: user.id, fields: Object.keys(b) });
       schedulePersist('admin_user_update', { userId: user.id });
       return sendJson(res, 200, { ok: true, user: { id: user.id, displayName: user.displayName, status: user.status, role: user.role } });
     }
@@ -213,6 +218,7 @@ module.exports = function createAdminRoutes(ctx) {
       const newPw = String(context.body.password || '').trim();
       if (!newPw || newPw.length < 8 || newPw.length > 64) return sendJson(res, 400, { error: '密码长度需 8-64 位' });
       user.password = await hashPasswordAsync(newPw);
+      auditLog('user_reset_password', context.authUser, { userId: user.id });
       schedulePersist('admin_user_reset_password', { userId: user.id });
       return sendJson(res, 200, { ok: true });
     }
@@ -320,6 +326,7 @@ module.exports = function createAdminRoutes(ctx) {
       if (!VALID_ORDER_STATUSES.has(nextStatus)) return sendJson(res, 400, { error: 'invalid_status' });
       order.status = nextStatus;
       order.updatedAt = Date.now();
+      auditLog('order_status_change', context.authUser, { orderId: order.id, from: order.status, to: nextStatus });
       schedulePersist('admin_order_status', { orderId: order.id, status: nextStatus });
       return sendJson(res, 200, { ok: true, order: { id: order.id, status: order.status } });
     }
@@ -366,7 +373,7 @@ module.exports = function createAdminRoutes(ctx) {
       const found = index.productById.get(productId);
       if (!found) return sendJson(res, 404, { error: 'not_found' });
       const b = context.body;
-      if (b.price !== undefined) found.price = String(b.price || '').trim().slice(0, 24);
+      if (b.price !== undefined) { const p = String(b.price || '').trim().slice(0, 24); if (p && !isNaN(Number(p)) && Number(p) > 0) found.price = p; }
       if (b.stock !== undefined) found.stock = Math.max(0, Math.floor(Number(b.stock) || 0));
       if (b.listed !== undefined) found.listed = !!b.listed;
       if (b.title !== undefined) found.title = String(b.title || '').trim().slice(0, 80) || found.title;
@@ -387,6 +394,7 @@ module.exports = function createAdminRoutes(ctx) {
       if (!delProduct) return sendJson(res, 404, { error: 'not_found' });
       const delIdx = (delOwner.products || []).indexOf(delProduct);
       if (delIdx !== -1) delOwner.products.splice(delIdx, 1);
+      auditLog('product_delete', context.authUser, { productId, ownerId: delOwner.id });
       rebuildMallIndex();
       broadcastAll('mall_updated', {});
       schedulePersist('admin_product_delete', { productId });

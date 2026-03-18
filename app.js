@@ -1752,12 +1752,9 @@ window.sendMessage = async (payload) => {
       } else {
         appendMessageToView(res.message);
       }
-      syncActiveConversationListMeta();
-      renderConversationListFromState();
+      syncAndRenderConvList();
       scheduleReceiptRefresh();
     }
-    loadConversations();
-    loadSystemMessages();
   } catch (err) {
     if (state.activeConversation?.id === sentConversationId) {
       state.messages = state.messages.filter(m => m.id !== tempMsg.id);

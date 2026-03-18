@@ -137,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Media
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(true);
+        settings.setAllowFileAccess(false);
 
         // Cache
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
@@ -146,8 +146,8 @@ public class MainActivity extends AppCompatActivity {
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
 
-        // Mixed content (allow HTTP in WebView if needed)
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // Mixed content: never allow HTTP resources on HTTPS pages
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
         // Geolocation
         settings.setGeolocationEnabled(true);
@@ -240,11 +240,12 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
 
-            // Handle geolocation permission
+            // Handle geolocation permission — only grant to trusted origin
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin,
                                                            GeolocationPermissions.Callback callback) {
-                callback.invoke(origin, true, false);
+                boolean trusted = origin != null && (origin.startsWith(WEB_URL) || origin.equals("https://chat.yimeiai.sbs"));
+                callback.invoke(origin, trusted, false);
             }
 
             // Forward console.log to Android Logcat
@@ -380,7 +381,7 @@ public class MainActivity extends AppCompatActivity {
             if (conversationId != null && !conversationId.isEmpty()) {
                 webView.evaluateJavascript(
                         "if(window.openConversation) window.openConversation('" +
-                        conversationId.replace("'", "\\'") + "');",
+                        NativeBridge.escapeJSPublic(conversationId) + "');",
                         null);
             }
             return;

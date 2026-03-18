@@ -3,6 +3,11 @@
 let _connectRealtimeInFlight = false;
 let _convUpdateTimer = null;
 let _fetchMessagesInFlight = false;
+let _renderMessagesTimer = null;
+function debouncedRenderMessages() {
+  if (_renderMessagesTimer) clearTimeout(_renderMessagesTimer);
+  _renderMessagesTimer = setTimeout(() => { _renderMessagesTimer = null; renderMessages(); }, 50);
+}
 async function connectRealtime() {
   if (_connectRealtimeInFlight) return;
   _connectRealtimeInFlight = true;
@@ -35,8 +40,8 @@ async function connectRealtime() {
     if(state.activeConversation && state.activeConversation.id === data.conversationId && data.message) {
       const result = upsertMessage(data.message);
       if (result.action === 'append') appendMessageToView(data.message);
-      else if (result.action === 'replace') { if (!replaceMessageInView(data.message)) renderMessages(); }
-      else renderMessages(); // 'insert' in middle — full re-render needed
+      else if (result.action === 'replace') { if (!replaceMessageInView(data.message)) debouncedRenderMessages(); }
+      else debouncedRenderMessages(); // 'insert' in middle — debounced full re-render
   applyLastOutgoingReadState();
       state.oldestMessageTime = state.messages[0]?.createdAt || 0;
       syncAndRenderConvList(true);

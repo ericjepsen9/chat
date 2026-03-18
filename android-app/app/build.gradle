@@ -13,10 +13,13 @@ android {
         versionCode 1
         versionName "1.0.0"
 
-        // EMAS push config — replace with your real values
+        // EMAS push config — read from local.properties or environment
+        def localProps = new Properties()
+        def localPropsFile = rootProject.file('local.properties')
+        if (localPropsFile.exists()) { localProps.load(localPropsFile.newDataInputStream()) }
         manifestPlaceholders = [
-            EMAS_APP_KEY   : "335676357",
-            EMAS_APP_SECRET: "fd45fa5a08744f36b109076c20b426f1"
+            EMAS_APP_KEY   : localProps.getProperty('EMAS_APP_KEY', System.getenv('EMAS_APP_KEY') ?: ''),
+            EMAS_APP_SECRET: localProps.getProperty('EMAS_APP_SECRET', System.getenv('EMAS_APP_SECRET') ?: '')
         ]
     }
 

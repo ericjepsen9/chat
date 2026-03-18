@@ -16,8 +16,10 @@ function makeSalt() {
   return crypto.randomBytes(16).toString('hex');
 }
 
+const SCRYPT_OPTS = { N: 65536, r: 8, p: 1 };
+
 function hashPassword(password, salt = makeSalt()) {
-  const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
+  const hash = crypto.scryptSync(String(password), salt, 64, SCRYPT_OPTS).toString('hex');
   return `${salt}:${hash}`;
 }
 
@@ -31,14 +33,14 @@ function verifyPassword(password, stored) {
     return crypto.timingSafeEqual(a, b);
   }
   const [salt, hash] = stored.split(':');
-  const actual = crypto.scryptSync(String(password), salt, 64).toString('hex');
+  const actual = crypto.scryptSync(String(password), salt, 64, SCRYPT_OPTS).toString('hex');
   const a = Buffer.from(hash, 'hex');
   const b = Buffer.from(actual, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 async function hashPasswordAsync(password, salt = makeSalt()) {
-  const hash = (await scryptAsync(String(password), salt, 64)).toString('hex');
+  const hash = (await scryptAsync(String(password), salt, 64, SCRYPT_OPTS)).toString('hex');
   return `${salt}:${hash}`;
 }
 
@@ -51,7 +53,7 @@ async function verifyPasswordAsync(password, stored) {
     return crypto.timingSafeEqual(a, b);
   }
   const [salt, hash] = stored.split(':');
-  const actual = (await scryptAsync(String(password), salt, 64)).toString('hex');
+  const actual = (await scryptAsync(String(password), salt, 64, SCRYPT_OPTS)).toString('hex');
   const a = Buffer.from(hash, 'hex');
   const b = Buffer.from(actual, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -80,7 +82,15 @@ function validateCsrf(req, sessionToken) {
   const provided = req.headers['x-csrf-token'] || '';
   if (!provided || provided.length !== expected.length) return false;
   try {
-    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+    const valid = crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+    if (valid) {
+      // Rotate CSRF token after successful validation to prevent replay
+      const newSecret = crypto.randomBytes(24).toString('hex');
+      csrfTokens.set(sessionToken, newSecret);
+      // Return both validity and new token so caller can send it in response header
+      req._newCsrfToken = newSecret;
+    }
+    return valid;
   } catch (_) { return false; }
 }
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';

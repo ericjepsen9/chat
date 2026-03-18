@@ -1,25 +1,25 @@
 const ADMIN_USERNAMES = new Set(
   String(process.env.ADMIN_USERNAMES || 'alice')
     .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v && /^[a-z0-9_]{2,30}$/.test(v))
 );
 
 function isAdmin(user) {
   if (!user) return false;
-  return user.role === 'admin' || ADMIN_USERNAMES.has(String(user.username || ''));
+  return user.role === 'admin' || ADMIN_USERNAMES.has(String(user.username || '').toLowerCase());
 }
 
 function normalizeUserRole(user) {
   if (!user || typeof user !== 'object') return 'user';
-  if (ADMIN_USERNAMES.has(String(user.username || ''))) return 'admin';
+  if (ADMIN_USERNAMES.has(String(user.username || '').toLowerCase())) return 'admin';
   return user.role || 'user';
 }
 
 // Super admins are those in ADMIN_USERNAMES env config — only they can promote/demote roles
 function isSuperAdmin(user) {
   if (!user) return false;
-  return ADMIN_USERNAMES.has(String(user.username || ''));
+  return ADMIN_USERNAMES.has(String(user.username || '').toLowerCase());
 }
 
 function canAccessConversation(userId, conv) {

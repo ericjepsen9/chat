@@ -106,8 +106,13 @@ public class NativeBridge {
 
     // ========== Device ==========
 
+    private static final int MAX_VIBRATE_MS = 5000;
+
     @JavascriptInterface
     public void vibrate(int milliseconds) {
+        // Cap vibration duration to prevent abuse
+        int ms = Math.max(0, Math.min(milliseconds, MAX_VIBRATE_MS));
+        if (ms == 0) return;
         Vibrator v;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             VibratorManager vm = (VibratorManager) activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
@@ -117,9 +122,9 @@ public class NativeBridge {
         }
         if (v == null || !v.hasVibrator()) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            v.vibrate(VibrationEffect.createOneShot(milliseconds, VibrationEffect.DEFAULT_AMPLITUDE));
+            v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE));
         } else {
-            v.vibrate(milliseconds);
+            v.vibrate(ms);
         }
     }
 
@@ -133,13 +138,21 @@ public class NativeBridge {
 
     @JavascriptInterface
     public String getDeviceInfo() {
+        // Escape manufacturer/model to prevent JSON injection from device values
+        String manufacturer = escapeJsonString(Build.MANUFACTURER);
+        String model = escapeJsonString(Build.MODEL);
         return "{" +
                 "\"platform\":\"android\"," +
                 "\"sdkVersion\":" + Build.VERSION.SDK_INT + "," +
-                "\"manufacturer\":\"" + Build.MANUFACTURER + "\"," +
-                "\"model\":\"" + Build.MODEL + "\"," +
+                "\"manufacturer\":\"" + manufacturer + "\"," +
+                "\"model\":\"" + model + "\"," +
                 "\"appVersion\":\"1.0.0\"" +
                 "}";
+    }
+
+    private static String escapeJsonString(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     @JavascriptInterface
@@ -208,6 +221,11 @@ public class NativeBridge {
 
     private static String escapeJS(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+        return s.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    }
+
+    /** Public version for use by MainActivity */
+    public static String escapeJSPublic(String s) {
+        return escapeJS(s);
     }
 }

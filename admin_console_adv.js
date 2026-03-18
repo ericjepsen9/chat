@@ -103,7 +103,10 @@ function renderMsgSearchResults() {
   if (!s.items.length) { el.innerHTML = '<div class="empty">无匹配消息</div>'; return; }
   // Precompile highlight regex once per render pass instead of per row
   const qEsc = esc(s.q);
-  const hlRe = new RegExp(`(${qEsc.replace(_RE_REGEX_ESCAPE, '\\$&')})`, 'gi');
+  // Sanitize regex to prevent ReDoS and injection via search query
+  const safePattern = qEsc.replace(_RE_REGEX_ESCAPE, '\\$&');
+  if (!safePattern) { el.innerHTML = '<div class="empty">无匹配消息</div>'; return; }
+  const hlRe = new RegExp(`(${safePattern})`, 'gi');
   let html = s.items.map(m => `
     <div class="row-card">
       <div class="row-title">${esc(m.senderName)} <span class="badge badge-gray">${esc(m.type)}</span> <span class="user-cell-sub">${fmtDate(m.createdAt)}</span></div>
