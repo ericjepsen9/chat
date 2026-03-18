@@ -41,7 +41,9 @@ function deleteFriendRelation({ authUser, friendId, usersById, removeFriendshipP
   const conv = getDirectConversation(authUser.id, friendId);
   if (conv) {
     if (!conv.clearedAt) conv.clearedAt = {};
-    conv.clearedAt[authUser.id] = Date.now();
+    const now = Date.now();
+    conv.clearedAt[authUser.id] = now;
+    conv.clearedAt[friendId] = now;
   }
   schedulePersist('friend_delete', { userId: authUser.id, friendId });
   broadcastToUser(authUser.id, 'friends_updated', {});

@@ -42,7 +42,7 @@ module.exports = function createOrderRoutes(ctx) {
     if (matchRoute(pathname, '/api/orders') && method === 'POST') {
       const context = await getAuthedBody(req, res);
       if (!context) return true;
-      const result = createOrder({
+      const result = await createOrder({
         authUser: context.authUser,
         body: context.body,
         db,

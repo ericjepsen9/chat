@@ -3,6 +3,17 @@ const { formatOrderSummary, findOrderById } = require('./order_utils');
 const MAX_ORDER_TOTAL = 10_000_000; // 1000万 upper bound for order totals
 const RE_NON_NUMERIC = /[^\d.]/g;
 
+// Per-seller mutex to prevent concurrent stock mutations (e.g. overselling)
+const _sellerLocks = new Map();
+function acquireSellerLock(sellerId) {
+  const existing = _sellerLocks.get(sellerId);
+  if (existing) return existing.promise.then(() => acquireSellerLock(sellerId));
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  _sellerLocks.set(sellerId, { promise, resolve });
+  return Promise.resolve(() => { _sellerLocks.delete(sellerId); resolve(); });
+}
+
 function clampOrderTotal(value) {
   const num = Number(value ?? 0);
   return Number.isFinite(num) ? Math.max(0, Math.min(num, MAX_ORDER_TOTAL)) : 0;
@@ -91,7 +102,7 @@ function addToMapArray(map, key, value) {
   map.get(key).push(value);
 }
 
-function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll, ordersById, ordersByBuyer, ordersBySeller }) {
+async function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConversation, addTradeMessage, schedulePersist, rebuildMallIndex, broadcastAll, ordersById, ordersByBuyer, ordersBySeller }) {
   const seller = usersById.get(body.sellerId);
   if (!seller) return { ok: false, status: 404, error: 'not_found' };
   if (seller.id === authUser.id) return { ok: false, status: 400, error: 'cannot_buy_own_product' };
@@ -159,6 +170,10 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
     );
   }
 
+  // Acquire per-seller lock to prevent concurrent stock mutations (overselling)
+  const releaseLock = await acquireSellerLock(seller.id);
+  try {
+
   // Validate stock availability before any mutations (productId is already a string from productById keys)
   const stockUpdates = new Array(neededByProduct.size);
   let si = 0;
@@ -223,6 +238,8 @@ function createOrder({ authUser, body, db, usersById, uid, getOrCreateDirectConv
   const hasPriceChanges = normalized.some(item => item.priceChanged);
   schedulePersist('order_create', { orderId: order.id, buyerId: authUser.id, sellerId: seller.id });
   return { ok: true, status: 201, payload: { order, deduplicated: false, stockChanges, priceChanged: hasPriceChanges } };
+
+  } finally { releaseLock(); }
 }
 
 function acceptOrder({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {

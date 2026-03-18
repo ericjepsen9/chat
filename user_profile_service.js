@@ -64,6 +64,11 @@ function buildUserProfileView({ authUser, targetId, usersById, friendshipByPair 
   const target = usersById.get(targetId);
   if (!target) return { ok: false, status: 404, error: 'not_found' };
   if (target.status === 'disabled' && target.id !== authUser.id) return { ok: false, status: 404, error: 'not_found' };
+  // Check if target has blocked the requesting user (hide profile)
+  if (target.id !== authUser.id) {
+    const targetBlacklist = target._blacklistSet || new Set(target.blacklist || []);
+    if (targetBlacklist.has(authUser.id)) return { ok: false, status: 403, error: 'blocked' };
+  }
   const rel = friendshipByPair.get(`${authUser.id}:${targetId}`);
   const profile = {
     id: target.id,

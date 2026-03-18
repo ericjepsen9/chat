@@ -169,7 +169,10 @@ function consumePhoneCode(phone, code, scene = 'login') {
     phoneCodeStore.delete(key);
     return { ok: false, error: '验证码错误或已过期' };
   }
-  if (String(record.code) !== String(code || '').trim()) {
+  const codeA = Buffer.from(String(record.code));
+  const codeB = Buffer.from(String(code || '').trim());
+  const codeMatch = codeA.length === codeB.length && crypto.timingSafeEqual(codeA, codeB);
+  if (!codeMatch) {
     const nextCount = Number(attemptState.count || 0) + 1;
     const next = { count: nextCount, windowStart: attemptState.windowStart || now, blockedUntil: attemptState.blockedUntil || 0 };
     if (nextCount >= PHONE_CODE_MAX_VERIFY_ATTEMPTS) {

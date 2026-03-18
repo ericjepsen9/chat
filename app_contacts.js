@@ -90,18 +90,20 @@ function extractContactCardUserId(card = {}){
   const title = String(card.title || '').trim();
   if (!appId && !title) return '';
   let titleMatch = '';
+  let titleMatchCount = 0;
   for (let i = 0; i < srcFriends.length; i++) {
     const f = srcFriends[i].friend;
     if (!f) continue;
     if (appId && String(f.appNumberId || '').toUpperCase() === appId && f.id) return f.id;
-    if (!titleMatch && title) {
+    if (title) {
       const r = String(f.remark || '').trim();
       const d = String(f.displayName || '').trim();
       const u = String(f.username || '').trim();
-      if ((r && r === title) || (d && d === title) || (u && u === title)) titleMatch = f.id;
+      if ((r && r === title) || (d && d === title) || (u && u === title)) { titleMatch = f.id; titleMatchCount++; }
     }
   }
-  return titleMatch;
+  // Only return title match if exactly one friend matches (avoid ambiguity with duplicate names)
+  return titleMatchCount === 1 ? titleMatch : '';
 }
 
 function isContactCardPayload(card = {}){

@@ -1,7 +1,7 @@
 /* server_routes_auth.js — Authentication route handlers */
 
 const VALID_PHONE_CODE_SCENES = new Set(['login', 'reset', 'register']);
-const RE_CODE_4DIGIT = /^\d{4}$/;
+const RE_CODE_DIGITS = /^\d{4,6}$/;
 
 module.exports = function createAuthRoutes(ctx) {
   const {
@@ -90,7 +90,7 @@ module.exports = function createAuthRoutes(ctx) {
       if (ipAttempt.blockedUntil && ipAttempt.blockedUntil > now2) {
         return sendJson(res, 429, { error: '验证码尝试过多，请稍后再试', retryAfterSec: Math.ceil((ipAttempt.blockedUntil - now2) / 1000) });
       }
-      if (!phone || !RE_CODE_4DIGIT.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      if (!phone || !RE_CODE_DIGITS.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'login');
       if (!codeResult.ok) {
         recordPhoneCodeIpAttempt(clientIp, false);
@@ -144,7 +144,7 @@ module.exports = function createAuthRoutes(ctx) {
       if (!nextPassword) return sendJson(res, 400, { error: '参数不完整' });
       const pwErr1 = validatePasswordLength(nextPassword);
       if (pwErr1) return sendJson(res, 400, { error: pwErr1 });
-      if (!phone || !RE_CODE_4DIGIT.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
+      if (!phone || !RE_CODE_DIGITS.test(code)) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const user = findUserByPhone(phone);
       if (!user) return sendJson(res, 400, { error: '验证码错误或已过期' });
       const codeResult = consumePhoneCode(phone, code, 'reset');
@@ -212,10 +212,7 @@ module.exports = function createAuthRoutes(ctx) {
       if (findUserByPhone(phone)) return sendJson(res, 409, { error: '该手机号已被注册' });
       const codeResult = consumePhoneCode(phone, regCode, 'register');
       if (!codeResult.ok) {
-        const fallbackResult = consumePhoneCode(phone, regCode, 'login');
-        if (!fallbackResult.ok) {
-          return sendJson(res, 400, { error: fallbackResult.error || '验证码错误或已过期' });
-        }
+        return sendJson(res, 400, { error: codeResult.error || '验证码错误或已过期' });
       }
       const hashedPassword = await hashPasswordAsync(body.password);
       // Re-check after async hash to guard against race condition

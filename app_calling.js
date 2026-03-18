@@ -505,6 +505,7 @@ window.__onNativeCallAction = (action, callerId, callerName, conversationId, cal
         method: 'POST',
         body: JSON.stringify({
           senderId: state.currentUser?.id,
+          senderName: state.currentUser?.displayName || '',
           targetUserId: callerId,
           event: 'reject',
           reason: 'user_reject',
