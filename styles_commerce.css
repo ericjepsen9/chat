@@ -1314,6 +1314,12 @@
   -webkit-tap-highlight-color:transparent;
   touch-action:manipulation;
 }
+#orderDetailChatBtn.od-chat-solo{
+  flex:none;
+  width:auto;
+  min-width:120px;
+  padding:0 24px;
+}
 .order-detail-actions > button:active{
   transform:scale(.97);
 }

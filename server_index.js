@@ -258,6 +258,13 @@ function rebuildIndexes() {
     if (!Array.isArray(order.deletedBy)) order.deletedBy = [];
     if (order.deletedBy.length) order._deletedBySet = new Set(order.deletedBy);
     else delete order._deletedBySet;
+    // Backfill orderNo for orders created before orderNo was introduced
+    if (!order.orderNo) {
+      const d = new Date(order.createdAt || Date.now());
+      const pad = (n, l = 2) => String(n).padStart(l, '0');
+      const rnd = Math.floor(Math.random() * 10000);
+      order.orderNo = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}${pad(rnd, 4)}`;
+    }
     index.ordersById.set(order.id, order);
     if (order.buyerId) addToMapArray(index.ordersByBuyer, order.buyerId, order);
     if (order.sellerId) addToMapArray(index.ordersBySeller, order.sellerId, order);

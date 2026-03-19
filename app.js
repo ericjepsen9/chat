@@ -2795,8 +2795,15 @@ function bindProfileEvents() {
     window.openSecondaryPage('sellerPaymentPage', 'sellerCenterPage');
   });
   [['WxPay','wechat'],['AliPay','alipay'],['CloudPay','cloudpay']].forEach(([prefix, key]) => {
-    const uploadBtnId = `seller${prefix}UploadBtn`, fileInputId = `seller${prefix}FileInput`;
-    on(uploadBtnId, "click", () => { $(fileInputId)?.click(); });
+    const uploadBtnId = `seller${prefix}UploadBtn`, fileInputId = `seller${prefix}FileInput`, previewId = `seller${prefix}Preview`;
+    const triggerUpload = () => { $(fileInputId)?.click(); };
+    on(uploadBtnId, "click", triggerUpload);
+    // Make the row area (preview + labels) also clickable for upload
+    const previewEl = $(previewId);
+    if (previewEl && previewEl.parentElement) {
+      previewEl.parentElement.style.cursor = 'pointer';
+      previewEl.parentElement.addEventListener('click', triggerUpload);
+    }
     on(fileInputId, "change", async () => {
       const file = $(fileInputId)?.files?.[0];
       if($(fileInputId)) $(fileInputId).value = '';

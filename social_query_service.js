@@ -25,8 +25,9 @@ function listConversations({ authUser, directConvBasesByUser, convById, buildCon
     // Build view object instead of mutating shared base
     const view = {
       id: base.id, type: base.type, name: base.name,
-      members: base.members, peerId: base.peerId, peerName: base.peerName,
-      peerAvatar: base.peerAvatar, peerRemark: base.peerRemark,
+      members: base.members, peerId: base.peerId,
+      title: base.title, peerAvatarUrl: base.peerAvatarUrl,
+      peerIsFriend: base.peerIsFriend, peerAppNumberId: base.peerAppNumberId,
       lastMessageAt: base.lastMessageAt, createdAt: base.createdAt,
       preview: meta.preview,
       unread: meta.unread,

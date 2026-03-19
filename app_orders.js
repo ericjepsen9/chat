@@ -493,6 +493,12 @@ function renderOrderDetailPage(){
   toggleEl("orderDetailCompleteBtn", 'hidden', order.status !== 'accepted');
   if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").textContent = role === 'buyer' ? '确认收货' : '标记已完成';
   toggleEl("orderDetailChatBtn", 'hidden', !counterId);
+  // Style contact button differently when it's the only visible action
+  const chatBtn = $("orderDetailChatBtn");
+  if (chatBtn) {
+    const hasOtherActions = (role === 'seller' && order.status === 'pending') || order.status === 'accepted';
+    chatBtn.classList.toggle('od-chat-solo', !hasOtherActions);
+  }
 }
 
 function updateSelectedOrderPrice(){
