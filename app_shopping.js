@@ -79,11 +79,72 @@ function adjustProfileStoreItemQuantity(item, delta){
   renderProfileStore();
 }
 
+function _buildStoreItemCard(item) {
+  const card = createEl('div', 'profile-store-item');
+  card.dataset.productId = String(item.id || '');
+
+  const img = createEl('img', '');
+  lazyImg(img, normalizeMediaUrl(item.image || item.imageUrl) || '');
+  img.alt = item.title || '商品';
+
+  const info = createEl('div', 'profile-store-info');
+  const categoryText = item.category ? `【${item.category}】` : '';
+  info.append(
+    createEl('div', 'profile-store-title', item.title || '未命名商品'),
+    createEl('div', 'profile-store-desc', `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`),
+    createEl('div', 'profile-store-price', formatMoney(item.price)),
+    createEl('div', 'profile-store-desc', `库存：${getItemAvailableStock(item)}`)
+  );
+
+  const side = createEl('div', 'profile-store-side');
+  const hasMultiSpecs = Array.isArray(item.specs) && item.specs.length > 1;
+  const qty = getProfileStoreItemCartQuantity(item);
+  if(hasMultiSpecs){
+    const btn = createEl('button', 'secondary-btn', qty > 0 ? `选规格 (${qty})` : '选规格');
+    btn.type = 'button';
+    side.appendChild(btn);
+  }else{
+    const stepper = createEl('div', 'profile-qty-stepper');
+    const minus = createEl('button', 'qty-btn', '−');
+    minus.type = 'button'; minus.dataset.delta = '-1';
+    minus.disabled = qty <= 0;
+    const qtyText = createEl('span', 'qty-num', String(qty));
+    const plus = createEl('button', 'qty-btn primary', '+');
+    plus.type = 'button'; plus.dataset.delta = '1';
+    stepper.append(minus, qtyText, plus);
+    side.appendChild(stepper);
+  }
+
+  card.append(img, info, side);
+  return card;
+}
+
+function _bindStoreListClick(listEl) {
+  if (listEl.dataset.storeClickBound === '1') return;
+  listEl.dataset.storeClickBound = '1';
+  listEl.addEventListener('click', (e) => {
+    const card = e.target.closest('.profile-store-item[data-product-id]');
+    if (!card) return;
+    const item = state._storeItemsById?.get(card.dataset.productId);
+    if (!item) return;
+    const specBtn = e.target.closest('.secondary-btn');
+    if (specBtn) { e.stopPropagation(); openProductSpecSheet(item); return; }
+    const qtyBtn = e.target.closest('.qty-btn');
+    if (qtyBtn) { e.stopPropagation(); adjustProfileStoreItemQuantity(item, qtyBtn.dataset.delta === '-1' ? -1 : 1); return; }
+    if (e.target.closest('.profile-qty-stepper')) return;
+    openProductDetail(item, false);
+  });
+}
+
 const renderProfileStore = safeRender(function renderProfileStore(){
+  const splitView = $("profileStoreSplitView");
+  const sidebar = $("profileStoreCategorySidebar");
   const list = $("profileStoreList");
+  const listNocat = $("profileStoreListNocat");
+  const rightPanel = $("profileStoreRightPanel");
   const title = $("profileStoreTitle");
   const moreBtn = $("profileStoreMoreBtn");
-  if(!list) return;
+  if(!list && !listNocat) return;
   const _psi = state.profileStoreItems || [];
   const _sigParts = new Array(_psi.length);
   for (let i = 0; i < _psi.length; i++) { const it = _psi[i]; _sigParts[i] = it.id+'|'+(it.listed?'1':'0')+'|'+it.stock+'|'+(it.createdAt||0); }
@@ -93,120 +154,155 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   sortedItems.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   // Single-pass: cache parsed categories and collect unique categories
   const cats = new Set();
+  const catOrder = [];
   for (const item of sortedItems) {
     if (item.category && !item._parsedCats) item._parsedCats = _splitCategories(item.category);
     if (item._parsedCats && !item._parsedCatsSet) item._parsedCatsSet = new Set(item._parsedCats);
-    if (item._parsedCats) for (let ci = 0; ci < item._parsedCats.length; ci++) cats.add(item._parsedCats[ci]);
-  }
-  // Build category tabs
-  const catTabsEl = $("profileStoreCategoryTabs");
-  if (catTabsEl) {
-    catTabsEl.replaceChildren();
-    if (cats.size > 0) {
-      if (!catTabsEl.dataset.delegated) {
-        catTabsEl.dataset.delegated = '1';
-        catTabsEl.addEventListener('click', (e) => {
-          const tab = e.target.closest('.profile-store-cat-tab');
-          if (!tab) return;
-          state.profileStoreCategoryFilter = tab.dataset.cat || '';
-          renderProfileStore();
-        });
-      }
-      const allTab = createEl('button', 'profile-store-cat-tab' + (!state.profileStoreCategoryFilter ? ' active' : ''), '全部');
-      allTab.type = 'button';
-      allTab.dataset.cat = '';
-      catTabsEl.appendChild(allTab);
-      cats.forEach(cat => {
-        const tab = createEl('button', 'profile-store-cat-tab' + (state.profileStoreCategoryFilter === cat ? ' active' : ''), cat);
-        tab.type = 'button';
-        tab.dataset.cat = cat;
-        catTabsEl.appendChild(tab);
-      });
+    if (item._parsedCats) for (let ci = 0; ci < item._parsedCats.length; ci++) {
+      const c = item._parsedCats[ci];
+      if (!cats.has(c)) { cats.add(c); catOrder.push(c); }
     }
   }
-  // Filter by category
-  const allItems = state.profileStoreCategoryFilter
-    ? sortedItems.filter(item => item._parsedCatsSet && item._parsedCatsSet.has(state.profileStoreCategoryFilter))
-    : sortedItems;
-  if(title) title.textContent = `在售商品 ${allItems.length}`;
-  if(!allItems.length){
-    showEmptyState(list, '暂无在售商品');
+
+  const hasCats = cats.size > 0;
+  if(title) title.textContent = `在售商品 ${sortedItems.length}`;
+
+  if(!sortedItems.length){
+    if(splitView) splitView.classList.add('hidden');
+    if(listNocat) { listNocat.style.display = ''; showEmptyState(listNocat, '暂无在售商品'); }
     if(moreBtn) moreBtn.classList.add('hidden');
     updateProfileCartBar();
     return;
   }
-  const previewLimit = 6;
-  const items = state.profileStoreExpanded ? allItems : allItems.slice(0, previewLimit);
-  if (moreBtn) {
-    if (allItems.length > previewLimit) {
-      moreBtn.classList.remove('hidden');
-      moreBtn.textContent = state.profileStoreExpanded ? '收起' : '查看全部在售';
-    } else {
-      moreBtn.classList.add('hidden');
-    }
-  }
-  // Build product lookup for delegated click handlers
+
+  // Build product lookup
   const _storeItemsById = new Map();
-  for (const p of items) if (p.id) _storeItemsById.set(String(p.id), p);
-  if (list.dataset.storeClickBound !== '1') {
-    list.dataset.storeClickBound = '1';
-    list.addEventListener('click', (e) => {
-      const card = e.target.closest('.profile-store-item[data-product-id]');
-      if (!card) return;
-      const item = state._storeItemsById?.get(card.dataset.productId);
-      if (!item) return;
-      // Delegated stepper/spec button handling
-      const specBtn = e.target.closest('.secondary-btn');
-      if (specBtn) { e.stopPropagation(); openProductSpecSheet(item); return; }
-      const qtyBtn = e.target.closest('.qty-btn');
-      if (qtyBtn) { e.stopPropagation(); adjustProfileStoreItemQuantity(item, qtyBtn.dataset.delta === '-1' ? -1 : 1); return; }
-      if (e.target.closest('.profile-qty-stepper')) return;
-      openProductDetail(item, false);
-    });
-  }
+  for (const p of sortedItems) if (p.id) _storeItemsById.set(String(p.id), p);
   state._storeItemsById = _storeItemsById;
-  const frag = document.createDocumentFragment();
-  items.forEach(item => {
-    const card = createEl('div', 'profile-store-item');
-    card.dataset.productId = String(item.id || '');
-    // Card click handled via delegation on profileStoreList
 
-    const img = createEl('img', '');
-    lazyImg(img, normalizeMediaUrl(item.image || item.imageUrl) || '');
-    img.alt = item.title || '商品';
+  if (hasCats) {
+    // --- Split view mode (food-delivery style) ---
+    if(splitView) splitView.classList.remove('hidden');
+    if(listNocat) listNocat.style.display = 'none';
+    if(moreBtn) moreBtn.classList.add('hidden');
 
-    const info = createEl('div', 'profile-store-info');
-    const categoryText = item.category ? `【${item.category}】` : '';
-    info.append(
-      createEl('div', 'profile-store-title', item.title || '未命名商品'),
-      createEl('div', 'profile-store-desc', `${categoryText}${item.desc || '商品详情页包含图片、文字与价格'}`),
-      createEl('div', 'profile-store-price', formatMoney(item.price)),
-      createEl('div', 'profile-store-desc', `库存：${getItemAvailableStock(item)}`)
-    );
+    // Group items by category
+    const grouped = new Map();
+    grouped.set('全部', []);
+    for (const cat of catOrder) grouped.set(cat, []);
+    const uncategorized = [];
+    for (const item of sortedItems) {
+      if (item._parsedCats && item._parsedCats.length) {
+        for (const c of item._parsedCats) {
+          const arr = grouped.get(c);
+          if (arr) arr.push(item);
+        }
+      } else {
+        uncategorized.push(item);
+      }
+    }
+    if (uncategorized.length) { catOrder.push('其他'); grouped.set('其他', uncategorized); }
 
-    const side = createEl('div', 'profile-store-side');
-    const hasMultiSpecs = Array.isArray(item.specs) && item.specs.length > 1;
-    const qty = getProfileStoreItemCartQuantity(item);
-    if(hasMultiSpecs){
-      const btn = createEl('button', 'secondary-btn', qty > 0 ? `选规格 (${qty})` : '选规格');
-      btn.type = 'button';
-      side.appendChild(btn);
-    }else{
-      const stepper = createEl('div', 'profile-qty-stepper');
-      const minus = createEl('button', 'qty-btn', '−');
-      minus.type = 'button'; minus.dataset.delta = '-1';
-      minus.disabled = qty <= 0;
-      const qtyText = createEl('span', 'qty-num', String(qty));
-      const plus = createEl('button', 'qty-btn primary', '+');
-      plus.type = 'button'; plus.dataset.delta = '1';
-      stepper.append(minus, qtyText, plus);
-      side.appendChild(stepper);
+    // Build sidebar
+    if (sidebar) {
+      const activeCat = state.profileStoreCategoryFilter || catOrder[0] || '';
+      const sidebarFrag = document.createDocumentFragment();
+      catOrder.forEach(cat => {
+        const btn = createEl('button', 'profile-store-cat-item' + (cat === activeCat ? ' active' : ''), cat);
+        btn.type = 'button';
+        btn.dataset.cat = cat;
+        sidebarFrag.appendChild(btn);
+      });
+      sidebar.replaceChildren(sidebarFrag);
+
+      // Delegated click on sidebar
+      if (!sidebar.dataset.delegated) {
+        sidebar.dataset.delegated = '1';
+        sidebar.addEventListener('click', (e) => {
+          const btn = e.target.closest('.profile-store-cat-item');
+          if (!btn) return;
+          const cat = btn.dataset.cat || '';
+          state.profileStoreCategoryFilter = cat;
+          // Highlight active
+          const items = sidebar.children;
+          for (let i = 0; i < items.length; i++) items[i].classList.toggle('active', items[i] === btn);
+          // Scroll right panel to the group header
+          const header = rightPanel?.querySelector(`[data-cat-group="${CSS.escape(cat)}"]`);
+          if (header) {
+            state._splitScrollLock = true;
+            header.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => { state._splitScrollLock = false; }, 600);
+          }
+          // Scroll sidebar item into view
+          btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+      }
     }
 
-    card.append(img, info, side);
-    frag.appendChild(card);
-  });
-  list.replaceChildren(frag);
+    // Build right panel with grouped items
+    if (list) {
+      const frag = document.createDocumentFragment();
+      catOrder.forEach(cat => {
+        const catItems = grouped.get(cat) || [];
+        if (!catItems.length) return;
+        const header = createEl('div', 'profile-store-group-header', cat);
+        header.dataset.catGroup = cat;
+        frag.appendChild(header);
+        catItems.forEach(item => frag.appendChild(_buildStoreItemCard(item)));
+      });
+      list.replaceChildren(frag);
+      _bindStoreListClick(list);
+    }
+
+    // Scroll sync: scrolling right panel highlights left sidebar
+    if (rightPanel && !rightPanel.dataset.scrollBound) {
+      rightPanel.dataset.scrollBound = '1';
+      rightPanel.addEventListener('scroll', () => {
+        if (state._splitScrollLock) return;
+        const headers = rightPanel.querySelectorAll('.profile-store-group-header');
+        if (!headers.length) return;
+        const panelTop = rightPanel.scrollTop + 10;
+        let activeCat = '';
+        for (let i = headers.length - 1; i >= 0; i--) {
+          if (headers[i].offsetTop <= panelTop) {
+            activeCat = headers[i].dataset.catGroup || '';
+            break;
+          }
+        }
+        if (!activeCat && headers.length) activeCat = headers[0].dataset.catGroup || '';
+        if (activeCat && activeCat !== state.profileStoreCategoryFilter) {
+          state.profileStoreCategoryFilter = activeCat;
+          if (sidebar) {
+            const items = sidebar.children;
+            for (let i = 0; i < items.length; i++) {
+              const isActive = items[i].dataset.cat === activeCat;
+              items[i].classList.toggle('active', isActive);
+              if (isActive) items[i].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+          }
+        }
+      }, { passive: true });
+    }
+  } else {
+    // --- No categories: flat list (original style) ---
+    if(splitView) splitView.classList.add('hidden');
+    if(listNocat) listNocat.style.display = '';
+    const allItems = sortedItems;
+    const previewLimit = 6;
+    const items = state.profileStoreExpanded ? allItems : allItems.slice(0, previewLimit);
+    if (moreBtn) {
+      if (allItems.length > previewLimit) {
+        moreBtn.classList.remove('hidden');
+        moreBtn.textContent = state.profileStoreExpanded ? '收起' : '查看全部在售';
+      } else {
+        moreBtn.classList.add('hidden');
+      }
+    }
+    const frag = document.createDocumentFragment();
+    items.forEach(item => frag.appendChild(_buildStoreItemCard(item)));
+    listNocat.replaceChildren(frag);
+    _bindStoreListClick(listNocat);
+  }
   updateProfileCartBar();
 });
 
