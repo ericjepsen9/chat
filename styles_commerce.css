@@ -835,7 +835,7 @@
   position:sticky;
   bottom:0;
   z-index:10;
-  margin-top:14px;
+  margin-top:auto;
   background:#fff;
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   padding:14px 16px;
