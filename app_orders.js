@@ -235,6 +235,12 @@ async function doCompleteOrder(orderId) {
   return data;
 }
 
+async function doShipOrder(orderId, trackingNo, shippingImages) {
+  const data = await api(`/api/orders/${orderId}/ship`, { method:'POST', body: JSON.stringify({ trackingNo, shippingImages }) });
+  await refreshAllOrderData();
+  return data;
+}
+
 function buildOrderCard(order, role){
   const card = createEl('button', 'profile-order-card');
   card.type = 'button';
@@ -268,15 +274,25 @@ function buildOrderCard(order, role){
     });
     actions.appendChild(acceptBtn);
   }
-  if(order.status === 'accepted'){
-    const completeLabel = role === 'buyer' ? '确认收货' : '标记已完成';
-    const completeBtn = createStopBtn('primary-btn', completeLabel, (e, btn) => {
-      const msg = role === 'buyer' ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？';
-      showConfirm(msg, () => {
-        withButtonLock(btn, async () => { await doCompleteOrder(order.id); if(role === 'buyer') renderBuyerOrdersManage(); else renderSellerOrdersManage(); }, '处理中...');
-      });
+  if(role === 'seller' && order.status === 'accepted'){
+    const shipBtn = createStopBtn('primary-btn', '发货', (e, btn) => {
+      if(!order.id) return;
+      openShipOrderDialog(order.id);
     });
-    actions.appendChild(completeBtn);
+    actions.appendChild(shipBtn);
+  }
+  if(role === 'buyer' && order.status === 'accepted'){
+    actions.appendChild(createEl('span', 'order-card-hint', '商家备货中'));
+  }
+  if(order.status === 'shipped'){
+    if(role === 'buyer'){
+      const confirmBtn = createStopBtn('primary-btn', '确认收货', (e, btn) => {
+        showConfirm('确认已收到商品？订单将标记为已完成。', () => {
+          withButtonLock(btn, async () => { await doCompleteOrder(order.id); renderBuyerOrdersManage(); }, '处理中...');
+        });
+      });
+      actions.appendChild(confirmBtn);
+    }
   }
   if(order.status === 'completed'){
     const delBtn = createStopBtn('order-card-del-btn', '删除', (e, btn) => {
@@ -388,7 +404,7 @@ function renderOrderDetailPage(){
   if(!box) return;
   const order = state.selectedOrderDetail;
   const role = state.selectedOrderRole || 'buyer';
-  const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.originalTotal??'')+'|'+(order.updatedAt||0)+'|'+role) : '';
+  const sig = order ? (order.id+'|'+order.status+'|'+(order.total||0)+'|'+(order.originalTotal??'')+'|'+(order.updatedAt||0)+'|'+role+'|'+(order.trackingNo||'')) : '';
   if (!sigChanged('orderDetail', sig)) return;
   if(!order){
     box.textContent = '暂无订单详情';
@@ -486,18 +502,41 @@ function renderOrderDetailPage(){
     box.appendChild(remarkDiv);
   }
 
+  // Shipping info section (for shipped/completed orders with tracking data)
+  if(order.trackingNo || (order.shippingImages && order.shippingImages.length)){
+    const shipDiv = createEl('div', 'od-section');
+    shipDiv.appendChild(createEl('div', 'od-section-title', '物流信息'));
+    if(order.trackingNo) shipDiv.appendChild(odRow('快递单号', order.trackingNo));
+    if(order.shippedAt) shipDiv.appendChild(odRow('发货时间', formatTime(order.shippedAt)));
+    if(order.shippingImages && order.shippingImages.length){
+      const imgLabel = createEl('div', 'od-row');
+      imgLabel.appendChild(createEl('span', 'od-label', '包裹照片'));
+      shipDiv.appendChild(imgLabel);
+      const imgGrid = createEl('div', 'od-shipping-images');
+      order.shippingImages.forEach(url => {
+        const img = createEl('img', 'od-shipping-img');
+        img.src = normalizeMediaUrl(url);
+        img.alt = '包裹照片';
+        img.addEventListener('click', () => openImageViewer(normalizeMediaUrl(url)));
+        imgGrid.appendChild(img);
+      });
+      shipDiv.appendChild(imgGrid);
+    }
+    box.appendChild(shipDiv);
+  }
+
   // Action buttons visibility
-  const hasPending = order.pendingPrice != null && !!order.pendingPriceRequestedBy;
   toggleEl("orderDetailAcceptBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
   toggleEl("orderDetailEditPriceBtn", 'hidden', role !== 'seller' || order.status !== 'pending');
   toggleEl("orderDetailPriceRequestBtn", 'hidden', true);
-  toggleEl("orderDetailCompleteBtn", 'hidden', order.status !== 'accepted');
-  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").textContent = role === 'buyer' ? '确认收货' : '标记已完成';
+  toggleEl("orderDetailShipBtn", 'hidden', role !== 'seller' || order.status !== 'accepted');
+  toggleEl("orderDetailCompleteBtn", 'hidden', !(order.status === 'shipped' && role === 'buyer'));
+  if($("orderDetailCompleteBtn")) $("orderDetailCompleteBtn").textContent = '确认收货';
   toggleEl("orderDetailChatBtn", 'hidden', !counterId);
   // Style contact button differently when it's the only visible action
   const chatBtn = $("orderDetailChatBtn");
   if (chatBtn) {
-    const hasOtherActions = (role === 'seller' && order.status === 'pending') || order.status === 'accepted';
+    const hasOtherActions = (role === 'seller' && order.status === 'pending') || (role === 'seller' && order.status === 'accepted') || (order.status === 'shipped' && role === 'buyer');
     chatBtn.classList.toggle('od-chat-solo', !hasOtherActions);
   }
 }
@@ -516,8 +555,7 @@ function updateSelectedOrderPrice(){
 async function completeSelectedOrder(){
   const order = state.selectedOrderDetail;
   if(!order?.id) return;
-  const isBuyerRole = state.selectedOrderRole === 'buyer';
-  showConfirm(isBuyerRole ? '确认已收到商品？订单将标记为已完成。' : '确认订单已完成？', async () => {
+  showConfirm('确认已收到商品？订单将标记为已完成。', async () => {
     try{
       const data = await doCompleteOrder(order.id);
       state.selectedOrderDetail = data.order || order;
@@ -525,4 +563,244 @@ async function completeSelectedOrder(){
       showToast('订单已完成');
     }catch(e){ showModal(e.message || '更新失败'); }
   });
+}
+
+function shipSelectedOrder(){
+  const order = state.selectedOrderDetail;
+  if(!order?.id) return;
+  openShipOrderDialog(order.id);
+}
+
+// ---- Ship Order Dialog ----
+let _shipDialogEl = null;
+let _shipDialogState = { orderId: null, trackingNo: '', images: [], uploading: false };
+let _scannerStream = null;
+
+function _ensureShipDialog() {
+  if (_shipDialogEl) return _shipDialogEl;
+  const overlay = document.createElement('div');
+  overlay.id = '_shipOrderDialog';
+  overlay.className = 'ship-dialog-overlay hidden';
+  overlay.innerHTML =
+    '<div class="ship-dialog-mask"></div>' +
+    '<div class="ship-dialog-box">' +
+      '<div class="ship-dialog-title">发货</div>' +
+      '<div class="ship-dialog-body">' +
+        '<label class="ship-dialog-label">快递单号</label>' +
+        '<div class="ship-dialog-tracking-row">' +
+          '<input id="_shipTrackingInput" type="text" placeholder="输入或扫码" maxlength="50" class="ship-dialog-input" />' +
+          '<button type="button" id="_shipScanBtn" class="ship-dialog-scan-btn" title="扫码">📷</button>' +
+        '</div>' +
+        '<div id="_shipScannerWrap" class="ship-scanner-wrap hidden">' +
+          '<video id="_shipScannerVideo" autoplay playsinline></video>' +
+          '<button type="button" id="_shipScannerClose" class="ship-scanner-close-btn">✕</button>' +
+        '</div>' +
+        '<label class="ship-dialog-label">包裹照片</label>' +
+        '<div id="_shipImagesGrid" class="ship-images-grid">' +
+          '<label class="ship-img-add">' +
+            '<input type="file" accept="image/*" multiple capture="environment" style="display:none" id="_shipImageFileInput" />' +
+            '<span>+</span>' +
+          '</label>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ship-dialog-footer">' +
+        '<button type="button" class="ship-dialog-cancel">取消</button>' +
+        '<button type="button" id="_shipConfirmBtn" class="ship-dialog-confirm" disabled>确认发货</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  // Styles
+  const s = document.createElement('style');
+  s.textContent =
+    '.ship-dialog-overlay{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;}' +
+    '.ship-dialog-overlay.hidden{display:none;}' +
+    '.ship-dialog-mask{position:absolute;inset:0;background:rgba(0,0,0,.45);}' +
+    '.ship-dialog-box{position:relative;width:320px;max-width:90vw;max-height:85vh;overflow-y:auto;background:#fff;border-radius:14px;animation:modalIn .2s ease;}' +
+    '.ship-dialog-title{padding:18px 20px 0;font-size:17px;font-weight:600;text-align:center;}' +
+    '.ship-dialog-body{padding:12px 20px 8px;}' +
+    '.ship-dialog-label{display:block;font-size:13px;color:#888;margin:10px 0 6px;}' +
+    '.ship-dialog-tracking-row{display:flex;gap:8px;}' +
+    '.ship-dialog-input{flex:1;height:40px;border:1px solid #ddd;border-radius:8px;padding:0 12px;font-size:15px;outline:none;box-sizing:border-box;}' +
+    '.ship-dialog-input:focus{border-color:#07c160;}' +
+    '.ship-dialog-scan-btn{width:40px;height:40px;border:1px solid #ddd;border-radius:8px;background:#fafafa;font-size:20px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;}' +
+    '.ship-dialog-scan-btn:active{background:#f0f0f0;}' +
+    '.ship-scanner-wrap{position:relative;margin:8px 0;border-radius:8px;overflow:hidden;background:#000;}' +
+    '.ship-scanner-wrap.hidden{display:none;}' +
+    '.ship-scanner-wrap video{width:100%;display:block;}' +
+    '.ship-scanner-close-btn{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;}' +
+    '.ship-images-grid{display:flex;flex-wrap:wrap;gap:8px;}' +
+    '.ship-img-add{width:72px;height:72px;border:1.5px dashed #ccc;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:28px;color:#bbb;flex-shrink:0;}' +
+    '.ship-img-add:active{background:#f8f8f8;}' +
+    '.ship-img-preview{position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;flex-shrink:0;}' +
+    '.ship-img-preview img{width:100%;height:100%;object-fit:cover;}' +
+    '.ship-img-remove{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.5);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;}' +
+    '.ship-dialog-footer{display:flex;border-top:0.5px solid #e5e7eb;}' +
+    '.ship-dialog-footer button{flex:1;height:48px;border:none;background:transparent;font-size:16px;cursor:pointer;}' +
+    '.ship-dialog-footer button:active{background:#f2f2f6;}' +
+    '.ship-dialog-cancel{color:#999;border-right:0.5px solid #e5e7eb !important;}' +
+    '.ship-dialog-confirm{color:#07c160;font-weight:600;}' +
+    '.ship-dialog-confirm:disabled{color:#ccc;cursor:not-allowed;}' +
+    '.od-shipping-images{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 4px 0;}' +
+    '.od-shipping-img{width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;border:1px solid #eee;}' +
+    '.order-card-hint{font-size:12px;color:#999;padding:4px 0;}';
+  document.head.appendChild(s);
+
+  // Event bindings
+  overlay.querySelector('.ship-dialog-mask').addEventListener('click', closeShipDialog);
+  overlay.querySelector('.ship-dialog-cancel').addEventListener('click', closeShipDialog);
+  document.getElementById('_shipScanBtn').addEventListener('click', _startBarcodeScan);
+  document.getElementById('_shipScannerClose').addEventListener('click', _stopBarcodeScan);
+  document.getElementById('_shipImageFileInput').addEventListener('change', _handleShipImageSelect);
+  document.getElementById('_shipConfirmBtn').addEventListener('click', _confirmShipOrder);
+  document.getElementById('_shipTrackingInput').addEventListener('input', _syncShipConfirmBtn);
+
+  _shipDialogEl = overlay;
+  return overlay;
+}
+
+function openShipOrderDialog(orderId) {
+  const overlay = _ensureShipDialog();
+  _shipDialogState = { orderId, trackingNo: '', images: [], uploading: false };
+  document.getElementById('_shipTrackingInput').value = '';
+  _renderShipImages();
+  _syncShipConfirmBtn();
+  overlay.classList.remove('hidden');
+  setTimeout(() => document.getElementById('_shipTrackingInput').focus(), 100);
+}
+
+function closeShipDialog() {
+  _stopBarcodeScan();
+  if (_shipDialogEl) _shipDialogEl.classList.add('hidden');
+  _shipDialogState = { orderId: null, trackingNo: '', images: [], uploading: false };
+}
+
+function _syncShipConfirmBtn() {
+  const btn = document.getElementById('_shipConfirmBtn');
+  if (!btn) return;
+  const tracking = (document.getElementById('_shipTrackingInput')?.value || '').trim();
+  btn.disabled = !tracking || !_shipDialogState.images.length || _shipDialogState.uploading;
+}
+
+function _renderShipImages() {
+  const grid = document.getElementById('_shipImagesGrid');
+  if (!grid) return;
+  // Remove old previews but keep the add button
+  grid.querySelectorAll('.ship-img-preview').forEach(el => el.remove());
+  const addLabel = grid.querySelector('.ship-img-add');
+  _shipDialogState.images.forEach((url, idx) => {
+    const wrap = createEl('div', 'ship-img-preview');
+    const img = createEl('img');
+    img.src = normalizeMediaUrl(url);
+    wrap.appendChild(img);
+    const removeBtn = createEl('button', 'ship-img-remove', '✕');
+    removeBtn.type = 'button';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _shipDialogState.images.splice(idx, 1);
+      _renderShipImages();
+      _syncShipConfirmBtn();
+    });
+    wrap.appendChild(removeBtn);
+    grid.insertBefore(wrap, addLabel);
+  });
+  // Hide add button if max 5
+  if (addLabel) addLabel.style.display = _shipDialogState.images.length >= 5 ? 'none' : '';
+}
+
+async function _handleShipImageSelect(e) {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  e.target.value = '';
+  _shipDialogState.uploading = true;
+  _syncShipConfirmBtn();
+  for (const file of files) {
+    if (_shipDialogState.images.length >= 5) break;
+    try {
+      const blob = await resizeImageFile(file, 1200, 0.85);
+      const url = await uploadBinary(blob, file.name, 'image/jpeg');
+      _shipDialogState.images.push(url);
+      _renderShipImages();
+    } catch (err) {
+      console.warn('[shipImageUpload]', err);
+      showToast('图片上传失败');
+    }
+  }
+  _shipDialogState.uploading = false;
+  _syncShipConfirmBtn();
+}
+
+async function _confirmShipOrder() {
+  const { orderId, images } = _shipDialogState;
+  const trackingNo = (document.getElementById('_shipTrackingInput')?.value || '').trim();
+  if (!orderId || !trackingNo || !images.length) return;
+  const btn = document.getElementById('_shipConfirmBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '发货中...'; }
+  try {
+    await doShipOrder(orderId, trackingNo, images);
+    closeShipDialog();
+    showToast('已发货');
+  } catch (err) {
+    showModal(err.message || '发货失败');
+  } finally {
+    if (btn) { btn.textContent = '确认发货'; _syncShipConfirmBtn(); }
+  }
+}
+
+// ---- Barcode Scanner ----
+let _scanAnimFrame = null;
+
+async function _startBarcodeScan() {
+  const wrap = document.getElementById('_shipScannerWrap');
+  const video = document.getElementById('_shipScannerVideo');
+  if (!wrap || !video) return;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    _scannerStream = stream;
+    video.srcObject = stream;
+    wrap.classList.remove('hidden');
+
+    // Use BarcodeDetector if available, otherwise fall back to manual entry
+    if ('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'itf'] });
+      const scan = async () => {
+        if (!_scannerStream) return;
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            const val = barcodes[0].rawValue;
+            if (val) {
+              document.getElementById('_shipTrackingInput').value = val;
+              _syncShipConfirmBtn();
+              _stopBarcodeScan();
+              showToast('扫码成功');
+              return;
+            }
+          }
+        } catch (_) {}
+        _scanAnimFrame = requestAnimationFrame(scan);
+      };
+      _scanAnimFrame = requestAnimationFrame(scan);
+    } else {
+      showToast('浏览器不支持扫码，请手动输入');
+      setTimeout(() => _stopBarcodeScan(), 2000);
+    }
+  } catch (err) {
+    console.warn('[barcodeScan]', err);
+    showToast('无法访问摄像头');
+    _stopBarcodeScan();
+  }
+}
+
+function _stopBarcodeScan() {
+  if (_scanAnimFrame) { cancelAnimationFrame(_scanAnimFrame); _scanAnimFrame = null; }
+  if (_scannerStream) {
+    _scannerStream.getTracks().forEach(t => t.stop());
+    _scannerStream = null;
+  }
+  const video = document.getElementById('_shipScannerVideo');
+  if (video) video.srcObject = null;
+  const wrap = document.getElementById('_shipScannerWrap');
+  if (wrap) wrap.classList.add('hidden');
 }

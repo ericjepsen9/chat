@@ -88,6 +88,10 @@ function buildOrderCardPayload(order, extras) {
     pendingPrice: order.pendingPrice ?? null,
     pendingPriceRequestedBy: order.pendingPriceRequestedBy || null,
   };
+  // Include shipping info if present
+  if (order.trackingNo) payload.trackingNo = order.trackingNo;
+  if (order.shippingImages) payload.shippingImages = order.shippingImages;
+  if (order.shippedAt) payload.shippedAt = order.shippedAt;
   // Assign extras directly instead of spread to avoid object copy overhead
   if (extras) {
     if (extras.title !== undefined) payload.title = extras.title;
@@ -302,14 +306,13 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
 }
 
 // Hoisted constants — avoid re-creating on every call
-const _STATUS_TITLES = { completed: '订单已完成', processing: '订单处理中', in_progress: '订单进行中', accepted: '订单已接受', cancelled: '订单已取消', refunded: '订单已退款' };
+const _STATUS_TITLES = { completed: '订单已完成', shipped: '订单已发货', accepted: '订单已接受', cancelled: '订单已取消', refunded: '订单已退款' };
 
 // Allowed status transitions: currentStatus -> { nextStatus -> Set of allowed roles }
 const ALLOWED_TRANSITIONS = {
   pending:     new Map([['accepted', new Set(['seller'])], ['cancelled', new Set(['buyer', 'seller'])]]),
-  accepted:    new Map([['completed', new Set(['buyer', 'seller'])], ['processing', new Set(['seller'])], ['in_progress', new Set(['seller'])], ['cancelled', new Set(['buyer', 'seller'])]]),
-  processing:  new Map([['completed', new Set(['buyer', 'seller'])], ['cancelled', new Set(['seller'])]]),
-  in_progress: new Map([['completed', new Set(['buyer', 'seller'])], ['cancelled', new Set(['seller'])]]),
+  accepted:    new Map([['shipped', new Set(['seller'])], ['cancelled', new Set(['buyer', 'seller'])]]),
+  shipped:     new Map([['completed', new Set(['buyer', 'seller'])], ['cancelled', new Set(['seller'])]]),
   completed:   new Map([['refunded', new Set(['seller'])]]),
 };
 
@@ -460,6 +463,42 @@ function deleteOrder({ authUser, orderId, db, usersById, schedulePersist, orders
   return { ok: true, status: 200, payload: { ok: true, orderId: order.id } };
 }
 
+const MAX_SHIPPING_IMAGES = 5;
+const MAX_TRACKING_NO_LEN = 50;
+
+function shipOrder({ authUser, orderId, body, db, usersById, getOrCreateDirectConversation, addTradeMessage, schedulePersist, ordersById }) {
+  const order = findOrderById(orderId, { ordersById, db });
+  if (!order) return { ok: false, status: 404, error: 'not_found' };
+  const actor = validateOrderActor(order, authUser, usersById, { allowBuyer: false, allowSeller: true });
+  if (!actor.ok) return actor;
+  if (order.status !== 'accepted') return { ok: false, status: 409, error: 'order_not_accepted' };
+
+  const trackingNo = String(body.trackingNo || '').trim().slice(0, MAX_TRACKING_NO_LEN);
+  if (!trackingNo) return { ok: false, status: 400, error: 'tracking_no_required' };
+
+  const shippingImages = Array.isArray(body.shippingImages) ? body.shippingImages.filter(u => typeof u === 'string' && u.trim()).slice(0, MAX_SHIPPING_IMAGES) : [];
+  if (!shippingImages.length) return { ok: false, status: 400, error: 'shipping_images_required' };
+
+  order.trackingNo = trackingNo;
+  order.shippingImages = shippingImages;
+  order.shippedAt = Date.now();
+  order.status = 'shipped';
+  order.updatedAt = Date.now();
+
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  addTradeMessage(conv.id, {
+    senderId: authUser.id,
+    type: 'order_card',
+    order: buildOrderCardPayload(order, {
+      title: '订单已发货',
+      role: 'seller',
+    }),
+  });
+  conv.updatedAt = Date.now();
+  schedulePersist('order_ship', { orderId: order.id });
+  return { ok: true, status: 200, payload: { order } };
+}
+
 module.exports = {
   createOrder,
   acceptOrder,
@@ -467,5 +506,6 @@ module.exports = {
   updateOrderStatus,
   requestOrderPriceChange,
   confirmOrderPriceChange,
+  shipOrder,
   deleteOrder,
 };

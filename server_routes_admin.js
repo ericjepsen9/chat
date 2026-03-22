@@ -2,7 +2,7 @@
 
 const SYSTEM_MSG_LIMITS = { TITLE: 80, SUMMARY: 240, COVER: 512, LIST_MAX: 30, STORE_MAX: 100 };
 const ADMIN_PAGE_LIMIT = 50;
-const VALID_ORDER_STATUSES = new Set(['pending', 'accepted', 'processing', 'in_progress', 'completed', 'cancelled', 'refunded']);
+const VALID_ORDER_STATUSES = new Set(['pending', 'accepted', 'shipped', 'completed', 'cancelled', 'refunded']);
 
 // Pre-compiled route regexes
 const RE_SYS_DEL = /^\/api\/admin\/system\/messages\/([^/]+)\/delete$/;

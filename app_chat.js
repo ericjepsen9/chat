@@ -236,8 +236,10 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
 function formatOrderStatusLabel(status){
   const s = String(status || '').toLowerCase();
   if (s === 'completed') return '已完成';
-  if (s === 'accepted' || s === 'processing' || s === 'in_progress') return '已接单';
+  if (s === 'shipped') return '已发货';
+  if (s === 'accepted') return '已接单';
   if (s === 'pending' || s === 'created' || s === 'new') return '未接单';
+  if (s === 'refunded') return '已退款';
   return '未接单';
 }
 
@@ -299,12 +301,31 @@ function buildOrderCardMessage(msg){
     actions.appendChild(createEl('span', 'trade-card-sub', '等待商家接单'));
   }
 
-  // Confirm receipt / mark complete for accepted orders
-  if(isParticipant && order.status === 'accepted'){
-    actions.appendChild(createStopBtn('primary-btn', isBuyer ? '确认收货' : '标记已完成', (e, btn) => {
+  // Seller can ship accepted orders
+  if(isSeller && order.status === 'accepted'){
+    actions.appendChild(createStopBtn('primary-btn', '发货', (e, btn) => {
       if(!order.id) return;
-      withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+      openShipOrderDialog(order.id);
     }));
+  }
+  // Buyer sees waiting text for accepted orders
+  if(isBuyer && order.status === 'accepted'){
+    actions.appendChild(createEl('span', 'trade-card-sub', '商家备货中'));
+  }
+
+  // Shipped: show tracking info + buyer confirm receipt
+  if(isParticipant && order.status === 'shipped'){
+    if(order.trackingNo){
+      actions.appendChild(createEl('span', 'trade-card-sub', '快递单号: ' + order.trackingNo));
+    }
+    if(isBuyer){
+      actions.appendChild(createStopBtn('primary-btn', '确认收货', (e, btn) => {
+        if(!order.id) return;
+        showConfirm('确认已收到商品？', () => {
+          withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+        });
+      }));
+    }
   }
   wrap.appendChild(actions);
   return wrap;

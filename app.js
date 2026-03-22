@@ -6,7 +6,7 @@ const LIMITS = { STORE_PREVIEW: 6, SWIPE_ACTION_WIDTH: 156, DRAG_THRESHOLD: 48 }
 function disableTextSelection() { document.body.style.userSelect = 'none'; document.body.style.webkitUserSelect = 'none'; }
 function enableTextSelection() { document.body.style.userSelect = ''; document.body.style.webkitUserSelect = ''; }
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', COMPLETED: 'completed', PROCESSING: 'processing', IN_PROGRESS: 'in_progress' };
+const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', SHIPPED: 'shipped', COMPLETED: 'completed' };
 const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
 const DEFAULT_GROUP = '我的好友';
 // Hoisted regex constants — avoid recompilation on every call
@@ -47,8 +47,8 @@ function _splitCategories(str) {
 }
 const formatOrderId = (id, orderNo) => orderNo ? String(orderNo) : String(id || '').slice(-6);
 const orderPrefix = (role) => role === 'seller' ? 'seller' : 'buyer';
-const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'processing' || s === 'in_progress') ? ' s-active' : ' s-pending'); };
-const tradeStatusCls = (st) => 'trade-card-status' + (st === 'completed' ? ' done' : st === 'accepted' ? ' active' : '');
+const orderStatusCls = (prefix, st) => { const s = String(st || '').toLowerCase(); return prefix + (s === 'completed' ? ' s-done' : (s === 'accepted' || s === 'shipped') ? ' s-active' : ' s-pending'); };
+const tradeStatusCls = (st) => 'trade-card-status' + (st === 'completed' ? ' done' : (st === 'accepted' || st === 'shipped') ? ' active' : '');
 
 const isFriendUser = (userId) => !!(userId && state.friendsById.has(userId));
 

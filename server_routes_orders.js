@@ -1,6 +1,6 @@
 /* server_routes_orders.js — Order route handlers */
 
-const RE_ORDER_ACTION = /^\/api\/orders\/([^/]+)\/(accept|price|price-request|price-confirm|status|delete)$/;
+const RE_ORDER_ACTION = /^\/api\/orders\/([^/]+)\/(accept|price|price-request|price-confirm|status|ship|delete)$/;
 
 module.exports = function createOrderRoutes(ctx) {
   const {
@@ -8,7 +8,7 @@ module.exports = function createOrderRoutes(ctx) {
     getAuthedUser, getAuthedBody,
     queryOrders, createOrder, acceptOrder,
     updateOrderPrice, requestOrderPriceChange, confirmOrderPriceChange,
-    updateOrderStatus, deleteOrder,
+    updateOrderStatus, shipOrder, deleteOrder,
     getOrCreateDirectConversation, addTradeMessage,
     uid, isAdmin,
     index, db,
@@ -81,6 +81,7 @@ module.exports = function createOrderRoutes(ctx) {
       else if (action === 'price-request') result = requestOrderPriceChange(args);
       else if (action === 'price-confirm') result = confirmOrderPriceChange(args);
       else if (action === 'status') result = updateOrderStatus(args);
+      else if (action === 'ship') result = shipOrder(args);
       else result = deleteOrder(args);
       return sendResult(res, result);
     }

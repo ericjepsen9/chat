@@ -23,7 +23,7 @@ const { searchMessagesGlobal, searchMessagesInConversation } = require('./messag
 const { parseAuthToken, requireAuth, requireAdmin } = require('./server_auth');
 const { createFriendRequest, acceptFriendRequest, rejectFriendRequest } = require('./friend_request_service');
 const { queryOrders } = require('./order_query_service');
-const { createOrder, acceptOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange, deleteOrder } = require('./order_mutation_service');
+const { createOrder, acceptOrder, updateOrderPrice, updateOrderStatus, requestOrderPriceChange, confirmOrderPriceChange, shipOrder, deleteOrder } = require('./order_mutation_service');
 const { buildAdminDashboardData } = require('./admin_dashboard_service');
 const { createPersistence } = require('./server_persistence');
 const { updateBlacklist } = require('./blacklist_service');
@@ -807,7 +807,7 @@ const routeCtx = {
   isMessageVisibleToUser, getVisibleMessagesSlice, buildConversationMeta, invalidateConvMeta,
   searchMessagesGlobal, searchMessagesInConversation,
   queryOrders, createOrder, acceptOrder, updateOrderPrice,
-  requestOrderPriceChange, confirmOrderPriceChange, updateOrderStatus, deleteOrder,
+  requestOrderPriceChange, confirmOrderPriceChange, updateOrderStatus, shipOrder, deleteOrder,
   createFriendRequest, acceptFriendRequest, rejectFriendRequest,
   updateBlacklist, updateFriendRemark, updateFriendGroup, deleteFriendRelation,
   createGroup, renameGroup, reorderGroup, deleteGroup,
