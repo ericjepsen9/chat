@@ -106,7 +106,7 @@ function createConversationMessage({
     imageUrl: body.imageUrl ? String(body.imageUrl).slice(0, MAX_URL_LEN) : body.imageUrl,
     audioUrl: body.audioUrl ? String(body.audioUrl).slice(0, MAX_URL_LEN) : body.audioUrl,
     card: body.card ? { cardType: String(body.card.cardType || ''), imageUrl: String(body.card.imageUrl || ''), name: String(body.card.name || ''), avatarUrl: String(body.card.avatarUrl || ''), userId: String(body.card.userId || ''), title: String(body.card.title || ''), description: String(body.card.description || ''), meta: String(body.card.meta || ''), sellerId: String(body.card.sellerId || ''), productId: String(body.card.productId || '') } : undefined,
-    order: body.order,
+    order: body.type === 'order_card' ? body.order : undefined,
     broadcast: body.broadcast ? { title: String(body.broadcast.title || ''), content: String(body.broadcast.content || '').slice(0, 5000), imageUrl: String(body.broadcast.imageUrl || '') } : undefined,
     clientMessageId: body.clientMessageId || null,
     deletedBy: [],

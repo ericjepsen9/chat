@@ -65,7 +65,12 @@ async function connectRealtime() {
     const data = safeParseEventData(e);
     if (!data) return;
     if(state.activeConversation && state.activeConversation.id === data.conversationId) {
-      if (!applyRecalledMessageLocally(data.messageId, data.message?.senderId)) { fetchMessages(); }
+      if (!applyRecalledMessageLocally(data.messageId, data.message?.senderId)) {
+        if (!_fetchMessagesInFlight) {
+          _fetchMessagesInFlight = true;
+          fetchMessages().catch(() => {}).finally(() => { _fetchMessagesInFlight = false; });
+        }
+      }
       syncAndRenderConvList(true);
     } else if (data.message) {
       applyIncomingConversationMeta(data.conversationId, data.message);
