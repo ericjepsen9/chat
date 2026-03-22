@@ -18,6 +18,7 @@ module.exports = function createSocialRoutes(ctx) {
     normalizeSingleGroupName, normalizeUserCustomGroups,
     DEFAULT_GROUP,
     schedulePersist, broadcastToUser,
+    addTradeMessage,
   } = ctx;
 
   return async function handleSocialRoutes(pathname, method, req, res, searchParams) {
@@ -102,6 +103,21 @@ module.exports = function createSocialRoutes(ctx) {
         findUserByPhone,
         getOrCreateDirectConversation,
       });
+      // Send welcome message when auto-accepted (both sides had pending requests)
+      if (result.ok && result.payload?.autoAccepted) {
+        const keyword = String(context.body.friendUsername || '').trim();
+        const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || (findUserByPhone ? findUserByPhone(keyword) : null);
+        if (target) {
+          const conv = getOrCreateDirectConversation(context.authUser.id, target.id);
+          if (conv) {
+            addTradeMessage(conv.id, {
+              senderId: context.authUser.id,
+              type: 'text',
+              text: '我们已经是好友了，开始聊天吧！',
+            });
+          }
+        }
+      }
       return sendResult(res, result);
     }
 
@@ -119,6 +135,24 @@ module.exports = function createSocialRoutes(ctx) {
         schedulePersist,
         broadcastToUser,
       });
+      // Send welcome message after successful acceptance
+      if (result.ok) {
+        const request = index.friendRequestsById.get(context.body.requestId);
+        if (request) {
+          const conv = getOrCreateDirectConversation(context.authUser.id, request.userId);
+          if (conv) {
+            const greeting = request.greeting || '';
+            const welcomeText = greeting
+              ? `我们已经是好友了，开始聊天吧！对方的招呼：${greeting}`
+              : '我们已经是好友了，开始聊天吧！';
+            addTradeMessage(conv.id, {
+              senderId: context.authUser.id,
+              type: 'text',
+              text: welcomeText,
+            });
+          }
+        }
+      }
       return sendResult(res, result);
     }
 
