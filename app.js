@@ -722,6 +722,7 @@ function bindConversationSwipeDismiss(){
     if (!convId) return;
     if (convId === '__trade_alert__') {
       state.tradeAlertReadAt = Date.now();
+      try { localStorage.setItem('chattrade_trade_read_' + (state.currentUser?.id || ''), String(state.tradeAlertReadAt)); } catch(_) {}
       renderConversationListFromState();
       Promise.all([loadBuyerOrders(), loadSellerOrders()]).then(() => {
         const hasPendingSeller = (state.sellerOrders || []).some(o => o && o.status !== 'completed');
@@ -4522,6 +4523,7 @@ async function bootstrap() {
     state.currentUser = user;
     nativeOnLogin(user.id);
     loadCartFromStorage();
+    try { state.tradeAlertReadAt = Number(localStorage.getItem('chattrade_trade_read_' + user.id)) || 0; } catch(_) {}
     updateMyCartBadge();
     hideEl("authScreen");
     showEl("appScreen");
