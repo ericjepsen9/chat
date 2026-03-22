@@ -3022,6 +3022,8 @@ function bindSocialEvents() {
         createEl('div', 'add-friend-meta', `ID: ${user.appNumberId || ''}${user.role === 'seller' ? ' · 商家' : ''}`)
       );
       cardTop.append(avatarDiv, infoDiv);
+      cardTop.style.cursor = 'pointer';
+      cardTop.onclick = () => window.openUserProfile(user.id, user.displayName);
       card.appendChild(cardTop);
       if (user.signature) card.appendChild(createEl('div', 'add-friend-sig', user.signature));
       const actionsDiv = createEl('div', 'add-friend-actions');
