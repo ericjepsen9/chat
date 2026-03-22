@@ -203,11 +203,12 @@ const renderProfileStore = safeRender(function renderProfileStore(){
     }
     if (uncategorized.length) { catOrder.push('其他'); grouped.set('其他', uncategorized); }
 
-    // Build sidebar
+    // Build sidebar with "全部" as default first option
+    const allCatOrder = ['全部', ...catOrder];
     if (sidebar) {
-      const activeCat = state.profileStoreCategoryFilter || catOrder[0] || '';
+      const activeCat = state.profileStoreCategoryFilter || '全部';
       const sidebarFrag = document.createDocumentFragment();
-      catOrder.forEach(cat => {
+      allCatOrder.forEach(cat => {
         const btn = createEl('button', 'profile-store-cat-item' + (cat === activeCat ? ' active' : ''), cat);
         btn.type = 'button';
         btn.dataset.cat = cat;
@@ -226,62 +227,36 @@ const renderProfileStore = safeRender(function renderProfileStore(){
           // Highlight active
           const items = sidebar.children;
           for (let i = 0; i < items.length; i++) items[i].classList.toggle('active', items[i] === btn);
-          // Scroll right panel to the group header
-          const header = rightPanel?.querySelector(`[data-cat-group="${CSS.escape(cat)}"]`);
-          if (header) {
-            state._splitScrollLock = true;
-            header.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            setTimeout(() => { state._splitScrollLock = false; }, 600);
-          }
           // Scroll sidebar item into view
           btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          // Re-render right panel with filtered items
+          _sigCache.delete('profileStore');
+          renderProfileStore();
         });
       }
     }
 
-    // Build right panel with grouped items
+    // Build right panel with grouped items, filtered by selected category
+    const activeCatFilter = state.profileStoreCategoryFilter || '全部';
     if (list) {
       const frag = document.createDocumentFragment();
-      catOrder.forEach(cat => {
-        const catItems = grouped.get(cat) || [];
-        if (!catItems.length) return;
-        const header = createEl('div', 'profile-store-group-header', cat);
-        header.dataset.catGroup = cat;
-        frag.appendChild(header);
+      if (activeCatFilter === '全部') {
+        // Show all items grouped by category
+        catOrder.forEach(cat => {
+          const catItems = grouped.get(cat) || [];
+          if (!catItems.length) return;
+          const header = createEl('div', 'profile-store-group-header', cat);
+          header.dataset.catGroup = cat;
+          frag.appendChild(header);
+          catItems.forEach(item => frag.appendChild(_buildStoreItemCard(item)));
+        });
+      } else {
+        // Show only items in the selected category
+        const catItems = grouped.get(activeCatFilter) || [];
         catItems.forEach(item => frag.appendChild(_buildStoreItemCard(item)));
-      });
+      }
       list.replaceChildren(frag);
       _bindStoreListClick(list);
-    }
-
-    // Scroll sync: scrolling right panel highlights left sidebar
-    if (rightPanel && !rightPanel.dataset.scrollBound) {
-      rightPanel.dataset.scrollBound = '1';
-      rightPanel.addEventListener('scroll', () => {
-        if (state._splitScrollLock) return;
-        const headers = rightPanel.querySelectorAll('.profile-store-group-header');
-        if (!headers.length) return;
-        const panelTop = rightPanel.scrollTop + 10;
-        let activeCat = '';
-        for (let i = headers.length - 1; i >= 0; i--) {
-          if (headers[i].offsetTop <= panelTop) {
-            activeCat = headers[i].dataset.catGroup || '';
-            break;
-          }
-        }
-        if (!activeCat && headers.length) activeCat = headers[0].dataset.catGroup || '';
-        if (activeCat && activeCat !== state.profileStoreCategoryFilter) {
-          state.profileStoreCategoryFilter = activeCat;
-          if (sidebar) {
-            const items = sidebar.children;
-            for (let i = 0; i < items.length; i++) {
-              const isActive = items[i].dataset.cat === activeCat;
-              items[i].classList.toggle('active', isActive);
-              if (isActive) items[i].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-          }
-        }
-      }, { passive: true });
     }
   } else {
     // --- No categories: flat list (original style) ---
