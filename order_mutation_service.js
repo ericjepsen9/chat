@@ -427,7 +427,7 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   order.pendingPriceRequestedBy = null;
   order.updatedAt = Date.now();
   // Only set to 'accepted' if not already in a later status
-  const laterStatuses = new Set(['processing', 'in_progress', 'completed']);
+  const laterStatuses = new Set(['shipped', 'processing', 'in_progress', 'completed']);
   if (!laterStatuses.has(order.status)) {
     order.status = 'accepted';
   }

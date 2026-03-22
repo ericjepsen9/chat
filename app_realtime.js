@@ -268,3 +268,13 @@ document.addEventListener('visibilitychange', () => {
     }
   }
 });
+
+// Reconnect SSE when network comes back online
+window.addEventListener('online', () => {
+  if (state.currentUser) {
+    state._sseRetryCount = 0;
+    if (!state.eventSource) {
+      connectRealtime().catch(() => {});
+    }
+  }
+});
