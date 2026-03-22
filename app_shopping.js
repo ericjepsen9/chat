@@ -147,7 +147,7 @@ const renderProfileStore = safeRender(function renderProfileStore(){
   if(!list && !listNocat) return;
   const _psi = state.profileStoreItems || [];
   const _sigParts = new Array(_psi.length);
-  for (let i = 0; i < _psi.length; i++) { const it = _psi[i]; _sigParts[i] = it.id+'|'+(it.listed?'1':'0')+'|'+it.stock+'|'+(it.createdAt||0); }
+  for (let i = 0; i < _psi.length; i++) { const it = _psi[i]; _sigParts[i] = it.id+'|'+(it.listed?'1':'0')+'|'+it.stock+'|'+(it.createdAt||0)+'|'+getProfileStoreItemCartQuantity(it); }
   const sig = _sigParts.join(';') + '|' + state.profileStoreCategoryFilter + '|' + (state.profileStoreExpanded?'1':'0');
   if (!sigChanged('profileStore', sig)) return;
   const sortedItems = (state.profileStoreItems || []);
@@ -369,6 +369,11 @@ function addSelectedProductToCart(){
   updateProfileCartBar();
   renderProfileStore();
   showToast(`已加入购物车 x${addQty}`);
+  // Auto-navigate back to profile page after adding to cart from product detail
+  if (state.secondaryPage === 'productDetailPage') {
+    const backBtn = $("backBtn");
+    if (backBtn) backBtn.click();
+  }
 }
 
 function buyNowAndCheckout(){
