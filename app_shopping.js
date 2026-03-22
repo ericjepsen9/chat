@@ -810,8 +810,17 @@ async function submitProfileOrder(){
     if(state.activeConversation?.id) await reloadActiveConversationMessages();
     hideLoading();
     showToast('订单已提交');
-    const backTo = state.secondaryReturn || (state.activeConversation ? 'chat' : 'home');
-    window.openSecondaryPage('buyerOrdersManagePage', backTo);
+    // Navigate to order detail page, replacing checkout page in the navigation stack
+    if (result.order) {
+      state.selectedOrderDetail = result.order;
+      state.selectedOrderRole = 'buyer';
+      renderOrderDetailPage();
+      const backTo = state.secondaryReturn || (state.activeConversation ? 'chat' : 'home');
+      window.openSecondaryPage('orderDetailPage', backTo, { replace: true });
+    } else {
+      const backTo = state.secondaryReturn || (state.activeConversation ? 'chat' : 'home');
+      window.openSecondaryPage('buyerOrdersManagePage', backTo, { replace: true });
+    }
   }catch(e){
     hideLoading();
     showModal(e.message || '提交订单失败');
