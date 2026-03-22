@@ -430,7 +430,8 @@ function renderOrderDetailPage(){
 
   // Item list
   const itemsDiv = createEl('div', 'od-section');
-  itemsDiv.appendChild(createEl('div', 'od-section-title', '商品清单'));
+  const totalQty = (order.items || []).reduce((sum, i) => sum + (Number(i.quantity) || 1), 0);
+  itemsDiv.appendChild(createEl('div', 'od-section-title', `商品清单（共 ${totalQty} 件）`));
   (order.items || []).forEach(item => {
     const row = createEl('div', 'od-item-row');
     const imgUrl = normalizeMediaUrl(item.imageUrl || item.image || '');
