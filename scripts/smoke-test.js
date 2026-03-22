@@ -52,6 +52,9 @@ async function j(path, options = {}) {
     ...options,
     headers,
   });
+  // Update CSRF token if the server rotated it
+  const newCsrf = res.headers.get('X-CSRF-Token');
+  if (newCsrf) authCsrf = newCsrf;
   const data = await res.json();
   if (!res.ok) throw new Error(`${path} -> ${res.status} ${JSON.stringify(data)}`);
   return data;
@@ -65,6 +68,9 @@ async function jAdmin(path, options = {}) {
     ...options,
     headers,
   });
+  // Update admin CSRF token if the server rotated it
+  const newCsrf = res.headers.get('X-CSRF-Token');
+  if (newCsrf) adminCsrf = newCsrf;
   const data = await res.json();
   if (!res.ok) throw new Error(`${path} -> ${res.status} ${JSON.stringify(data)}`);
   return data;
@@ -76,6 +82,9 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   if (authToken && !('Authorization' in headers)) headers.Authorization = `Bearer ${authToken}`;
   if (authCsrf && !('X-CSRF-Token' in headers)) headers['X-CSRF-Token'] = authCsrf;
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
+  // Update CSRF token if the server rotated it
+  const newCsrf = res.headers.get('X-CSRF-Token');
+  if (newCsrf) authCsrf = newCsrf;
   const data = await res.json();
   if (res.status !== expectedStatus) {
     throw new Error(`${path} expected ${expectedStatus} got ${res.status} ${JSON.stringify(data)}`);

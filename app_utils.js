@@ -104,6 +104,13 @@ async function api(p, o={}) {
       setTimeout(() => location.reload(), 1500);
       throw new Error('session_expired');
     }
+    // Update CSRF token if the server rotated it
+    const newCsrf = r.headers.get('X-CSRF-Token');
+    if (newCsrf) {
+      state.csrfToken = newCsrf;
+      const session = readSession();
+      if (session.token) writeSession(session.user, session.token, newCsrf);
+    }
     const contentType = r.headers.get("content-type") || "";
     const d = contentType.includes("application/json") ? await r.json() : {};
     if(!r.ok) throw new Error(d.error || `http_${r.status}`);

@@ -844,6 +844,7 @@ const server = http.createServer(async (req, res) => {
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With, X-File-Name, X-CSRF-Token');
+  res.setHeader('Access-Control-Expose-Headers', 'X-CSRF-Token');
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
     res.end();
@@ -855,6 +856,10 @@ const server = http.createServer(async (req, res) => {
     const sessionToken = parseAuthToken(req);
     if (sessionToken && !validateCsrf(req, sessionToken)) {
       return sendJson(res, 403, { error: 'csrf_token_invalid' });
+    }
+    // Send the rotated CSRF token back to the client
+    if (req._newCsrfToken) {
+      res.setHeader('X-CSRF-Token', req._newCsrfToken);
     }
   }
     if (matchRoute(pathname, '/api/health') && req.method === 'GET') {
