@@ -1,0 +1,53 @@
+/* ===== Group Chat Styles ===== */
+
+/* Multi-select friend picker */
+.gc-search-bar { padding: 8px 16px; background: #f7f7f7; border-bottom: 1px solid #e5e5e5; }
+.gc-search-bar input { width: 100%; padding: 8px 12px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px; background: #fff; box-sizing: border-box; }
+.gc-selected-avatars { display: flex; gap: 8px; padding: 8px 16px; overflow-x: auto; min-height: 40px; background: #f7f7f7; }
+.gc-selected-avatar { flex-shrink: 0; }
+.gc-selected-avatar .avatar { width: 36px; height: 36px; font-size: 14px; }
+.gc-selected-count { padding: 4px 16px; font-size: 12px; color: #999; background: #f7f7f7; }
+.gc-friend-list { flex: 1; overflow-y: auto; background: #fff; }
+.gc-friend-row { display: flex; align-items: center; padding: 10px 16px; gap: 12px; cursor: pointer; border-bottom: 1px solid #f2f2f2; }
+.gc-friend-row:active { background: #f5f5f5; }
+.gc-friend-name { font-size: 15px; color: #333; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #ddd; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.gc-checkbox.checked { background: #07c160; border-color: #07c160; }
+.gc-checkbox.checked::after { content: '✓'; color: #fff; font-size: 13px; font-weight: 600; }
+.gc-selected-bar { padding: 12px 16px; background: #f7f7f7; border-top: 1px solid #e5e5e5; }
+.gc-selected-bar .primary-btn { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; background: #07c160; color: #fff; border: none; cursor: pointer; }
+.gc-selected-bar .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Group chat settings */
+.gc-settings-section { border-bottom: 8px solid #f2f2f6; }
+.gc-settings-section .chat-item { border-bottom: 1px solid #f2f2f2; }
+.gc-member-grid { display: flex; flex-wrap: wrap; padding: 16px; gap: 12px; }
+.gc-member-grid-item { display: flex; flex-direction: column; align-items: center; width: 56px; cursor: pointer; }
+.gc-member-grid-item .avatar { width: 44px; height: 44px; font-size: 16px; }
+.gc-member-grid-name { font-size: 11px; color: #666; margin-top: 4px; text-align: center; width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-role-badge { font-size: 10px; padding: 1px 4px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
+.gc-role-badge.owner { background: #ffecd2; color: #e08700; }
+.gc-role-badge.admin { background: #d2e8ff; color: #1a73e8; }
+.gc-add-icon, .gc-remove-icon { width: 44px; height: 44px; border-radius: 8px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #999; }
+.gc-member-remove-btn .gc-remove-icon { border-color: #ff3b30; color: #ff3b30; }
+.gc-remove-action-btn { padding: 4px 12px; border: 1px solid #ff3b30; color: #ff3b30; background: transparent; border-radius: 6px; font-size: 13px; cursor: pointer; margin-left: auto; flex-shrink: 0; }
+.gc-remove-row { gap: 10px; }
+
+/* Grid avatar for group conversations */
+.gc-grid-avatar { display: grid; width: 48px; height: 48px; border-radius: 8px; overflow: hidden; background: #e8e8e8; flex-shrink: 0; }
+.gc-grid-avatar.grid-2 { grid-template-columns: 1fr 1fr; gap: 1px; }
+.gc-grid-avatar.grid-3 { grid-template-columns: 1fr 1fr 1fr; gap: 1px; }
+.gc-grid-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gc-grid-avatar-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #c8c8c8; color: #fff; font-size: 10px; font-weight: 600; }
+
+/* @ mention */
+.gc-at-all-icon { width: 40px; height: 40px; border-radius: 50%; background: #576b95; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; flex-shrink: 0; }
+
+/* Group message sender name */
+.group-sender-name { font-size: 12px; color: #999; margin-bottom: 2px; padding-left: 2px; }
+
+/* @ highlight in conversation list */
+.at-me-tag { color: #ff3b30; font-size: 12px; margin-right: 4px; }
+
+/* Group member count in title */
+.group-member-count { font-size: 12px; color: #999; font-weight: normal; }

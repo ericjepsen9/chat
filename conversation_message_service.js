@@ -50,6 +50,13 @@ function createConversationMessage({
     return { ok: false, status: 400, error: 'invalid_message_type' };
   }
 
+  // Group chat: check if member is muted
+  if (conv.type === 'group') {
+    if (Array.isArray(conv.mutedMembers) && conv.mutedMembers.includes(authUser.id) && conv.ownerId !== authUser.id) {
+      return { ok: false, status: 403, error: '你已被禁言' };
+    }
+  }
+
   if (conv.type === 'direct') {
     if (!conv.members || conv.members.length < 2) return { ok: false, status: 400, error: 'invalid_conversation' };
     const peerId = conv.members[0] === authUser.id ? conv.members[1] : conv.members[0];
@@ -108,6 +115,7 @@ function createConversationMessage({
     card: body.card ? { cardType: String(body.card.cardType || ''), imageUrl: String(body.card.imageUrl || ''), name: String(body.card.name || ''), avatarUrl: String(body.card.avatarUrl || ''), userId: String(body.card.userId || ''), title: String(body.card.title || ''), description: String(body.card.description || ''), meta: String(body.card.meta || ''), sellerId: String(body.card.sellerId || ''), productId: String(body.card.productId || '') } : undefined,
     order: body.type === 'order_card' ? body.order : undefined,
     broadcast: body.broadcast ? { title: String(body.broadcast.title || ''), content: String(body.broadcast.content || '').slice(0, 5000), imageUrl: String(body.broadcast.imageUrl || '') } : undefined,
+    atUsers: Array.isArray(body.atUsers) ? body.atUsers.filter(id => typeof id === 'string').slice(0, 50) : [],
     clientMessageId: body.clientMessageId || null,
     deletedBy: [],
     createdAt: now,

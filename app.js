@@ -7,7 +7,7 @@ function disableTextSelection() { document.body.style.userSelect = 'none'; docum
 function enableTextSelection() { document.body.style.userSelect = ''; document.body.style.webkitUserSelect = ''; }
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const ORDER_STATUS = { PENDING: 'pending', ACCEPTED: 'accepted', SHIPPED: 'shipped', COMPLETED: 'completed' };
-const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system' };
+const CONV_TYPE = { DIRECT: 'direct', TRADE: 'trade', SYSTEM: 'system', GROUP: 'group' };
 const DEFAULT_GROUP = '我的好友';
 // Hoisted regex constants — avoid recompilation on every call
 const _RE_CT_ID = /CT\d{5,}/i;
@@ -569,6 +569,10 @@ async function sendFriendRequestToCurrentProfile(){
 function applyChatRelationshipState(){
   const el = $("chatSubtitle");
   if(!el) return;
+  if (state.activeConversation?.type === 'group') {
+    el.textContent = '';
+    return;
+  }
   const peerId = conversationPeerId(state.activeConversation);
   if(!peerId) { el.textContent = ''; return; }
   const convFriendState = state.activeConversation?.peerIsFriend === true
@@ -672,6 +676,11 @@ function normalizeConversation(conv) {
   conv.pinned = isConversationPinned(conv);
   conv.clearedAt = getConversationClearedAt(conv);
   conv.peerLastReadAt = Number(conv.peerLastReadAt || 0);
+  // Group chat: ensure memberAvatars and memberCount
+  if (conv.type === 'group') {
+    conv.memberCount = conv.memberCount || (conv.members || []).length;
+    conv.memberAvatars = conv.memberAvatars || [];
+  }
   return conv;
 }
 function buildConversationItemSignature(conv) {
@@ -887,6 +896,7 @@ function buildConversationRow(conv) {
   const isPinned = isConversationPinned(conv);
   const isMuted = isConversationMuted(conv);
   const peerId = conversationPeerId(conv);
+  const isGroup = conv.type === 'group';
   const cls = 'chat-item' + (isPinned ? ' is-pinned' : '') + (isMuted ? ' is-muted' : '') + (state.activeConversation && state.activeConversation.id === conv.id ? ' is-active' : '');
   const btn = createEl('button', cls);
   btn.type = 'button';
@@ -895,13 +905,15 @@ function buildConversationRow(conv) {
   const avatarWrap = createEl('div', 'chat-item-avatar');
   if (conv.syntheticType === 'trade') avatarWrap.textContent = '💱';
   else if (conv.syntheticType === 'system') avatarWrap.textContent = '📢';
+  else if (isGroup && typeof buildGroupAvatar === 'function') avatarWrap.appendChild(buildGroupAvatar(conv.memberAvatars, conv.title));
   else setAvatarContainer(avatarWrap, {avatarUrl: conv.peerAvatarUrl, displayName: conv.title}, conv.title);
   avatarWrap.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (!target.closest('.avatar')) return;
+    if (!target.closest('.avatar') && !target.closest('.gc-grid-avatar')) return;
     event.stopPropagation();
     if (conv.syntheticType) return;
+    if (isGroup) return; // Don't open profile for group avatar
     if (peerId) window.openUserProfile(peerId, conv.title);
   });
   btn.appendChild(avatarWrap);
@@ -1127,7 +1139,8 @@ const SECONDARY_PAGE_IDS = [
   'sellerOrdersPage','sellerProductsPage','productDetailPage','orderDetailPage','broadcastManagePage','broadcastEditorPage',
   'contactCardPickerPage','productCardPickerPage','orderCardPickerPage',
   'productEditorPage','chatOrderDetailPage','broadcastDetailPage','forgotPasswordPage','changePasswordPage','changePhonePage',
-  'msgSearchPage','mallSearchPage','systemMessagesPage','termsPage','privacyPolicyPage','aboutPage'
+  'msgSearchPage','mallSearchPage','systemMessagesPage','termsPage','privacyPolicyPage','aboutPage',
+  'groupCreatePage','groupChatSettingsPage','gcInvitePage','gcRemovePage','gcMemberListPage'
 ];
 const TAB_VIEW_IDS = ["chatListView","friendListView","mallView","profileView"];
 const ALL_VIEW_IDS = [...TAB_VIEW_IDS,"chatView","composerPanel","homeTabbar", ...SECONDARY_PAGE_IDS];
@@ -1647,8 +1660,9 @@ window.openConversation = async (id, options = {}) => {
   _openConvAc = ac;
   const { skipFetch = false } = options;
   const conv = state.conversationsById?.get(id);
-  state.activeConversation = { id, type: 'direct', members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0) }; 
-  state.peerLastReadAt = state.activeConversation.peerLastReadAt; 
+  const convType = conv?.type || 'direct';
+  state.activeConversation = { id, type: convType, members: conv?.members || [], title: conv?.title || '', peerAvatarUrl: conv?.peerAvatarUrl || '', peerIsFriend: conv?.peerIsFriend === true, muted: conv?.muted || false, pinned: conv?.pinned || false, clearedAt: conv?.clearedAt || 0, peerLastReadAt: Number(conv?.peerLastReadAt || 0), memberCount: conv?.memberCount || 0, memberAvatars: conv?.memberAvatars || [], ownerId: conv?.ownerId || '' };
+  state.peerLastReadAt = state.activeConversation.peerLastReadAt;
   if (conv) {
     conv.unread = 0;
     renderConversationListFromState();
@@ -1656,7 +1670,7 @@ window.openConversation = async (id, options = {}) => {
   // Clear secondary page navigation state when entering a conversation
   state.secondaryPage = null; state.secondaryReturn = null; state.secondaryStack = [];
   SECONDARY_PAGE_IDS.forEach(id => hideEl(id));
-  setText("chatTitle", conv?.title || '会话');
+  setText("chatTitle", convType === 'group' ? (conv?.title || '群聊') + `(${conv?.memberCount || conv?.members?.length || ''})` : (conv?.title || '会话'));
   hideEl("chatListView");
   hideEl("friendListView");
   hideEl("mallView");
@@ -1775,10 +1789,15 @@ window.sendMessage = async (payload) => {
 
 window.handleSendText = async () => {
     const input = $("messageInput"); if(!input) return; const text = input.value.trim(); if (!text) return;
-    input.value = ""; input.style.height = 'auto'; 
+    input.value = ""; input.style.height = 'auto';
     showEl("toggleActionsBtn"); hideEl("sendMsgBtn");
     hideEl("emojiPanel"); hideEl("actionPanel");
-    await window.sendMessage({ type: "text", text });
+    const payload = { type: "text", text };
+    if (state._atMentions && state._atMentions.length > 0) {
+      payload.atUsers = [...new Set(state._atMentions)];
+      state._atMentions = [];
+    }
+    await window.sendMessage(payload);
 };
 
 
@@ -2859,6 +2878,10 @@ function bindSocialEvents() {
   on("chatSettingsBtn", "click", () => {
       if(!$("profileDetailPage")?.classList.contains("hidden")) { showProfileActionSheet(); return; }
       if(!state.activeConversation) { showModal('当前没有打开会话'); return; }
+      if (state.activeConversation.type === 'group') {
+        openGroupChatSettings(state.activeConversation.id);
+        return;
+      }
       window.openSecondaryPage("messageSettingsPage", "chat");
       const profileCard = $("chatSettingsPeerProfile");
       const peerId = conversationPeerId(state.activeConversation);
@@ -2881,7 +2904,7 @@ function bindSocialEvents() {
       profileCard.onclick = () => window.openUserProfile(peerId, finalName);
   });
 
-  const toggleAction = async (action) => {
+  window.toggleAction = async (action) => {
     if(!state.activeConversation) return null;
     try {
       const res = await api(`/api/conversations/${state.activeConversation.id}/${action}`, { method:'POST', body: JSON.stringify({userId: state.currentUser.id}) });
@@ -2919,22 +2942,22 @@ function bindSocialEvents() {
     }
   };
   on("muteSettingBtn", "click", async () => {
-    const res = await toggleAction('mute');
+    const res = await window.toggleAction('mute');
     if (!res) return;
     showModal(res.muted ? '已开启免打扰' : '已关闭免打扰');
     setText("muteSettingBtn", res.muted ? '取消免打扰' : '消息免打扰');
     refreshConversations();
   });
   on("pinConversationBtn", "click", async () => {
-    const res = await toggleAction('pin');
+    const res = await window.toggleAction('pin');
     if (!res) return;
     showModal(res.pinned ? '已置顶会话' : '已取消置顶');
     setText("pinConversationBtn", res.pinned ? '取消置顶' : '置顶聊天');
     refreshConversations();
   });
-  on("clearChatBtn", "click", () => {
+  window.clearChat = () => {
     showConfirm("确认清空聊天记录？", async () => {
-      const res = await toggleAction('clear');
+      const res = await window.toggleAction('clear');
       if (!res) return;
       showModal('聊天记录已清空');
       state.messages = [];
@@ -2947,6 +2970,9 @@ function bindSocialEvents() {
       renderConversationListFromState();
       loadConversations();
     });
+  };
+  on("clearChatBtn", "click", () => {
+    window.clearChat();
   });
 
   async function doAddBlacklist(targetId) {
@@ -2986,6 +3012,7 @@ function bindSocialEvents() {
   on("homeMoreBtn", "click", () => { showEl("plusMenuSheet"); });
   on("closePlusMenuBtn", "click", () => { hideEl("plusMenuSheet"); });
   on("menuAddFriend", "click", () => { hideEl("plusMenuSheet"); window.openSecondaryPage('addFriendPage'); setText("myProfileIdDisplay", state.currentUser.appNumberId || state.currentUser.username); });
+  on("menuCreateGroup", "click", async () => { hideEl("plusMenuSheet"); await loadFriends(true); openGroupChatCreator(); });
   on("menuScan", "click", () => { hideEl("plusMenuSheet"); window.openSecondaryPage('scanPage'); });
 
   // Search for user first, then show preview card
@@ -3280,7 +3307,26 @@ function bindChatEvents() {
   });
 
   on("sendMsgBtn", "click", window.handleSendText);
-  on("messageInput", "keydown", (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.handleSendText(); } });
+  on("messageInput", "keydown", (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.handleSendText(); }
+  });
+  // @ mention detection for group chats
+  on("messageInput", "keyup", async (e) => {
+    if (e.key !== '@' && e.key !== '2') return; // @ or Shift+2
+    const input = $("messageInput");
+    if (!input || !state.activeConversation || state.activeConversation.type !== 'group') return;
+    const val = input.value;
+    if (!val.endsWith('@')) return;
+    if (typeof openAtMentionPicker !== 'function') return;
+    const picked = await openAtMentionPicker();
+    if (picked) {
+      input.value = val + picked.name + ' ';
+      if (!state._atMentions) state._atMentions = [];
+      state._atMentions.push(picked.id);
+      input.dispatchEvent(new Event('input'));
+      input.focus();
+    }
+  });
   on("emojiBtn", "click", () => { hideEl("actionPanel"); toggleEl("emojiPanel", "hidden"); });
   on("toggleActionsBtn", "click", () => { hideEl("emojiPanel"); toggleEl("actionPanel", "hidden"); });
 
@@ -4487,18 +4533,28 @@ const loadConversations = singleFlight(async function _loadConversationsImpl() {
     }
     if (state.activeConversation) {
       const next = state.conversationsById.get(state.activeConversation.id);
-      if (next) Object.assign(state.activeConversation, {
-        title: next.title || state.activeConversation.title,
-        peerAvatarUrl: next.peerAvatarUrl || state.activeConversation.peerAvatarUrl,
-        peerIsFriend: next.peerIsFriend === true,
-        muted: !!next.muted,
-        pinned: !!next.pinned,
-        clearedAt: next.clearedAt || 0,
-        peerLastReadAt: Number(next.peerLastReadAt || 0),
-        unread: next.unread || 0,
-        lastMessageAt: next.lastMessageAt || 0,
-        preview: next.preview || ''
-      });
+      if (next) {
+        Object.assign(state.activeConversation, {
+          type: next.type || state.activeConversation.type,
+          title: next.title || state.activeConversation.title,
+          peerAvatarUrl: next.peerAvatarUrl || state.activeConversation.peerAvatarUrl,
+          peerIsFriend: next.peerIsFriend === true,
+          muted: !!next.muted,
+          pinned: !!next.pinned,
+          clearedAt: next.clearedAt || 0,
+          peerLastReadAt: Number(next.peerLastReadAt || 0),
+          unread: next.unread || 0,
+          lastMessageAt: next.lastMessageAt || 0,
+          preview: next.preview || '',
+          memberCount: next.memberCount || 0,
+          memberAvatars: next.memberAvatars || [],
+          ownerId: next.ownerId || '',
+        });
+        // Update title for group chat
+        if (next.type === 'group') {
+          setText("chatTitle", (next.title || '群聊') + `(${next.memberCount || next.members?.length || ''})`);
+        }
+      }
       applyChatRelationshipState();
     }
     scheduleSortAndRender();

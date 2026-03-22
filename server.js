@@ -46,6 +46,8 @@ const createUserRoutes = require('./server_routes_users');
 const createProductRoutes = require('./server_routes_products');
 const createAdminRoutes = require('./server_routes_admin');
 const createAdminExtRoutes = require('./server_routes_admin_ext');
+const createGroupChatRoutes = require('./server_routes_group_chat');
+const { createGroupChat, getGroupChatDetail, updateGroupChat, addGroupMembers, removeGroupMember, leaveGroupChat, dismissGroupChat, transferGroupOwner, setGroupAdmin, setGroupNickname, muteGroupMember } = require('./group_chat_service');
 
 const PORT = process.env.PORT || 4173;
 const ROOT = __dirname;
@@ -547,11 +549,15 @@ function buildConversationMeta(conv, userId) {
   let preview = '暂无消息';
   let foundPreview = false;
   let lastMessageAt = 0;
+  let lastSenderId = '';
+  let lastMsgType = '';
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const msg = list[i];
     if (!isMessageVisibleToUser(msg, conv, userId)) continue;
     if (!foundPreview) {
       lastMessageAt = msg.createdAt || 0;
+      lastSenderId = msg.senderId || '';
+      lastMsgType = msg.type || '';
       const quick = _previewByType[msg.type];
       if (quick) preview = quick;
       else if (msg.type === 'card') {
@@ -563,7 +569,7 @@ function buildConversationMeta(conv, userId) {
     if (msg.createdAt > lastRead && msg.senderId !== userId) unread += 1;
     if (foundPreview && msg.createdAt <= lastRead) break;
   }
-  const result = { preview, unread, lastMessageAt, _lastRead: lastRead };
+  const result = { preview, unread, lastMessageAt, lastSenderId, lastMsgType, _lastRead: lastRead };
   _convMetaCache.set(cacheKey, result);
   // Incremental eviction: bulk-collect then delete to avoid iterator invalidation overhead
   if (_convMetaCache.size > 4500) {
@@ -819,6 +825,7 @@ const routeCtx = {
   createProduct, deleteProduct, updateProduct, queryMallItems,
   createBroadcastMessage, buildAdminDashboardData, requireAdmin,
   sseClientsByUser,
+  createGroupChat, getGroupChatDetail, updateGroupChat, addGroupMembers, removeGroupMember, leaveGroupChat, dismissGroupChat, transferGroupOwner, setGroupAdmin, setGroupNickname, muteGroupMember,
 };
 const handleAuthRoutes = createAuthRoutes(routeCtx);
 const handleSocialRoutes = createSocialRoutes(routeCtx);
@@ -828,6 +835,7 @@ const handleUserRoutes = createUserRoutes(routeCtx);
 const handleProductRoutes = createProductRoutes(routeCtx);
 const handleAdminRoutes = createAdminRoutes(routeCtx);
 const handleAdminExtRoutes = createAdminExtRoutes(routeCtx);
+const handleGroupChatRoutes = createGroupChatRoutes(routeCtx);
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -944,6 +952,9 @@ const server = http.createServer(async (req, res) => {
 
     // Friend, group & blacklist routes
     if (await handleSocialRoutes(pathname, req.method, req, res, searchParams)) return;
+
+    // Group chat routes
+    if (await handleGroupChatRoutes(pathname, req.method, req, res, searchParams)) return;
 
     // Conversation & message routes
     if (await handleChatRoutes(pathname, req.method, req, res, searchParams)) return;

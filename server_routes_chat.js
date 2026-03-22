@@ -34,6 +34,9 @@ module.exports = function createChatRoutes(ctx) {
         authUser,
         directConvBasesByUser: index.directConvBasesByUser,
         convById: index.convById,
+        convByUser: index.convByUser,
+        usersById: index.usersById,
+        friendshipByPair: index.friendshipByPair,
         buildConversationMeta,
       });
       return sendJson(res, 200, data);

@@ -109,6 +109,7 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
     node.className = 'message-row system-msg';
     node.appendChild(createEl('div', 'bubble', txt || ''));
   } else {
+    const isGroupChat = state.activeConversation?.type === 'group';
     const avatarWrap = createEl('div', 'avatar-click-wrap');
     avatarWrap.dataset.senderId = msg.senderId;
     avatarWrap.dataset.senderName = finalName;
@@ -118,6 +119,10 @@ function buildMessageChunk(msg, prevCreatedAt = 0) {
 
     const wrap = createEl('div', 'content-wrap');
     if (isTemp) wrap.style.opacity = '0.6';
+    // Show sender name for group messages (not own messages)
+    if (isGroupChat && msg.senderId !== state.currentUser?.id) {
+      wrap.appendChild(createEl('div', 'group-sender-name', finalName));
+    }
 
     if (msg.type === 'audio') {
       const bubble = createEl('div', 'bubble audio-bubble');
