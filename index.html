@@ -1053,6 +1053,58 @@
         </div>
       </section>
 
+      <!-- Group Chat: Create Group -->
+      <section id="groupCreatePage" class="chat-list-view hidden">
+        <div class="gc-search-bar">
+          <input id="gcSearchInput" placeholder="搜索好友" oninput="renderGroupMemberPicker(this.value)" />
+        </div>
+        <div id="gcSelectedAvatars" class="gc-selected-avatars"></div>
+        <div id="gcSelectedCount" class="gc-selected-count"></div>
+        <div id="gcFriendList" class="gc-friend-list"></div>
+        <div id="gcSelectedBar" class="gc-selected-bar">
+          <button id="gcConfirmBtn" class="primary-btn" onclick="confirmCreateGroupChat()" disabled>完成</button>
+        </div>
+      </section>
+
+      <!-- Group Chat: Settings -->
+      <section id="groupChatSettingsPage" class="chat-list-view hidden">
+        <div class="gc-settings-section">
+          <div id="gcSettingsMembers" class="gc-member-grid"></div>
+          <button id="gcViewAllMembers" class="chat-item" style="justify-content:center; color:#576b95;" onclick="if(_currentGroupDetail) openGroupMemberList(_currentGroupDetail)">查看全部群成员</button>
+        </div>
+        <div class="gc-settings-section">
+          <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupName(_currentGroupDetail.id)">群聊名称 <span id="gcSettingsName" style="color:#999;"></span></button>
+          <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupAnnouncement(_currentGroupDetail.id)">群公告 <span id="gcSettingsAnnouncement" style="color:#999; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span></button>
+          <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupNickname(_currentGroupDetail.id)">我在本群的昵称 <span id="gcSettingsNickname" style="color:#999;"></span></button>
+        </div>
+        <div class="gc-settings-section">
+          <button id="gcMuteBtn" class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) toggleAction('mute')">消息免打扰</button>
+          <button id="gcPinBtn" class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) toggleAction('pin')">置顶聊天</button>
+        </div>
+        <div class="gc-settings-section">
+          <button class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) clearChat()">清空聊天记录</button>
+          <button id="gcTransferBtn" class="chat-item hidden" style="justify-content:center; color:#576b95;" onclick="if(_currentGroupDetail) transferGroupOwnership(_currentGroupDetail.id)">转让群主</button>
+          <button id="gcLeaveBtn" class="chat-item" style="color:#ff3b30; justify-content:center;">退出群聊</button>
+        </div>
+      </section>
+
+      <!-- Group Chat: Invite Members -->
+      <section id="gcInvitePage" class="chat-list-view hidden">
+        <div class="gc-search-bar"><input placeholder="搜索好友" /></div>
+        <div id="gcInviteList" class="gc-friend-list"></div>
+        <div class="gc-selected-bar"><button id="gcInviteConfirmBtn" class="primary-btn">确定</button></div>
+      </section>
+
+      <!-- Group Chat: Remove Members -->
+      <section id="gcRemovePage" class="chat-list-view hidden">
+        <div id="gcRemoveList" class="gc-friend-list"></div>
+      </section>
+
+      <!-- Group Chat: Member List -->
+      <section id="gcMemberListPage" class="chat-list-view hidden">
+        <div id="gcMemberListContent" class="gc-friend-list"></div>
+      </section>
+
       <input id="imageInput" type="file" accept="image/*" class="hidden" />
       <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" />
 
@@ -1083,57 +1135,6 @@
        </div>
     </div>
 
-    <!-- Group Chat: Create Group -->
-    <section id="groupCreatePage" class="chat-list-view hidden">
-      <div class="gc-search-bar">
-        <input id="gcSearchInput" placeholder="搜索好友" oninput="renderGroupMemberPicker(this.value)" />
-      </div>
-      <div id="gcSelectedAvatars" class="gc-selected-avatars"></div>
-      <div id="gcSelectedCount" class="gc-selected-count"></div>
-      <div id="gcFriendList" class="gc-friend-list"></div>
-      <div id="gcSelectedBar" class="gc-selected-bar">
-        <button id="gcConfirmBtn" class="primary-btn" onclick="confirmCreateGroupChat()" disabled>完成</button>
-      </div>
-    </section>
-
-    <!-- Group Chat: Settings -->
-    <section id="groupChatSettingsPage" class="chat-list-view hidden">
-      <div class="gc-settings-section">
-        <div id="gcSettingsMembers" class="gc-member-grid"></div>
-        <button id="gcViewAllMembers" class="chat-item" style="justify-content:center; color:#576b95;" onclick="if(_currentGroupDetail) openGroupMemberList(_currentGroupDetail)">查看全部群成员</button>
-      </div>
-      <div class="gc-settings-section">
-        <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupName(_currentGroupDetail.id)">群聊名称 <span id="gcSettingsName" style="color:#999;"></span></button>
-        <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupAnnouncement(_currentGroupDetail.id)">群公告 <span id="gcSettingsAnnouncement" style="color:#999; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span></button>
-        <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupNickname(_currentGroupDetail.id)">我在本群的昵称 <span id="gcSettingsNickname" style="color:#999;"></span></button>
-      </div>
-      <div class="gc-settings-section">
-        <button id="gcMuteBtn" class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) toggleAction('mute')">消息免打扰</button>
-        <button id="gcPinBtn" class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) toggleAction('pin')">置顶聊天</button>
-      </div>
-      <div class="gc-settings-section">
-        <button class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) clearChat()">清空聊天记录</button>
-        <button id="gcTransferBtn" class="chat-item hidden" style="justify-content:center; color:#576b95;" onclick="if(_currentGroupDetail) transferGroupOwnership(_currentGroupDetail.id)">转让群主</button>
-        <button id="gcLeaveBtn" class="chat-item" style="color:#ff3b30; justify-content:center;">退出群聊</button>
-      </div>
-    </section>
-
-    <!-- Group Chat: Invite Members -->
-    <section id="gcInvitePage" class="chat-list-view hidden">
-      <div class="gc-search-bar"><input placeholder="搜索好友" /></div>
-      <div id="gcInviteList" class="gc-friend-list"></div>
-      <div class="gc-selected-bar"><button id="gcInviteConfirmBtn" class="primary-btn">确定</button></div>
-    </section>
-
-    <!-- Group Chat: Remove Members -->
-    <section id="gcRemovePage" class="chat-list-view hidden">
-      <div id="gcRemoveList" class="gc-friend-list"></div>
-    </section>
-
-    <!-- Group Chat: Member List -->
-    <section id="gcMemberListPage" class="chat-list-view hidden">
-      <div id="gcMemberListContent" class="gc-friend-list"></div>
-    </section>
 
     <!-- Group Chat: @ mention picker -->
     <div id="gcAtPickerSheet" class="publish-sheet hidden">
