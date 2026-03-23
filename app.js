@@ -3830,6 +3830,7 @@ function setMainTab(tab) {
     tabEl.classList.add('active');
   }
   hideTabViews();
+  showEl("homeTabbar");
 
   if (tab === 'messages') { showEl("chatListView"); setText("chatTitle", "微信"); tabLoad('conversations', loadConversations); tabLoad('systemMessages', loadSystemMessages); scheduleTradeReminderRefresh(0); }
   else if (tab === 'friends') { showEl("friendListView"); setText("chatTitle", "通讯录"); tabLoad('friends', loadFriends); tabLoad('friendRequests', loadFriendRequests); }
@@ -4623,6 +4624,7 @@ async function bootstrap() {
     if($('messagesTab')) $('messagesTab').classList.add('active');
     hideTabViews();
     showEl("chatListView");
+    showEl("homeTabbar");
     setText("chatTitle", "微信"); 
     
     loadConversations().catch(() => {});
