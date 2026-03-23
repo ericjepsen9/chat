@@ -304,12 +304,12 @@ input, textarea { font-size: var(--font-body); }
   body {
     padding: 0;
     background: var(--bg);
-    min-height: 100dvh;
-    min-height: 100vh;
+    min-height: 100vh;   /* fallback */
+    min-height: 100dvh;  /* dynamic viewport: accounts for browser chrome */
   }
   .mobile-shell {
-    height: 100dvh;
-    height: 100vh;
+    height: 100vh;       /* fallback */
+    height: 100dvh;      /* dynamic viewport: keeps tab bar above browser chrome */
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;
