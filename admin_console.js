@@ -11,7 +11,7 @@ function money(v) { return '¥' + (Number(v) || 0).toFixed(2); }
 function fmtDate(ts) { if (!ts) return '-'; const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
 function fmtDateShort(ts) { if (!ts) return '-'; const d = new Date(ts); return String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
-const STATUS_MAP = { pending: ['待处理','badge-yellow'], accepted: ['已接单','badge-blue'], processing: ['处理中','badge-blue'], in_progress: ['进行中','badge-blue'], completed: ['已完成','badge-green'] };
+const STATUS_MAP = { pending: ['待处理','badge-yellow'], accepted: ['已接单','badge-blue'], processing: ['处理中','badge-blue'], in_progress: ['进行中','badge-blue'], shipped: ['已发货','badge-blue'], completed: ['已完成','badge-green'], cancelled: ['已取消','badge-red'], refunded: ['已退款','badge-red'] };
 function statusBadge(s) { const [label, cls] = STATUS_MAP[s] || [s, 'badge-gray']; return `<span class="badge ${cls}">${esc(label)}</span>`; }
 
 /* ── Auth ── */

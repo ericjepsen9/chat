@@ -101,10 +101,11 @@ async function enqueueSignal(conversationId, payload) {
 }
 
 // Cached friends lookup map — rebuilt lazily when friends change
-let _friendsById = null; let _friendsByIdSig = null;
+let _friendsById = null; let _friendsByIdSig = null; let _friendsByIdLen = -1;
 function _getFriendsById() {
-  const sig = state.friends || null;
-  if (_friendsById && _friendsByIdSig === sig) return _friendsById;
+  const friends = state.friends || null;
+  const len = friends ? friends.length : 0;
+  if (_friendsById && _friendsByIdSig === friends && _friendsByIdLen === len) return _friendsById;
   _friendsById = new Map();
   if (state.friends) {
     for (const f of state.friends) {
@@ -114,7 +115,8 @@ function _getFriendsById() {
       if (f.friend.friendId) _friendsById.set(f.friend.friendId, f);
     }
   }
-  _friendsByIdSig = sig;
+  _friendsByIdSig = friends;
+  _friendsByIdLen = len;
   return _friendsById;
 }
 function resolveCallPeerMeta(peerId, fallbackName = '') {

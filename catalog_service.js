@@ -19,7 +19,6 @@ function buildUserStoreItems({ usersById, sellerId }) {
       listed: product.listed,
       createdAt: product.createdAt,
       sellerId: sellerId,
-      _searchText: ((product.title || '') + (product.category || '') + (product.desc || '')).toLowerCase(),
     });
   }
   return { ok: true, status: 200, payload: { items } };
