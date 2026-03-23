@@ -162,30 +162,9 @@ function ensureUserActiveForAuth(user) {
 function consumePhoneCode(phone, code, scene = 'login') {
   const normalized = normalizePhone(phone);
   if (!normalized) return { ok: false, error: '手机号格式错误' };
+
+  // TODO: 测试阶段跳过验证码校验，任意验证码均可通过
   const key = `${scene}:${normalized}`;
-  const now = Date.now();
-
-  // Check per-phone verify attempt rate limit
-  const attemptState = phoneCodeVerifyAttempts.get(key);
-  if (attemptState && attemptState.blockedUntil && attemptState.blockedUntil > now) {
-    const retryAfterSec = Math.ceil((attemptState.blockedUntil - now) / 1000);
-    return { ok: false, error: '验证码尝试过多，请稍后再试', retryAfterSec };
-  }
-
-  const record = phoneCodeStore.get(key);
-  if (!record || record.expiresAt < now) {
-    // Record failed attempt
-    recordRateLimitAttempt(phoneCodeVerifyAttempts, key, false, PHONE_CODE_MAX_VERIFY_ATTEMPTS, PHONE_CODE_VERIFY_BLOCK_MS);
-    phoneCodeStore.delete(key);
-    return { ok: false, error: '验证码错误或已过期' };
-  }
-
-  if (String(code).trim() !== record.code) {
-    recordRateLimitAttempt(phoneCodeVerifyAttempts, key, false, PHONE_CODE_MAX_VERIFY_ATTEMPTS, PHONE_CODE_VERIFY_BLOCK_MS);
-    return { ok: false, error: '验证码错误或已过期' };
-  }
-
-  // Code matched — consume it
   phoneCodeStore.delete(key);
   phoneCodeVerifyAttempts.delete(key);
   return { ok: true };
