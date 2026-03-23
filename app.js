@@ -1223,6 +1223,11 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   else if (page === 'msgSearchPage') { setText("chatTitle", '搜索'); setTimeout(() => { if($("msgSearchPageInput")) $("msgSearchPageInput").focus(); }, 100); }
   else if (page === 'mallSearchPage') { setText("chatTitle", '搜索'); setTimeout(() => { if($("mallSearchPageInput")) $("mallSearchPageInput").focus(); }, 100); }
   else if (page === 'systemMessagesPage') { setText("chatTitle", '系统消息'); renderSystemMessagesList(); }
+  else if (page === 'groupCreatePage') { setText("chatTitle", '发起群聊'); }
+  else if (page === 'groupChatSettingsPage') { setText("chatTitle", '聊天信息'); }
+  else if (page === 'gcInvitePage') { setText("chatTitle", '邀请成员'); }
+  else if (page === 'gcRemovePage') { setText("chatTitle", '移除成员'); }
+  else if (page === 'gcMemberListPage') { setText("chatTitle", '全部群成员'); }
 
 };
 

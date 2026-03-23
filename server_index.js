@@ -325,6 +325,17 @@ function indexNewConversation(conv) {
 function rebuildFriendshipIndexes() {
   index.friendshipsByUser.clear();
   index.friendshipByPair.clear();
+  // Deduplicate: keep last entry for each userId:friendId pair
+  const deduped = [];
+  const seen = new Set();
+  for (let i = db.friendships.length - 1; i >= 0; i--) {
+    const rel = db.friendships[i];
+    const key = `${rel.userId}:${rel.friendId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.unshift(rel);
+  }
+  if (deduped.length < db.friendships.length) db.friendships = deduped;
   for (const rel of db.friendships) {
     addToMapArray(index.friendshipsByUser, rel.userId, rel);
     index.friendshipByPair.set(`${rel.userId}:${rel.friendId}`, rel);

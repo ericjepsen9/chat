@@ -24,10 +24,13 @@ function renderGroupMemberPicker(keyword) {
 
   const frag = document.createDocumentFragment();
   let count = 0;
+  const seen = new Set();
   for (let i = 0; i < allFriends.length; i++) {
     const item = allFriends[i];
     const f = item.friend;
     if (!f) continue;
+    if (seen.has(f.id)) continue;
+    seen.add(f.id);
     const name = f.remark || f.displayName || f.username || '';
     if (search && !name.toLowerCase().includes(search) && !(f.username || '').toLowerCase().includes(search)) continue;
 
@@ -77,7 +80,7 @@ function updateGcSelectedBar() {
     btn.textContent = count > 0 ? `完成(${count})` : '完成';
     btn.disabled = count < 2;
   }
-  if (countEl) countEl.textContent = count > 0 ? `已选择 ${count} 人` : '';
+  if (countEl) { countEl.textContent = count > 0 ? `已选择 ${count} 人` : ''; countEl.classList.toggle('hidden', count === 0); }
 
   // Render selected avatars
   const avatarBar = $('gcSelectedAvatars');
@@ -88,6 +91,7 @@ function updateGcSelectedBar() {
       wrap.appendChild(createAvatarNode(f, f.displayName || ''));
       avatarBar.appendChild(wrap);
     }
+    avatarBar.classList.toggle('hidden', count === 0);
   }
 }
 
