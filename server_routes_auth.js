@@ -17,6 +17,7 @@ module.exports = function createAuthRoutes(ctx) {
     generateUniqueAppNumberId, indexNewUser, uid,
     db, sessions, csrfTokens,
     schedulePersistCritical, broadcastAll,
+    EXPOSE_MOCK_PHONE_CODE,
   } = ctx;
 
   function validatePasswordLength(password) {
@@ -77,7 +78,9 @@ module.exports = function createAuthRoutes(ctx) {
       if (!issueResult.ok) {
         return sendJson(res, 429, { error: issueResult.error || '发送验证码失败', retryAfterSec: issueResult.retryAfterSec || 0 });
       }
-      return sendJson(res, 200, { ok: true, expiresInSec: issueResult.expiresInSec });
+      const resp = { ok: true, expiresInSec: issueResult.expiresInSec };
+      if (EXPOSE_MOCK_PHONE_CODE) resp.code = issueResult.code;
+      return sendJson(res, 200, resp);
     }
 
     if (matchRoute(pathname, '/api/login/phone-code')) {

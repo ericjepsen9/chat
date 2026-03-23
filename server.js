@@ -823,7 +823,7 @@ const routeCtx = {
   createDirectConversation,
   updateUserProfile, buildUserProfileView, buildUserStoreItems,
   createProduct, deleteProduct, updateProduct, queryMallItems,
-  createBroadcastMessage, buildAdminDashboardData, requireAdmin,
+  createBroadcastMessage, buildAdminDashboardData, requireAdmin, EXPOSE_MOCK_PHONE_CODE,
   sseClientsByUser,
   createGroupChat, getGroupChatDetail, updateGroupChat, addGroupMembers, removeGroupMember, leaveGroupChat, dismissGroupChat, transferGroupOwner, setGroupAdmin, setGroupNickname, muteGroupMember,
 };

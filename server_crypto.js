@@ -16,7 +16,7 @@ function makeSalt() {
   return crypto.randomBytes(16).toString('hex');
 }
 
-const SCRYPT_OPTS = { N: 65536, r: 8, p: 1 };
+const SCRYPT_OPTS = { N: 16384, r: 8, p: 1 };
 
 function hashPassword(password, salt = makeSalt()) {
   const hash = crypto.scryptSync(String(password), salt, 64, SCRYPT_OPTS).toString('hex');
@@ -163,8 +163,35 @@ function consumePhoneCode(phone, code, scene = 'login') {
   const normalized = normalizePhone(phone);
   if (!normalized) return { ok: false, error: '手机号格式错误' };
 
-  // TODO: 测试阶段跳过验证码校验，任意验证码均可通过
   const key = `${scene}:${normalized}`;
+  const codeStr = String(code || '').trim();
+  if (!codeStr) return { ok: false, error: '请输入验证码' };
+
+  // Rate-limit verification attempts to prevent brute-force
+  const now = Date.now();
+  const attempts = phoneCodeVerifyAttempts.get(key);
+  if (attempts && attempts.count >= PHONE_CODE_MAX_VERIFY_ATTEMPTS && attempts.blockedUntil > now) {
+    return { ok: false, error: '验证码尝试次数过多，请稍后再试' };
+  }
+
+  const stored = phoneCodeStore.get(key);
+  if (!stored || stored.expiresAt < now) {
+    phoneCodeStore.delete(key);
+    return { ok: false, error: '验证码已过期或不存在，请重新获取' };
+  }
+
+  if (stored.code !== codeStr) {
+    // Record failed attempt
+    const prev = phoneCodeVerifyAttempts.get(key) || { count: 0, blockedUntil: 0 };
+    prev.count++;
+    if (prev.count >= PHONE_CODE_MAX_VERIFY_ATTEMPTS) {
+      prev.blockedUntil = now + PHONE_CODE_VERIFY_BLOCK_MS;
+    }
+    phoneCodeVerifyAttempts.set(key, prev);
+    return { ok: false, error: '验证码错误' };
+  }
+
+  // Code matches — consume it
   phoneCodeStore.delete(key);
   phoneCodeVerifyAttempts.delete(key);
   return { ok: true };

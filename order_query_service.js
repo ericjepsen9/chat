@@ -28,9 +28,8 @@ function queryOrders({ db, authUser, searchParams, isAdmin, index }) {
     candidates = db.orders || [];
   }
 
+  // Filter all matching orders first
   const matched = [];
-  let total = 0;
-  const end = offset + limit;
   for (let i = 0; i < candidates.length; i++) {
     const o = candidates[i];
     if (Array.isArray(o.deletedBy) && o.deletedBy.length) {
@@ -44,12 +43,13 @@ function queryOrders({ db, authUser, searchParams, isAdmin, index }) {
     } else {
       if (o.buyerId !== userId && o.sellerId !== userId) continue;
     }
-    if (total >= offset && total < end) matched.push(o);
-    total++;
+    matched.push(o);
   }
-  // Sort only the page (orders are generally newest-first, but ensure correctness)
+  // Sort all matched orders by newest first, then paginate
   matched.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return { orders: matched, total, limit, offset, hasMore: end < total };
+  const total = matched.length;
+  const orders = matched.slice(offset, offset + limit);
+  return { orders, total, limit, offset, hasMore: offset + limit < total };
 }
 
 module.exports = {

@@ -79,7 +79,7 @@ module.exports = function createChatRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const authUser = getAuthedUser(req, res, { searchParams });
       if (!authUser) return true;
-      if (!(conv._memberSet.has(authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
+      if (!(conv._memberSet ? conv._memberSet.has(authUser.id) : conv.members.includes(authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
       const keyword = (searchParams.get('keyword') || '').trim().toLowerCase();
       if (!keyword || keyword.length < 1) return sendJson(res, 400, { error: 'keyword_required' });
       const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || String(SEARCH_LIMITS.CONV_DEFAULT), 10) || SEARCH_LIMITS.CONV_DEFAULT), SEARCH_LIMITS.CONV_MAX);
@@ -136,7 +136,7 @@ module.exports = function createChatRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const authUser = getAuthedUser(req, res);
       if (!authUser) return true;
-      if (!(conv._memberSet.has(authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
+      if (!(conv._memberSet ? conv._memberSet.has(authUser.id) : conv.members.includes(authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
 
       const result = action === 'delete'
         ? deleteConversationMessage({
@@ -169,7 +169,7 @@ module.exports = function createChatRoutes(ctx) {
       if (!conv) return sendJson(res, 404, { error: 'not_found' });
       const context = await getAuthedBody(req, res);
       if (!context) return true;
-      if (!(conv._memberSet.has(context.authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
+      if (!(conv._memberSet ? conv._memberSet.has(context.authUser.id) : conv.members.includes(context.authUser.id))) return sendJson(res, 403, { error: 'forbidden' });
 
       const result = applyConversationAction({
         action,

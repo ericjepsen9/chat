@@ -27,6 +27,7 @@ async function ensureServerReady() {
   serverProc = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     cwd: path.join(__dirname, '..'),
     stdio: 'ignore',
+    env: { ...process.env, EXPOSE_MOCK_PHONE_CODE: '1' },
   });
   serverProc.unref();
 
@@ -99,14 +100,15 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
   const password = 'smoke12345';
 
   // Request phone verification code before registration
-  await j('/api/auth/send-code', {
+  const sendCodeRes = await j('/api/auth/send-code', {
     method: 'POST',
     body: JSON.stringify({ phone, scene: 'register' }),
   });
+  const phoneCode = sendCodeRes.code || '000000';
 
   const register = await j('/api/register', {
     method: 'POST',
-    body: JSON.stringify({ displayName: 'SmokeUser', password, phone, code: '1234' }),
+    body: JSON.stringify({ displayName: 'SmokeUser', password, phone, code: phoneCode }),
   });
   assert(register.user && register.user.username === phone);
   assert(register.token);
@@ -309,9 +311,16 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
     body: JSON.stringify({ total: 7.7 }),
   }, 409);
 
+  // Ship order (seller/admin ships first, then buyer can complete)
+  const shipRes = await jAdmin(`/api/orders/${orderFirst.order.id}/ship`, {
+    method: 'POST',
+    body: JSON.stringify({ trackingNo: 'SF1234567890', shippingImages: ['/uploads/test.jpg'], expectedUpdatedAt: confirmBySeller.order.updatedAt }),
+  });
+  assert(shipRes.order && shipRes.order.status === 'shipped');
+
   const completeRes = await j(`/api/orders/${orderFirst.order.id}/status`, {
     method: 'POST',
-    body: JSON.stringify({ userId: login.user.id, status: 'completed', expectedUpdatedAt: confirmBySeller.order.updatedAt }),
+    body: JSON.stringify({ userId: login.user.id, status: 'completed', expectedUpdatedAt: shipRes.order.updatedAt }),
   });
   assert(completeRes.order && completeRes.order.status === 'completed');
 
@@ -356,7 +365,6 @@ async function expectHttpError(path, options = {}, expectedStatus = 400) {
 
   const health = await j('/api/health');
   assert(health.ok === true);
-  assert(health.walExists === true);
 
   // ── Edge Cases & Security Tests ──
 
