@@ -4589,6 +4589,7 @@ async function bootstrap() {
     updateMyCartBadge();
     hideEl("authScreen");
     showEl("appScreen");
+    showEl("homeTabbar");
 
     try {
       const _ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
