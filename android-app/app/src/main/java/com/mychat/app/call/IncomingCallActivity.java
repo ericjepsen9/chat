@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
-import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -149,7 +148,7 @@ public class IncomingCallActivity extends AppCompatActivity {
 
     private void startRingtone() {
         try {
-            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            Uri ringtoneUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.sound_call_ringtone);
             ringtonePlayer = new MediaPlayer();
             ringtonePlayer.setDataSource(this, ringtoneUri);
             ringtonePlayer.setAudioAttributes(new AudioAttributes.Builder()
@@ -185,7 +184,7 @@ public class IncomingCallActivity extends AppCompatActivity {
             vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
         }
         if (vibrator != null && vibrator.hasVibrator()) {
-            long[] pattern = {0, 500, 300, 500, 300, 500, 1000}; // ring pattern
+            long[] pattern = {0, 800, 400, 800, 400, 800, 1200}; // strong ring pattern
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
             } else {

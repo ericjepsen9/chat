@@ -23,6 +23,7 @@ import com.mychat.app.ChatApplication;
 import com.mychat.app.MainActivity;
 import com.mychat.app.call.CallNotificationHelper;
 import com.mychat.app.call.CallService;
+import com.mychat.app.util.SoundManager;
 
 /**
  * JavaScript bridge between H5 and Android native layer.
@@ -36,6 +37,7 @@ import com.mychat.app.call.CallService;
  * - stopCallService()         — stop foreground service
  * - dismissCallNotification() — dismiss incoming call notification
  * - vibrate(ms)               — trigger device vibration
+ * - playNotificationSound(type) — play sound+vibration ("message"|"call"|"transaction")
  * - copyToClipboard(text)     — copy text to clipboard
  * - getDeviceInfo()           — get device info JSON
  * - openSystemSettings()      — open app settings page
@@ -126,6 +128,28 @@ public class NativeBridge {
         } else {
             v.vibrate(ms);
         }
+    }
+
+    /**
+     * Play a notification sound with vibration.
+     * @param type one of "message", "call", "transaction"
+     */
+    @JavascriptInterface
+    public void playNotificationSound(String type) {
+        SoundManager.NotificationType notifType;
+        switch (type) {
+            case "call":
+                notifType = SoundManager.NotificationType.CALL;
+                break;
+            case "transaction":
+                notifType = SoundManager.NotificationType.TRANSACTION;
+                break;
+            case "message":
+            default:
+                notifType = SoundManager.NotificationType.MESSAGE;
+                break;
+        }
+        SoundManager.getInstance().play(activity, notifType);
     }
 
     @JavascriptInterface

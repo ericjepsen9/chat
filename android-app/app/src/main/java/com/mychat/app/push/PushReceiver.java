@@ -61,6 +61,9 @@ public class PushReceiver extends MessageReceiver {
                 case "friend_request":
                     handleFriendRequest(context, json);
                     break;
+                case "transaction_message":
+                    handleTransactionMessage(context, json);
+                    break;
                 case "order_update":
                     handleOrderUpdate(context, json);
                     break;
@@ -110,6 +113,17 @@ public class PushReceiver extends MessageReceiver {
         String fromName = json.optString("fromName", "有人");
         NotificationHelper.showSystemNotification(context,
                 "新的好友请求", fromName + " 请求添加你为好友");
+    }
+
+    /**
+     * Handle transaction message push (transfer, payment, receipt)
+     */
+    private void handleTransactionMessage(Context context, JSONObject json) {
+        String title = json.optString("title", "交易通知");
+        String body = json.optString("body", "你有一笔新的交易");
+        String conversationId = json.optString("conversationId", "");
+
+        NotificationHelper.showTransactionNotification(context, title, body, conversationId);
     }
 
     /**

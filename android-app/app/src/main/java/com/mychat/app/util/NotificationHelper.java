@@ -4,7 +4,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.provider.Settings;
+import android.net.Uri;
 
 import androidx.core.app.NotificationCompat;
 
@@ -33,12 +33,15 @@ public class NotificationHelper {
         PendingIntent pending = PendingIntent.getActivity(context, notificationIdCounter,
                 intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        Uri msgSoundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + R.raw.sound_message);
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, ChatApplication.CHANNEL_MESSAGE)
                 .setSmallIcon(R.drawable.ic_message)
                 .setContentTitle(senderName)
                 .setContentText(content)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setSound(Settings.System.DEFAULT_NOTIFICATION_URI)
+                .setSound(msgSoundUri)
+                .setVibrate(new long[]{0, 100, 80, 100})
                 .setAutoCancel(true)
                 .setContentIntent(pending)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE);
@@ -68,6 +71,42 @@ public class NotificationHelper {
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true)
                 .setContentIntent(pending);
+
+        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) {
+            nm.notify(notificationIdCounter++, builder.build());
+            if (notificationIdCounter > 9999) notificationIdCounter = 3000;
+        }
+    }
+
+    /**
+     * Show a transaction notification (transfers, payments, receipts).
+     * Uses a distinct coin-like sound and triple-tap vibration.
+     */
+    public static void showTransactionNotification(Context context, String title,
+                                                     String body, String conversationId) {
+        Intent intent = new Intent(context, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (conversationId != null && !conversationId.isEmpty()) {
+            intent.putExtra("action", "open_conversation");
+            intent.putExtra("conversationId", conversationId);
+        }
+
+        PendingIntent pending = PendingIntent.getActivity(context, notificationIdCounter,
+                intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Uri txSoundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + R.raw.sound_transaction);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, ChatApplication.CHANNEL_TRANSACTION)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setSound(txSoundUri)
+                .setVibrate(new long[]{0, 150, 100, 150, 100, 300})
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .setCategory(NotificationCompat.CATEGORY_STATUS);
 
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) {

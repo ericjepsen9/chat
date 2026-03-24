@@ -69,7 +69,7 @@ public class CallNotificationHelper {
                 .setFullScreenIntent(fullScreenPending, true)
                 .setAutoCancel(true)
                 .setOngoing(true)
-                .setVibrate(new long[]{0, 500, 300, 500})
+                .setVibrate(new long[]{0, 800, 400, 800, 400, 800, 1200})
                 .build();
 
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);

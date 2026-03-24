@@ -12,6 +12,7 @@
  * - incoming_call: triggers native full-screen call UI
  * - new_message: shows notification bar message
  * - friend_request: shows system notification
+ * - transaction_message: shows transaction notification with distinct sound
  * - order_update: shows order status notification
  */
 
@@ -166,6 +167,18 @@ async function pushFriendRequest(targetUserId, fromName) {
 }
 
 /**
+ * Send transaction message push notification (transfer, payment, receipt).
+ */
+async function pushTransactionMessage(targetUserId, title, body, conversationId) {
+  return pushToUser(targetUserId, {
+    type: 'transaction_message',
+    title: title || '交易通知',
+    body: body || '你有一笔新的交易',
+    conversationId: conversationId || '',
+  });
+}
+
+/**
  * Send order update push notification.
  */
 async function pushOrderUpdate(targetUserId, orderId, status) {
@@ -191,6 +204,7 @@ module.exports = {
   pushIncomingCall,
   pushNewMessage,
   pushFriendRequest,
+  pushTransactionMessage,
   pushOrderUpdate,
   isUserOnline,
 };

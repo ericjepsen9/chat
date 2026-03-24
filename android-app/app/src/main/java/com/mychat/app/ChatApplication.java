@@ -6,8 +6,9 @@ import android.app.NotificationManager;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
-import android.provider.Settings;
 import android.util.Log;
+
+import com.mychat.app.util.SoundManager;
 
 import com.alibaba.sdk.android.push.CloudPushService;
 import com.alibaba.sdk.android.push.CommonCallback;
@@ -19,12 +20,14 @@ public class ChatApplication extends Application {
 
     public static final String CHANNEL_CALL = "channel_call";
     public static final String CHANNEL_MESSAGE = "channel_message";
+    public static final String CHANNEL_TRANSACTION = "channel_transaction";
     public static final String CHANNEL_SYSTEM = "channel_system";
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannels();
+        SoundManager.getInstance().init(this);
         initEmasPush();
     }
 
@@ -37,38 +40,55 @@ public class ChatApplication extends Application {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm == null) return;
 
-        AudioAttributes audioAttr = new AudioAttributes.Builder()
+        AudioAttributes ringtoneAttr = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
 
-        // Incoming call — highest importance, shows full-screen intent
+        AudioAttributes notifAttr = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+
+        // --- Incoming call — highest importance, custom ringtone, strong vibration ---
+        Uri callSoundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.sound_call_ringtone);
         NotificationChannel callChannel = new NotificationChannel(
                 CHANNEL_CALL, "来电通知", NotificationManager.IMPORTANCE_HIGH);
-        callChannel.setDescription("来电提醒和通话状态");
-        callChannel.setSound(Settings.System.DEFAULT_RINGTONE_URI, audioAttr);
+        callChannel.setDescription("语音/视频来电提醒");
+        callChannel.setSound(callSoundUri, ringtoneAttr);
         callChannel.enableVibration(true);
-        callChannel.setVibrationPattern(new long[]{0, 500, 300, 500});
+        // Strong repeating pattern: buzz-pause-buzz-pause-buzz-long pause
+        callChannel.setVibrationPattern(new long[]{0, 800, 400, 800, 400, 800, 1200});
         callChannel.setBypassDnd(true);
         callChannel.setLockscreenVisibility(android.app.Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(callChannel);
 
-        // Chat messages
+        // --- Chat messages — custom message tone, short vibration ---
+        Uri msgSoundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.sound_message);
         NotificationChannel msgChannel = new NotificationChannel(
                 CHANNEL_MESSAGE, "聊天消息", NotificationManager.IMPORTANCE_HIGH);
         msgChannel.setDescription("新消息通知");
-        msgChannel.setSound(Settings.System.DEFAULT_NOTIFICATION_URI,
-                new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build());
+        msgChannel.setSound(msgSoundUri, notifAttr);
         msgChannel.enableVibration(true);
+        // Short double-tap vibration for messages
+        msgChannel.setVibrationPattern(new long[]{0, 100, 80, 100});
         nm.createNotificationChannel(msgChannel);
 
-        // System notifications (orders, friend requests, etc.)
+        // --- Transaction messages — custom payment tone, distinct vibration ---
+        Uri txSoundUri = Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.sound_transaction);
+        NotificationChannel txChannel = new NotificationChannel(
+                CHANNEL_TRANSACTION, "交易消息", NotificationManager.IMPORTANCE_HIGH);
+        txChannel.setDescription("转账、收款、支付等交易通知");
+        txChannel.setSound(txSoundUri, notifAttr);
+        txChannel.enableVibration(true);
+        // Triple-tap vibration for transaction alerts
+        txChannel.setVibrationPattern(new long[]{0, 150, 100, 150, 100, 300});
+        nm.createNotificationChannel(txChannel);
+
+        // --- System notifications (friend requests, etc.) ---
         NotificationChannel sysChannel = new NotificationChannel(
                 CHANNEL_SYSTEM, "系统通知", NotificationManager.IMPORTANCE_DEFAULT);
-        sysChannel.setDescription("订单、好友请求等系统通知");
+        sysChannel.setDescription("好友请求等系统通知");
         nm.createNotificationChannel(sysChannel);
     }
 
