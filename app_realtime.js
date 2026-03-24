@@ -260,6 +260,10 @@ async function connectRealtime() {
       state.eventSource.close();
       state.eventSource = null;
     }
+    // Warn user if SSE disconnects during an active call
+    if (state.rtc && state.rtc.phase && state.rtc.phase !== 'idle') {
+      showToast('网络连接已断开，通话信号可能无法送达');
+    }
     state._sseRetryCount = (state._sseRetryCount || 0) + 1;
     if (state._sseRetryCount > 10) {
       console.warn('[sse] max retries reached, stopping reconnect');

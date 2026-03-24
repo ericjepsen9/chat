@@ -90,12 +90,21 @@ function shouldPresentIncomingUI(payload) {
   return true;
 }
 async function enqueueSignal(conversationId, payload) {
-  try {
-    await api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) });
-  } catch (err) {
-    console.warn('[call] signal delivery failed:', err?.message || err);
-    if (state.rtc.phase && state.rtc.phase !== 'idle') {
-      showToast('通话信号发送失败，通话可能中断');
+  const maxRetries = 3;
+  const baseDelay = 500; // ms
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) });
+      return; // success
+    } catch (err) {
+      console.warn(`[call] signal delivery failed (attempt ${attempt + 1}/${maxRetries + 1}):`, err?.message || err);
+      if (attempt < maxRetries && state.rtc.phase && state.rtc.phase !== 'idle') {
+        await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
+        continue;
+      }
+      if (state.rtc.phase && state.rtc.phase !== 'idle') {
+        showToast('通话信号发送失败，通话可能中断');
+      }
     }
   }
 }
@@ -339,7 +348,15 @@ async function createPeerConnection(mode) {
   } catch (err) {
     throw new Error(describeMediaAccessError(err, mode));
   }
-  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+  // Use TURN server config if available (set via window.TURN_CONFIG)
+  if (window.TURN_CONFIG) {
+    iceServers.push(window.TURN_CONFIG);
+  }
+  const pc = new RTCPeerConnection({ iceServers });
   state.rtc.pc = pc; state.rtc.mode = mode; state.rtc.remoteStream = new MediaStream(); state.rtc.remoteCandidateQueue = []; state.rtc.localStream = stream;
   const _pcEls = _getCallEls();
   if(_pcEls.remoteVideo) _pcEls.remoteVideo.srcObject = state.rtc.remoteStream;
