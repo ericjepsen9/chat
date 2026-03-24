@@ -333,15 +333,15 @@ input, textarea { font-size: var(--font-body); }
 
 /* Mobile small screen (≤500px) - enhanced */
 @media (max-width: 500px) {
-  /* Sidebar auto-collapse on small screens */
-  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) {
+  /* Sidebar auto-collapse on small screens (skip when user explicitly expanded) */
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden):not(.sidebar-expanded) {
     width: 56px;
   }
-  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) .sidebar-item-name,
-  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) .sidebar-item-preview {
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden):not(.sidebar-expanded) .sidebar-item-name,
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden):not(.sidebar-expanded) .sidebar-item-preview {
     display: none;
   }
-  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden) .sidebar-item {
+  .sidebar-panel:not(.sidebar-hidden-mode):not(.sidebar-tab-hidden):not(.sidebar-expanded) .sidebar-item {
     padding: 8px 4px;
   }
 
