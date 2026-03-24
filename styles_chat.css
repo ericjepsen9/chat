@@ -76,7 +76,7 @@
 .control-btn.active { opacity: 1; color: var(--brand); }
 .call-actions { display: flex; justify-content: space-evenly; width: 100%; }
 .call-actions button { width: 76px; height: 76px; border-radius: 50%; font-size: 18px; font-weight: 600; color: white; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.2); transition: transform 0.2s; outline:none; cursor:pointer;}
-@media (max-width: 500px) { body { padding: 0; } .mobile-shell { border-radius: 0; height: 100vh; } }
+@media (max-width: 500px) { body { padding: 0; } .mobile-shell { border-radius: 0; } }
 /* V36 conversation list polish */
 .chat-item{ position:relative; contain:content; }
 .chat-item.is-pinned{ background:#f7f7f8; }

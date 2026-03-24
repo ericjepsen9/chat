@@ -301,6 +301,10 @@ input, textarea { font-size: var(--font-body); }
 
 /* Mobile full-screen (real phone browsers) */
 @media (max-width: 540px) {
+  html, body {
+    overflow: hidden;
+    height: 100%;
+  }
   body {
     padding: 0;
     min-height: 0;
@@ -308,9 +312,12 @@ input, textarea { font-size: var(--font-body); }
     align-items: flex-start;
   }
   .mobile-shell {
-    height: 100vh;
-    height: 100dvh;
-    height: var(--app-height, 100dvh);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: auto;
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;
