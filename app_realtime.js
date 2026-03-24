@@ -37,6 +37,15 @@ async function connectRealtime() {
   _on('message_created', async (e) => { try {
     const data = safeParseEventData(e);
     if (!data) return;
+    // Play notification sound for incoming messages from others
+    if (data.message && data.message.senderId !== state.currentUser?.id) {
+      const mtype = data.message.type;
+      if (mtype === 'order_card' || mtype === 'transfer' || mtype === 'payment' || mtype === 'receipt') {
+        SoundManager.play('transaction');
+      } else {
+        SoundManager.play('message');
+      }
+    }
     if(state.activeConversation && state.activeConversation.id === data.conversationId && data.message) {
       const result = upsertMessage(data.message);
       if (result.action === 'append') appendMessageToView(data.message);
@@ -131,6 +140,7 @@ async function connectRealtime() {
       };
       state.rtc.pendingOffer = payload;
       setRtcPhase('incoming');
+      SoundManager.play('call');
 
       let peerName = payload.senderName || payload.senderId;
       const f = findFriendEntry(payload.senderId);
@@ -193,6 +203,7 @@ async function connectRealtime() {
         callId: payload.callId || state.rtc.callId || null
       };
       setRtcPhase('incoming');
+      SoundManager.play('call');
       if (shouldPresentIncomingUI(payload)) {
         updateCallUIInfo(payload.senderId, payload.mode, "收到来电");
         showEl("callPanel");

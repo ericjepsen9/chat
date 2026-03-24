@@ -68,6 +68,8 @@ const MIME_TYPES = {
   '.ogg': 'audio/ogg',
   '.m4a': 'audio/mp4',
   '.mp4': 'video/mp4',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
 };
 
 const FILE_EXT_MAP = new Map([

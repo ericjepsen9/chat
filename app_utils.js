@@ -719,3 +719,37 @@ function updateSseStatus(status) {
     _sseStatusEl.textContent = '实时连接断开';
   }
 }
+
+/* ── Web SoundManager — notification sounds ── */
+const SoundManager = (() => {
+  const SOUNDS = {
+    message: 'sound_message.wav',
+    call: 'sound_call_ringtone.wav',
+    transaction: 'sound_transaction.wav',
+  };
+  const cache = {};
+  let enabled = true;
+
+  function _getAudio(type) {
+    if (!cache[type]) {
+      const src = SOUNDS[type];
+      if (!src) return null;
+      cache[type] = new Audio(src);
+    }
+    return cache[type];
+  }
+
+  function play(type) {
+    if (!enabled) return;
+    const audio = _getAudio(type);
+    if (!audio) return;
+    // Reset to start if already playing
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }
+
+  function setEnabled(val) { enabled = !!val; }
+  function isEnabled() { return enabled; }
+
+  return { play, setEnabled, isEnabled };
+})();
