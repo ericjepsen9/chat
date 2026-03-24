@@ -118,8 +118,9 @@ input, textarea { font-size: var(--font-body); }
 .topbar h2 { margin:0; font-size:var(--font-title-primary); font-weight:600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .topbar p { margin:2px 0 0; font-size:var(--font-micro); color:var(--text-muted); }
 .icon-btn { border:none; background:transparent; padding:0; font-size:26px; color:#333; display:flex; align-items:center; justify-content:center; width:36px; height:36px; cursor:pointer;}
-#backBtn { color:#000; font-weight:700; }
+#backBtn { color:#000; font-weight:700; width:auto; gap:2px; }
 #backBtn svg { width:28px; height:28px; filter:drop-shadow(0 0 1px rgba(0,0,0,.1)); }
+#backBtn .back-text { font-size:15px; font-weight:500; margin-left:-2px; }
 #backBtn:active { opacity:.6; transform:scale(.9); }
 
 /* 列表UI */
