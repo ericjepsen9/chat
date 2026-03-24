@@ -6,12 +6,12 @@
     <title>ChatTrade</title>
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; media-src 'self' https: blob:; connect-src 'self' https:; font-src 'self';" />
     <link rel="dns-prefetch" href="//stun.l.google.com" />
-    <link rel="stylesheet" href="styles.css?v=42.0" />
-    <link rel="stylesheet" href="styles_auth.css?v=42.0" />
-    <link rel="stylesheet" href="styles_chat.css?v=42.0" />
-    <link rel="stylesheet" href="styles_commerce.css?v=42.0" />
-    <link rel="stylesheet" href="styles_social.css?v=42.0" />
-    <link rel="stylesheet" href="styles_group.css?v=42.0" />
+    <link rel="stylesheet" href="styles.css?v=43.0" />
+    <link rel="stylesheet" href="styles_auth.css?v=43.0" />
+    <link rel="stylesheet" href="styles_chat.css?v=43.0" />
+    <link rel="stylesheet" href="styles_commerce.css?v=43.0" />
+    <link rel="stylesheet" href="styles_social.css?v=43.0" />
+    <link rel="stylesheet" href="styles_group.css?v=43.0" />
   </head>
   <body>
     <div id="authScreen" class="auth-screen hidden">
@@ -999,30 +999,8 @@
         <section id="systemMessagesPage" class="chat-list-view hidden order-flow-page">
           <div id="systemMessagesList" class="profile-orders-list"></div>
         </section>
-      </div>
 
-      <section id="composerPanel" class="composer-panel hidden">
-        <div class="composer-wrapper">
-          <button id="voiceToggleBtn" type="button" class="icon-btn">🎙️</button>
-          <textarea id="messageInput" placeholder="输入消息..." rows="1"></textarea>
-          <button id="pttBtn" class="ptt-btn hidden" type="button">按住 说话</button>
-          <button id="emojiBtn" type="button" class="icon-btn">😊</button>
-          <button id="toggleActionsBtn" type="button" class="icon-btn">⊕</button>
-          <button id="sendMsgBtn" type="button" class="send-btn hidden">发送</button>
-        </div>
-        <div id="emojiPanel" class="emoji-panel hidden"></div>
-        <div id="actionPanel" class="action-panel hidden">
-           <button type="button" id="btnSendImage"><span style="font-size:26px;">🖼️</span>相册</button>
-           <button type="button" id="btnTakePhoto"><span style="font-size:26px;">📸</span>拍照</button>
-           <button type="button" id="btnCallVoice"><span style="font-size:26px;">📞</span>语音通话</button>
-           <button type="button" id="btnCallVideo"><span style="font-size:26px;">📹</span>视频通话</button>
-           <button type="button" id="btnSendContactCard"><span style="font-size:26px;">🪪</span>名片</button>
-           <button type="button" id="btnSendProductCard"><span style="font-size:26px;">📦</span>商品</button>
-           <button type="button" id="btnSendOrderCard"><span style="font-size:26px;">🧾</span>订单</button>
-           <button type="button" id="btnSendPaymentCode"><span style="font-size:26px;">💰</span>收款码</button>
-        </div>
-      </section>
-      <section id="productEditorPage" class="chat-list-view hidden order-flow-page">
+        <section id="productEditorPage" class="chat-list-view hidden order-flow-page">
         <div class="order-flow-head"><strong>商品编辑</strong><span>新增 / 编辑商品</span></div>
         <div class="order-cart-item">
           <div class="order-cart-title">商品标题</div>
@@ -1103,6 +1081,29 @@
       <!-- Group Chat: Member List -->
       <section id="gcMemberListPage" class="chat-list-view hidden">
         <div id="gcMemberListContent" class="gc-friend-list"></div>
+      </section>
+      </div><!-- end .main-content-wrapper -->
+
+      <section id="composerPanel" class="composer-panel hidden">
+        <div class="composer-wrapper">
+          <button id="voiceToggleBtn" type="button" class="icon-btn">🎙️</button>
+          <textarea id="messageInput" placeholder="输入消息..." rows="1"></textarea>
+          <button id="pttBtn" class="ptt-btn hidden" type="button">按住 说话</button>
+          <button id="emojiBtn" type="button" class="icon-btn">😊</button>
+          <button id="toggleActionsBtn" type="button" class="icon-btn">⊕</button>
+          <button id="sendMsgBtn" type="button" class="send-btn hidden">发送</button>
+        </div>
+        <div id="emojiPanel" class="emoji-panel hidden"></div>
+        <div id="actionPanel" class="action-panel hidden">
+           <button type="button" id="btnSendImage"><span style="font-size:26px;">🖼️</span>相册</button>
+           <button type="button" id="btnTakePhoto"><span style="font-size:26px;">📸</span>拍照</button>
+           <button type="button" id="btnCallVoice"><span style="font-size:26px;">📞</span>语音通话</button>
+           <button type="button" id="btnCallVideo"><span style="font-size:26px;">📹</span>视频通话</button>
+           <button type="button" id="btnSendContactCard"><span style="font-size:26px;">🪪</span>名片</button>
+           <button type="button" id="btnSendProductCard"><span style="font-size:26px;">📦</span>商品</button>
+           <button type="button" id="btnSendOrderCard"><span style="font-size:26px;">🧾</span>订单</button>
+           <button type="button" id="btnSendPaymentCode"><span style="font-size:26px;">💰</span>收款码</button>
+        </div>
       </section>
 
       <input id="imageInput" type="file" accept="image/*" class="hidden" />
@@ -1217,15 +1218,15 @@
       </div>
     </div>
 
-    <script defer src="app_utils.js?v=42.0"></script>
-    <script defer src="app_datepicker.js?v=42.0"></script>
-    <script defer src="app_calling.js?v=42.0"></script>
-    <script defer src="app_orders.js?v=42.0"></script>
-    <script defer src="app_shopping.js?v=42.0"></script>
-    <script defer src="app_contacts.js?v=42.0"></script>
-    <script defer src="app_chat.js?v=42.0"></script>
-    <script defer src="app_group_chat.js?v=42.0"></script>
-    <script defer src="app_realtime.js?v=42.0"></script>
-    <script defer src="app.js?v=42.0"></script>
+    <script defer src="app_utils.js?v=43.0"></script>
+    <script defer src="app_datepicker.js?v=43.0"></script>
+    <script defer src="app_calling.js?v=43.0"></script>
+    <script defer src="app_orders.js?v=43.0"></script>
+    <script defer src="app_shopping.js?v=43.0"></script>
+    <script defer src="app_contacts.js?v=43.0"></script>
+    <script defer src="app_chat.js?v=43.0"></script>
+    <script defer src="app_group_chat.js?v=43.0"></script>
+    <script defer src="app_realtime.js?v=43.0"></script>
+    <script defer src="app.js?v=43.0"></script>
 </body>
 </html>

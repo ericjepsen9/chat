@@ -304,12 +304,18 @@ input, textarea { font-size: var(--font-body); }
   body {
     padding: 0;
     background: var(--bg);
-    min-height: 100vh;   /* fallback */
-    min-height: 100dvh;  /* dynamic viewport: accounts for browser chrome */
+    min-height: 100vh;
+    min-height: 100dvh;
   }
   .mobile-shell {
-    height: 100vh;       /* fallback */
-    height: 100dvh;      /* dynamic viewport: keeps tab bar above browser chrome */
+    /* position:fixed fills exactly the browser's visible viewport,
+       automatically avoiding URL bar and bottom navigation on Android */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: auto;
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;
