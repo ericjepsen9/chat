@@ -301,15 +301,21 @@ input, textarea { font-size: var(--font-body); }
 
 /* Mobile full-screen (real phone browsers) */
 @media (max-width: 540px) {
+  html, body {
+    overflow: hidden;    /* prevent page-level scrolling */
+  }
   body {
     padding: 0;
+    min-height: 0;
     background: var(--bg);
-    min-height: 100vh;
-    min-height: 100dvh;
+    align-items: flex-start;  /* shell at top, not centered */
   }
   .mobile-shell {
-    height: 100vh;       /* fallback for browsers without dvh */
-    height: 100dvh;      /* dynamic viewport: excludes browser chrome */
+    /* --app-height set by viewport_fix.js to exact visualViewport.height;
+       100dvh is fallback before JS runs */
+    height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;
