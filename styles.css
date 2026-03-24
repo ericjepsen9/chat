@@ -301,19 +301,22 @@ input, textarea { font-size: var(--font-body); }
 
 /* Mobile full-screen (real phone browsers) */
 @media (max-width: 540px) {
-  html {
-    height: 100%;
-    overflow: hidden;
-  }
   body {
     padding: 0;
-    height: 100%;
-    min-height: 0;       /* override desktop min-height: 100vh */
-    overflow: hidden;
     background: var(--bg);
+    min-height: 100vh;
+    min-height: 100dvh;
   }
   .mobile-shell {
-    height: 100%;        /* fills body which fills viewport (excludes browser chrome) */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    /* --app-height is set by JS (visualViewport.height) for precise sizing;
+       100dvh is the CSS fallback if JS hasn't run yet */
+    height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;
