@@ -1090,7 +1090,7 @@ function patchMallCard(card, product) {
   const safeImage = normalizeMediaUrl(product.image);
   if (safeImage) {
     const img = createEl('img', '');
-    lazyImg(img, safeImage);
+    img.src = safeImage;
     img.alt = product.title || '商品图';
     replacement.appendChild(img);
   } else {

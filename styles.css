@@ -382,8 +382,8 @@ input, textarea { font-size: var(--font-body); }
   }
 }
 
-/* Extra small screens (≤360px) */
-@media (max-width: 360px) {
+/* Extra small screens (≤320px) */
+@media (max-width: 320px) {
   .mall-grid {
     grid-template-columns: 1fr;
   }
