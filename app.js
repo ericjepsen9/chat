@@ -4344,6 +4344,13 @@ function ensureSidebarDelegation() {
   list.addEventListener('click', (e) => {
     const item = e.target.closest('.sidebar-item');
     if (!item) return;
+    // In collapsed mode, clicking an avatar expands the sidebar to show nicknames
+    if (state.sidebarMode === 'collapsed') {
+      state.sidebarMode = 'expanded';
+      try { localStorage.setItem('chatSidebarMode', state.sidebarMode); } catch(_) {}
+      applySidebarMode();
+      return;
+    }
     const convId = item.dataset.convId;
     if (convId) window.openConversation(convId);
   });
