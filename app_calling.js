@@ -157,7 +157,7 @@ async function flushQueuedRemoteCandidates() {
   if (!state.rtc.pc || !state.rtc.pc.remoteDescription) return;
   const queued = Array.isArray(state.rtc.remoteCandidateQueue) ? state.rtc.remoteCandidateQueue.splice(0) : [];
   for (const cand of queued) {
-    try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(cand)); } catch (e) { console.warn('[webrtc] addIceCandidate failed:', e); }
+    try { await state.rtc.pc.addIceCandidate(cand); } catch (e) { console.warn('[webrtc] addIceCandidate failed:', e); }
   }
 }
 function updateCallUIInfo(peerId, mode, statusText) {
@@ -259,9 +259,17 @@ async function notifyRemoteCallEvent(event, reason) {
   const pid = state.rtc.peerId || state.rtc.incomingMeta?.senderId || state.rtc.pendingOffer?.senderId;
   const mode = state.rtc.mode || state.rtc.pendingOffer?.mode || state.rtc.incomingMeta?.mode || 'voice';
   if (!cid || !pid) return;
-  try {
-    await api(`/api/conversations/${cid}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: pid, event, mode, reason, callId: state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || null, durationSec: getCallDurationSeconds() }) });
-  } catch (_) {}
+  const body = JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: pid, event, mode, reason, callId: state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || null, durationSec: getCallDurationSeconds() });
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await api(`/api/conversations/${cid}/call`, { method: 'POST', body });
+      return;
+    } catch (err) {
+      console.warn(`[call] notifyRemoteCallEvent failed (attempt ${attempt + 1}):`, err?.message || err);
+      if (attempt < maxRetries) await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+    }
+  }
 }
 
 function insertCallRecordMessage(ev, meta = {}){

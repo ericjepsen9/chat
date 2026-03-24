@@ -161,7 +161,7 @@ async function connectRealtime() {
       if (state.rtc.pendingAccept && $("acceptCallBtn")) $("acceptCallBtn").click();
     } else if (signal.type === 'answer' && state.rtc.pc) {
       if (!isCurrentCallPayload(payload)) return;
-      clearTimeout(outgoingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; setRtcPhase('connecting'); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+      clearTimeout(outgoingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; setRtcPhase('connecting'); await state.rtc.pc.setRemoteDescription(signal.sdp);
       scheduleConnectTimeout();
       await flushQueuedRemoteCandidates();
 
@@ -174,7 +174,7 @@ async function connectRealtime() {
     } else if (signal.type === 'candidate') {
       if (!isCurrentCallPayload(payload)) return;
       if (state.rtc.pc && state.rtc.pc.remoteDescription) {
-        try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (err) { console.warn('[webrtc] addIceCandidate failed:', err); }
+        try { await state.rtc.pc.addIceCandidate(signal.candidate); } catch (err) { console.warn('[webrtc] addIceCandidate failed:', err); }
       } else {
         state.rtc.remoteCandidateQueue = state.rtc.remoteCandidateQueue || [];
         state.rtc.remoteCandidateQueue.push(signal.candidate);
@@ -243,6 +243,7 @@ async function connectRealtime() {
   } catch (err) { console.warn('[sse] call_event handler error', err); } });
   state._sseRetryCount = (state._sseRetryCount || 0);
   state.eventSource.onopen = () => {
+    const wasReconnect = state._sseRetryCount > 0;
     state._sseRetryCount = 0;
     updateSseStatus('connected');
     // Backfill messages after reconnect to avoid missing data during disconnect
@@ -250,6 +251,10 @@ async function connectRealtime() {
       loadConversations().catch(() => {});
       if (state.activeConversation) fetchMessages().catch(() => {});
       loadFriendRequests().catch(() => {});
+    }
+    // Notify user that signaling is restored if reconnected during active call
+    if (wasReconnect && state.rtc && state.rtc.phase && state.rtc.phase !== 'idle') {
+      showToast('网络已恢复，通话信号已重新连接');
     }
   };
   state.eventSource.onerror = () => {

@@ -3554,9 +3554,9 @@ function bindChatEvents() {
           setText("chatSubtitle", '建立连接中…');
           if (!state.rtc.pendingOffer) { state.rtc.pendingAccept = true; return; } 
           const { senderId, mode, signal } = state.rtc.pendingOffer; state.rtc.pendingAccept = false; state.rtc.peerId = senderId; setRtcPhase('connecting'); 
-          await createPeerConnection(mode); await state.rtc.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)); 
+          await createPeerConnection(mode); await state.rtc.pc.setRemoteDescription(signal.sdp);
           scheduleConnectTimeout(); 
-          for (const cand of (state.rtc.earlyCandidates || [])) { try { await state.rtc.pc.addIceCandidate(new RTCIceCandidate(cand)); } catch(e) { console.warn('[webrtc] addIceCandidate failed:', e); } } 
+          for (const cand of (state.rtc.earlyCandidates || [])) { try { await state.rtc.pc.addIceCandidate(cand); } catch(e) { console.warn('[webrtc] addIceCandidate failed:', e); } } 
           state.rtc.earlyCandidates = []; 
           await flushQueuedRemoteCandidates();
           const answer = await state.rtc.pc.createAnswer(); await state.rtc.pc.setLocalDescription(answer);
@@ -3572,7 +3572,13 @@ function bindChatEvents() {
           markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
           setText("callName", peerName);
           state.rtc.pendingOffer = null; 
-      } catch (err) { finalizeCall({ alertText: err && err.message ? err.message : '接听失败', event: 'reject', reason: 'error' }); } finally { state.rtc._accepting = false; }
+      } catch (err) {
+          console.error('[call] accept failed:', err);
+          const msg = err && err.message ? err.message : '接听失败';
+          // Distinguish media permission errors from WebRTC errors
+          const isMediaErr = msg.includes('权限') || msg.includes('摄像头') || msg.includes('麦克风') || msg.includes('设备');
+          finalizeCall({ alertText: isMediaErr ? msg : '接听失败，请检查网络后重试', event: 'reject', reason: 'error' });
+      } finally { state.rtc._accepting = false; }
   });
   
   on("rejectCallBtn", "click", () => { finalizeCall({ event: 'reject', reason: 'manual' }); });
