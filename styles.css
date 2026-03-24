@@ -147,6 +147,11 @@ input, textarea { font-size: var(--font-body); }
 .qq-group-content { display: none; background: #fafafa; content-visibility: auto; }
 .qq-group-content.expanded { display: block; }
 
+/* 悬浮分组标题 */
+.sticky-group-header { display: flex; align-items: center; padding: 10px 16px; background: #fff; font-size: var(--font-body); font-weight: 500; border-bottom: 0.5px solid var(--line); cursor: pointer; user-select: none; z-index: 10; flex-shrink: 0; }
+.sticky-group-header .sticky-group-arrow { display: inline-block; margin-right: 8px; font-size: 10px; color: #b2b2b2; transition: transform 0.2s; }
+.sticky-group-header .friend-group-count { color: #999; font-size: var(--font-caption); margin-left: 4px; }
+
 /* 商城与卡片 */
 .mall-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
 .product-card { background: #fff; border-radius: var(--radius-card); overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); cursor: pointer; display: flex; flex-direction: column; contain: content;}

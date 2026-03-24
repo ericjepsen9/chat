@@ -207,6 +207,7 @@
         <div class="top-right">
           <button id="homeMoreBtn" class="icon-btn"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
           <button id="chatSettingsBtn" class="icon-btn hidden"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>
+          <button id="openGroupManageBtn" class="icon-btn hidden" title="分组管理"><svg width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.69-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.25-1.13.56-1.62.94l-2.39-.96a.49.49 0 00-.59.22L3.73 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94 0 .31.02.63.06.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.69 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.25 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg></button>
         </div>
       </header>
 
@@ -218,15 +219,19 @@
 
         <section id="friendListView" class="chat-list-view hidden">
           <div class="toolbar"><input id="friendSearchInput" placeholder="搜索联系人" /></div>
-          <button class="chat-item" id="openGroupManageBtn" style="background:#fff; border-bottom: 1px solid #f2f2f6; justify-content:space-between;">
-            <span>分组管理</span><span style="color:#b2b2b2;">⚙️</span>
-          </button>
-          <button class="chat-item" id="openFriendRequestsBtn" style="background:#fff; border-bottom: 8px solid #f2f2f6;">
-            <div class="avatar" style="background:#ff9500;">新</div>
-            <div style="flex:1;min-width:0;text-align:left;"><strong style="line-height:24px;">新的朋友</strong></div>
-            <span id="friendRequestBadge" class="unread-btn hidden">新</span>
-          </button>
-          <div id="friendList" style="flex:1; overflow-y:auto; background:#f2f2f6;"></div>
+          <div id="stickyGroupHeader" class="sticky-group-header hidden">
+            <span class="sticky-group-arrow">▶</span>
+            <span id="stickyGroupName"></span>
+            <span id="stickyGroupCount" class="friend-group-count"></span>
+          </div>
+          <div id="friendList" style="flex:1; overflow-y:auto; background:#f2f2f6;">
+            <button class="chat-item" id="openFriendRequestsBtn" style="background:#fff; border-bottom: 8px solid #f2f2f6;">
+              <div class="avatar" style="background:#ff9500;">新</div>
+              <div style="flex:1;min-width:0;text-align:left;"><strong style="line-height:24px;">新的朋友</strong></div>
+              <span id="friendRequestBadge" class="unread-btn hidden">新</span>
+            </button>
+            <div id="friendGroupsContainer"></div>
+          </div>
         </section>
 
         <section id="mallView" class="chat-list-view hidden">

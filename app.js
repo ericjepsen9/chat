@@ -759,6 +759,63 @@ function bindFriendListDelegation() {
     const fid = btn.dataset.friendId;
     if (fid) window.openUserProfile(fid, btn.dataset.friendName || '');
   });
+  bindStickyGroupHeader(list);
+}
+
+function bindStickyGroupHeader(list) {
+  if (list.dataset.stickyBound === '1') return;
+  list.dataset.stickyBound = '1';
+  const stickyEl = $("stickyGroupHeader");
+  const stickyName = $("stickyGroupName");
+  const stickyCount = $("stickyGroupCount");
+  const stickyArrow = stickyEl ? stickyEl.querySelector('.sticky-group-arrow') : null;
+  if (!stickyEl) return;
+
+  let currentStickyGroup = null;
+
+  stickyEl.addEventListener('click', () => {
+    if (!currentStickyGroup) return;
+    const groupEl = list.querySelector(`div[data-group-name="${CSS.escape(currentStickyGroup)}"]`);
+    if (!groupEl) return;
+    const header = groupEl.querySelector('[data-role="friend-group-header"]');
+    if (header) window.toggleQQGroup(header);
+    updateStickyState();
+  });
+
+  function updateStickyState() {
+    const container = $("friendGroupsContainer") || list;
+    const headers = container.querySelectorAll('[data-role="friend-group-header"]');
+    let activeHeader = null;
+    for (let i = 0; i < headers.length; i++) {
+      const rect = headers[i].getBoundingClientRect();
+      const listRect = list.getBoundingClientRect();
+      if (rect.top <= listRect.top + 1) {
+        activeHeader = headers[i];
+      } else {
+        break;
+      }
+    }
+    if (activeHeader) {
+      const groupSection = activeHeader.closest('[data-group-name]');
+      const groupName = groupSection ? groupSection.dataset.groupName : '';
+      const isExpanded = activeHeader.classList.contains('expanded');
+      currentStickyGroup = groupName;
+      stickyName.textContent = groupName + ' ';
+      const content = activeHeader.nextElementSibling;
+      const count = content ? content.querySelectorAll('.chat-item[data-friend-id]').length : 0;
+      stickyCount.textContent = String(count);
+      if (stickyArrow) {
+        stickyArrow.style.transform = isExpanded ? 'rotate(90deg)' : '';
+      }
+      stickyEl.classList.remove('hidden');
+    } else {
+      currentStickyGroup = null;
+      stickyEl.classList.add('hidden');
+    }
+  }
+
+  list.addEventListener('scroll', updateStickyState, { passive: true });
+  window._updateStickyGroupHeader = updateStickyState;
 }
 
 function bindRequestsListDelegation() {
@@ -1173,6 +1230,7 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
   showEl("backBtn");
   hideEl("homeMoreBtn");
   hideEl("chatSettingsBtn");
+  hideEl("openGroupManageBtn");
   hideEl("sidebarToggleBtn");
   toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
 
@@ -1232,7 +1290,7 @@ window.openSecondaryPage = (page, backTo = 'home', options = {}) => {
 };
 
 window.removeFromBlacklist = async (targetId) => { try { await api('/api/blacklist', { method: 'POST', body: JSON.stringify({ userId: state.currentUser.id, targetId, action: 'remove' }) }); $("privacySettingsBtn").click(); } catch(e){ showModal(e.message || '操作失败'); } }
-window.toggleQQGroup = (el) => { el.classList.toggle('expanded'); const content = el.nextElementSibling; if(content) content.classList.toggle('expanded'); };
+window.toggleQQGroup = (el) => { el.classList.toggle('expanded'); const content = el.nextElementSibling; if(content) content.classList.toggle('expanded'); if (window._updateStickyGroupHeader) window._updateStickyGroupHeader(); };
 window.openImageViewer = (url) => { const safe = normalizeMediaUrl(url); if(!safe) return showModal('无效图片地址'); if($("viewerImage")) $("viewerImage").src = safe; showEl("imageViewer"); };
 window.closeImageViewer = () => { hideEl("imageViewer"); if($("viewerImage")) $("viewerImage").removeAttribute('src'); };
 
@@ -2645,6 +2703,7 @@ function bindProfileEvents() {
           showEl("backBtn");
           hideEl("homeMoreBtn");
           hideEl("chatSettingsBtn");
+          hideEl("openGroupManageBtn");
           hideEl("sidebarToggleBtn");
           toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
           return;
@@ -3837,6 +3896,7 @@ function setMainTab(tab) {
   else if (tab === 'mall') { showEl("mallView"); setText("chatTitle", "发现"); if (!state.userLocation) refreshUserLocation(); tabLoad('mall', loadMall); }
   else if (tab === 'profile') { showEl("profileView"); setText("chatTitle", "我"); updateMyCartBadge(); }
   toggleEl("homeMoreBtn", "hidden", tab !== 'messages');
+  toggleEl("openGroupManageBtn", "hidden", tab !== 'friends');
   // sidebar avatar bar only visible inside chat conversation, hide on all tab views
   toggleEl("sidebarPanel", "sidebar-tab-hidden", true);
   hideEl("sidebarToggleBtn");
@@ -4091,7 +4151,7 @@ const loadFriends = singleFlight(async function _loadFriendsImpl() {
     const customGroups = getCustomGroups();
     state.currentUser.customGroups = customGroups;
     const nextSignature = buildFriendListSignature(customGroups, grouped);
-    const container = $("friendList");
+    const container = $("friendGroupsContainer") || $("friendList");
     if (!container) return;
     bindFriendListDelegation();
     if (nextSignature === state.friendListSignature && container.childElementCount) return;
