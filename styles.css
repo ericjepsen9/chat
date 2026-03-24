@@ -308,15 +308,8 @@ input, textarea { font-size: var(--font-body); }
     min-height: 100dvh;
   }
   .mobile-shell {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    /* --app-height is set by JS (visualViewport.height) for precise sizing;
-       100dvh is the CSS fallback if JS hasn't run yet */
-    height: 100vh;
-    height: 100dvh;
-    height: var(--app-height, 100dvh);
+    height: 100vh;       /* fallback for browsers without dvh */
+    height: 100dvh;      /* dynamic viewport: excludes browser chrome */
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;

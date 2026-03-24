@@ -1,20 +1,5 @@
 /* app_utils.js — session, API, UI utilities extracted from app.js */
 
-// ── Mobile viewport height: set --app-height to visualViewport.height ──
-// On Android browsers, CSS viewport units (vh/dvh) may include area behind
-// browser chrome. This JS approach gives the exact visible height.
-(function() {
-  function setAppHeight() {
-    var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    document.documentElement.style.setProperty('--app-height', h + 'px');
-  }
-  setAppHeight();
-  window.addEventListener('resize', setAppHeight);
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', setAppHeight);
-  }
-})();
-
 // Safe render wrapper — prevents a single render error from crashing the entire page
 function safeRender(fn) {
   return function (...args) {
