@@ -301,21 +301,19 @@ input, textarea { font-size: var(--font-body); }
 
 /* Mobile full-screen (real phone browsers) */
 @media (max-width: 540px) {
+  html {
+    height: 100%;
+    overflow: hidden;
+  }
   body {
     padding: 0;
+    height: 100%;
+    min-height: 0;       /* override desktop min-height: 100vh */
+    overflow: hidden;
     background: var(--bg);
-    min-height: 100vh;
-    min-height: 100dvh;
   }
   .mobile-shell {
-    /* position:fixed fills exactly the browser's visible viewport,
-       automatically avoiding URL bar and bottom navigation on Android */
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: auto;
+    height: 100%;        /* fills body which fills viewport (excludes browser chrome) */
     max-width: 100%;
     border-radius: 0;
     box-shadow: none;
