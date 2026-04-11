@@ -301,9 +301,6 @@
   white-space:nowrap;
 }
 .profile-hero-send-btn:active{ opacity:.85; }
-.profile-store-item{
-  border:1px solid #eceff3;
-}
 .profile-hero-send-btn.hidden{ display:none; }
 .profile-hero-more-btn{
   position:absolute;

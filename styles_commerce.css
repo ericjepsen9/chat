@@ -335,12 +335,19 @@
 /* V56 profile commerce flow */
 .profile-store-section{
   margin:10px 12px 124px;
+  background:#fff;
+  border:1px solid #ebedf0;
+  border-radius: var(--radius-xl);
+  overflow:hidden;
 }
 .store-toolbar{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  margin-bottom:10px;
+  padding:12px 16px;
+  margin-bottom:0;
+  border-bottom:1px solid #f2f2f6;
+  background:#fff;
 }
 .store-toolbar-title{
   font-size: var(--font-xl);
@@ -349,8 +356,12 @@
   color:var(--color-dark);
 }
 .store-toolbar-link{
+  display:block;
+  width:100%;
+  padding:12px 16px;
   border:0;
-  background:transparent;
+  border-top:1px solid #f2f2f6;
+  background:#fff;
   color:var(--brand);
   font-size: var(--font-body-sm);
   font-weight:600;
@@ -364,8 +375,8 @@
   display:flex;
   height:60vh;
   min-height:360px;
-  border:1px solid #ebedf0;
-  border-radius:var(--radius-xl);
+  border:0;
+  border-radius:0;
   overflow:hidden;
   background:#fff;
 }
@@ -433,17 +444,23 @@
 .profile-store-list{
   display:flex;
   flex-direction:column;
-  gap:12px;
+}
+#profileStoreListNocat.profile-store-list{
+  padding:4px 0;
 }
 .profile-store-item{
   display:grid;
   grid-template-columns:96px 1fr auto;
   gap:12px;
-  padding:12px;
+  padding:12px 16px;
   background:#fff;
-  border-radius: var(--radius-xl);
-  border:1px solid #ebedf0;
+  border-radius:0;
+  border:0;
+  border-bottom:1px solid #f2f2f6;
   cursor:pointer;
+}
+#profileStoreListNocat.profile-store-list > .profile-store-item:last-child{
+  border-bottom:0;
 }
 .profile-store-right-panel .profile-store-item{
   grid-template-columns:72px 1fr auto;
@@ -453,16 +470,31 @@
   border-bottom:1px solid #f2f2f6;
   border-radius:0;
 }
-.profile-store-item img{
+.profile-store-item img,
+.profile-store-item .profile-store-img{
   width:96px;
   height:96px;
   object-fit:cover;
   border-radius: var(--radius-lg);
   background:var(--color-gray-light);
 }
-.profile-store-right-panel .profile-store-item img{
+.profile-store-right-panel .profile-store-item img,
+.profile-store-right-panel .profile-store-item .profile-store-img{
   width:72px;
   height:72px;
+}
+.profile-store-img-placeholder{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
+  font-weight:700;
+  color:#9aa0a6;
+  background:linear-gradient(135deg,#f5f7fa,#e4e7ec);
+  user-select:none;
+}
+.profile-store-right-panel .profile-store-img-placeholder{
+  font-size:20px;
 }
 .profile-store-info{
   min-width:0;

@@ -83,9 +83,20 @@ function _buildStoreItemCard(item) {
   const card = createEl('div', 'profile-store-item');
   card.dataset.productId = String(item.id || '');
 
-  const img = createEl('img', '');
-  lazyImg(img, normalizeMediaUrl(item.image || item.imageUrl) || '');
-  img.alt = item.title || '商品';
+  const imgSrc = normalizeMediaUrl(item.image || item.imageUrl) || '';
+  const fallbackChar = firstChar(item.title || '商品');
+  let imgNode;
+  if (imgSrc) {
+    imgNode = createEl('img', 'profile-store-img');
+    imgNode.alt = item.title || '商品';
+    imgNode.onerror = function() {
+      const placeholder = createEl('div', 'profile-store-img profile-store-img-placeholder', fallbackChar);
+      this.replaceWith(placeholder);
+    };
+    lazyImg(imgNode, imgSrc);
+  } else {
+    imgNode = createEl('div', 'profile-store-img profile-store-img-placeholder', fallbackChar);
+  }
 
   const info = createEl('div', 'profile-store-info');
   const categoryText = item.category ? `【${item.category}】` : '';
@@ -115,7 +126,7 @@ function _buildStoreItemCard(item) {
     side.appendChild(stepper);
   }
 
-  card.append(img, info, side);
+  card.append(imgNode, info, side);
   return card;
 }
 
