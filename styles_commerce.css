@@ -339,6 +339,11 @@
   border:1px solid #ebedf0;
   border-radius: var(--radius-xl);
   overflow:hidden;
+  /* Prevent the store card from being flex-shrunk inside .chat-list-view
+     (display:flex; flex-direction:column). overflow:hidden above makes its
+     flex min-height default to 0, so without flex-shrink:0 it would compete
+     with .profile-hero for vertical space and cause content clipping. */
+  flex-shrink:0;
 }
 .store-toolbar{
   display:flex;

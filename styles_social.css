@@ -284,6 +284,12 @@
   position:relative; padding:20px 16px 16px;
   background:#fff;
   color:#1a1a1a; overflow:hidden;
+  /* Prevent this hero from being flex-shrunk by the parent .chat-list-view
+     (which is display:flex; flex-direction:column). Because .profile-hero
+     has overflow:hidden, its flex min-height defaults to 0, so without an
+     explicit flex-shrink:0 it gets squeezed on tall-screen devices and the
+     signature row at the bottom gets clipped by the sibling store card. */
+  flex-shrink:0;
 }
 .profile-hero-backdrop{ display:none; }
 .profile-hero-main{ position:relative; display:flex; align-items:center; gap:14px; }

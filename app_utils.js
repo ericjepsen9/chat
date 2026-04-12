@@ -78,6 +78,21 @@ const on = (id, ev, fn) => {
 };
 
 async function api(p, o={}) {
+    // Serialize state-changing POSTs so the single-use CSRF token rotation
+    // (see server_crypto.js validateCsrf) doesn't get raced when two POSTs
+    // fire back-to-back in the same tick (e.g. dispatching an 'input' event
+    // that triggers a typing-signal POST while another POST is already
+    // about to fly). Without this queue, the second POST would carry an
+    // already-rotated token and fail with csrf_token_invalid.
+    const isStateChanging = o.method && o.method !== 'GET' && typeof p === 'string' && p.startsWith('/api/');
+    if (!isStateChanging) return _apiCall(p, o);
+    const run = () => _apiCall(p, o);
+    const next = _writeQueue.then(run, run);
+    _writeQueue = next.then(() => undefined, () => undefined);
+    return next;
+}
+let _writeQueue = Promise.resolve();
+async function _apiCall(p, o={}) {
     const headers = o.headers ? { ...o.headers } : {};
     if (!(o.body instanceof FormData) && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
     // Use in-memory tokens first; only read localStorage as fallback
