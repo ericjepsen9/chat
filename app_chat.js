@@ -273,16 +273,51 @@ function buildOrderCardMessage(msg){
   };
   wrap.addEventListener('click', openDetail);
 
+  const currentUserId = state.currentUser?.id || '';
+  const isBuyer = currentUserId && currentUserId === order.buyerId;
+  const isSeller = currentUserId && currentUserId === order.sellerId;
+  const isParticipant = isBuyer || isSeller;
+
+  // --- Meta info section: order number + tracking number + buyer waiting hint ---
+  // Kept separate from .trade-card-actions so that the actions row only contains
+  // interactive buttons. Previously the tracking number and the "等待商家接单" /
+  // "商家备货中" hints were stuffed into the same flex-wrap row as the buttons,
+  // which mixed informational spans with buttons and caused long tracking
+  // numbers to wrap into the button layout.
+  const meta = createEl('div', 'trade-card-meta');
+  // Order number — always shown so users can quickly identify which order this card refers to
+  const orderNoText = order.orderNo || formatOrderId(order.id, order.orderNo) || '-';
+  const orderNoRow = createEl('div', 'trade-card-meta-row');
+  orderNoRow.append(
+    createEl('span', 'meta-label', '订单号'),
+    createEl('span', 'meta-value', orderNoText),
+  );
+  meta.appendChild(orderNoRow);
+  // Tracking number — only when present (shipped / completed orders)
+  if (order.trackingNo) {
+    const trackingRow = createEl('div', 'trade-card-meta-row');
+    trackingRow.append(
+      createEl('span', 'meta-label', '快递单号'),
+      createEl('span', 'meta-value', order.trackingNo),
+    );
+    meta.appendChild(trackingRow);
+  }
+  // Buyer-side waiting hint — replaces the previous inline span inside actions
+  let hintText = '';
+  if (isBuyer && order.status === 'pending') hintText = '等待商家接单';
+  else if (isBuyer && order.status === 'accepted') hintText = '商家备货中';
+  if (hintText) {
+    meta.appendChild(createEl('div', 'trade-card-meta-row', hintText));
+  }
+  wrap.appendChild(meta);
+
+  // --- Actions row: interactive buttons only ---
   const actions = createEl('div', 'trade-card-actions');
   const detailBtn = createEl('button', 'secondary-btn', '查看详情');
   detailBtn.type = 'button';
   detailBtn.addEventListener('click', openDetail);
   actions.appendChild(detailBtn);
 
-  const currentUserId = state.currentUser?.id || '';
-  const isBuyer = currentUserId && currentUserId === order.buyerId;
-  const isSeller = currentUserId && currentUserId === order.sellerId;
-  const isParticipant = isBuyer || isSeller;
   const pendingRequester = order.pendingPriceRequestedBy || '';
   const hasPendingPrice = order.pendingPrice != null && !!pendingRequester;
   const isPriceLocked = !!order.priceAdjustmentLocked;
@@ -301,11 +336,6 @@ function buildOrderCardMessage(msg){
     }));
   }
 
-  // Buyer waiting for seller to accept
-  if(isBuyer && order.status === 'pending'){
-    actions.appendChild(createEl('span', 'trade-card-sub', '等待商家接单'));
-  }
-
   // Seller can ship accepted orders
   if(isSeller && order.status === 'accepted'){
     actions.appendChild(createStopBtn('primary-btn', '发货', (e, btn) => {
@@ -313,24 +343,15 @@ function buildOrderCardMessage(msg){
       openShipOrderDialog(order.id);
     }));
   }
-  // Buyer sees waiting text for accepted orders
-  if(isBuyer && order.status === 'accepted'){
-    actions.appendChild(createEl('span', 'trade-card-sub', '商家备货中'));
-  }
 
-  // Shipped: show tracking info + buyer confirm receipt
-  if(isParticipant && order.status === 'shipped'){
-    if(order.trackingNo){
-      actions.appendChild(createEl('span', 'trade-card-sub', '快递单号: ' + order.trackingNo));
-    }
-    if(isBuyer){
-      actions.appendChild(createStopBtn('primary-btn', '确认收货', (e, btn) => {
-        if(!order.id) return;
-        showConfirm('确认已收到商品？', () => {
-          withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
-        });
-      }));
-    }
+  // Shipped: buyer can confirm receipt (tracking number already shown in meta section above)
+  if(isParticipant && order.status === 'shipped' && isBuyer){
+    actions.appendChild(createStopBtn('primary-btn', '确认收货', (e, btn) => {
+      if(!order.id) return;
+      showConfirm('确认已收到商品？', () => {
+        withButtonLock(btn, () => doCompleteOrder(order.id), '处理中...');
+      });
+    }));
   }
   wrap.appendChild(actions);
   return wrap;
