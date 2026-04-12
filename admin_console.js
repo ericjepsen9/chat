@@ -722,6 +722,20 @@ function initApp() {
   $('modalCloseBtn').addEventListener('click', closeModal);
   $('detailModal').addEventListener('click', (e) => { if (e.target === $('detailModal')) closeModal(); });
 
+  // CSP fix: wire up buttons that previously used inline onclick attributes.
+  // admin_console.html declares Content-Security-Policy: script-src 'self'
+  // (no 'unsafe-inline'), which silently blocks all inline handlers. The
+  // underlying functions live in admin_console_ext.js / admin_console_adv.js
+  // and are loaded (via defer) before initApp() runs, so they are available
+  // on `window` by the time these listeners fire.
+  $('sidebarChangePasswordBtn')?.addEventListener('click', () => window.showChangePassword?.());
+  $('autoRefreshBtn')?.addEventListener('click', () => window.toggleAutoRefresh?.());
+  $('createUserBtn')?.addEventListener('click', () => window.showCreateUser?.());
+  $('exportUsersBtn')?.addEventListener('click', () => window.exportUsers?.());
+  $('applyOrderDateFilterBtn')?.addEventListener('click', () => window.applyOrderDateFilter?.());
+  $('exportOrdersBtn')?.addEventListener('click', () => window.exportOrders?.());
+  $('sysChangePasswordBtn')?.addEventListener('click', () => window.showChangePassword?.());
+
   // Init extension bindings
   if (typeof window._initExtBindings === 'function') window._initExtBindings();
 

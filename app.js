@@ -1889,6 +1889,7 @@ function bindAllEvents() {
   bindBroadcastEvents();
   bindChatEvents();
   bindSearchAndEmojiEvents();
+  bindGroupChatEvents();
 }
 
 

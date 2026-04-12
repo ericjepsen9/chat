@@ -1040,13 +1040,13 @@
       <!-- Group Chat: Create Group -->
       <section id="groupCreatePage" class="chat-list-view hidden">
         <div class="gc-search-bar">
-          <input id="gcSearchInput" placeholder="搜索好友" oninput="renderGroupMemberPicker(this.value)" />
+          <input id="gcSearchInput" placeholder="搜索好友" />
         </div>
         <div id="gcSelectedAvatars" class="gc-selected-avatars"></div>
         <div id="gcSelectedCount" class="gc-selected-count"></div>
         <div id="gcFriendList" class="gc-friend-list"></div>
         <div id="gcSelectedBar" class="gc-selected-bar">
-          <button id="gcConfirmBtn" class="primary-btn" onclick="confirmCreateGroupChat()" disabled>完成</button>
+          <button id="gcConfirmBtn" class="primary-btn" disabled>完成</button>
         </div>
       </section>
 
@@ -1054,20 +1054,20 @@
       <section id="groupChatSettingsPage" class="chat-list-view hidden">
         <div class="gc-settings-section">
           <div id="gcSettingsMembers" class="gc-member-grid"></div>
-          <button id="gcViewAllMembers" class="chat-item" style="justify-content:center; color:#576b95;" onclick="if(_currentGroupDetail) openGroupMemberList(_currentGroupDetail)">查看全部群成员</button>
+          <button id="gcViewAllMembers" class="chat-item" style="justify-content:center; color:#576b95;">查看全部群成员</button>
         </div>
         <div class="gc-settings-section">
-          <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupName(_currentGroupDetail.id)">群聊名称 <span id="gcSettingsName" style="color:#999;"></span></button>
-          <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupAnnouncement(_currentGroupDetail.id)">群公告 <span id="gcSettingsAnnouncement" style="color:#999; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span></button>
-          <button class="chat-item" style="justify-content:space-between;" onclick="if(_currentGroupDetail) editGroupNickname(_currentGroupDetail.id)">我在本群的昵称 <span id="gcSettingsNickname" style="color:#999;"></span></button>
+          <button id="gcEditNameBtn" class="chat-item" style="justify-content:space-between;">群聊名称 <span id="gcSettingsName" style="color:#999;"></span></button>
+          <button id="gcEditAnnouncementBtn" class="chat-item" style="justify-content:space-between;">群公告 <span id="gcSettingsAnnouncement" style="color:#999; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span></button>
+          <button id="gcEditNicknameBtn" class="chat-item" style="justify-content:space-between;">我在本群的昵称 <span id="gcSettingsNickname" style="color:#999;"></span></button>
         </div>
         <div class="gc-settings-section">
-          <button id="gcMuteBtn" class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) toggleAction('mute')">消息免打扰</button>
-          <button id="gcPinBtn" class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) toggleAction('pin')">置顶聊天</button>
+          <button id="gcMuteBtn" class="chat-item" style="justify-content:center;">消息免打扰</button>
+          <button id="gcPinBtn" class="chat-item" style="justify-content:center;">置顶聊天</button>
         </div>
         <div class="gc-settings-section">
-          <button class="chat-item" style="justify-content:center;" onclick="if(state.activeConversation) clearChat()">清空聊天记录</button>
-          <button id="gcTransferBtn" class="chat-item hidden" style="justify-content:center; color:#576b95;" onclick="if(_currentGroupDetail) transferGroupOwnership(_currentGroupDetail.id)">转让群主</button>
+          <button id="gcClearChatBtn" class="chat-item" style="justify-content:center;">清空聊天记录</button>
+          <button id="gcTransferBtn" class="chat-item hidden" style="justify-content:center; color:#576b95;">转让群主</button>
           <button id="gcLeaveBtn" class="chat-item" style="color:#ff3b30; justify-content:center;">退出群聊</button>
         </div>
       </section>
@@ -1231,8 +1231,8 @@
     <script defer src="app_shopping.js?v=49.1"></script>
     <script defer src="app_contacts.js?v=49.1"></script>
     <script defer src="app_chat.js?v=49.4"></script>
-    <script defer src="app_group_chat.js?v=49.1"></script>
+    <script defer src="app_group_chat.js?v=49.5"></script>
     <script defer src="app_realtime.js?v=49.1"></script>
-    <script defer src="app.js?v=49.4"></script>
+    <script defer src="app.js?v=49.5"></script>
 </body>
 </html>

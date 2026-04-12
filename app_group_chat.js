@@ -503,3 +503,77 @@ function buildGroupAvatar(memberAvatars, title) {
   }
   return wrap;
 }
+
+// ========== Event bindings for static group chat page elements ==========
+// Replaces the previous inline onclick / oninput handlers that were blocked by
+// the Content-Security-Policy (script-src 'self') declared in index.html:7.
+// Called exactly once from bindAllEvents() in app.js. All referenced elements
+// live in two static sections of index.html (groupCreatePage and
+// groupChatSettingsPage), so one-shot addEventListener on them is sufficient.
+function bindGroupChatEvents() {
+  // --- Group creation page ---
+  const searchInput = $('gcSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => renderGroupMemberPicker(e.target.value));
+  }
+  const confirmBtn = $('gcConfirmBtn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => { confirmCreateGroupChat(); });
+  }
+
+  // --- Group settings page ---
+  const viewAllBtn = $('gcViewAllMembers');
+  if (viewAllBtn) {
+    viewAllBtn.addEventListener('click', () => {
+      if (_currentGroupDetail) openGroupMemberList(_currentGroupDetail);
+    });
+  }
+  const editNameBtn = $('gcEditNameBtn');
+  if (editNameBtn) {
+    editNameBtn.addEventListener('click', () => {
+      if (_currentGroupDetail) editGroupName(_currentGroupDetail.id);
+    });
+  }
+  const editAnnBtn = $('gcEditAnnouncementBtn');
+  if (editAnnBtn) {
+    editAnnBtn.addEventListener('click', () => {
+      if (_currentGroupDetail) editGroupAnnouncement(_currentGroupDetail.id);
+    });
+  }
+  const editNickBtn = $('gcEditNicknameBtn');
+  if (editNickBtn) {
+    editNickBtn.addEventListener('click', () => {
+      if (_currentGroupDetail) editGroupNickname(_currentGroupDetail.id);
+    });
+  }
+  const muteBtn = $('gcMuteBtn');
+  if (muteBtn) {
+    muteBtn.addEventListener('click', () => {
+      if (state.activeConversation && typeof window.toggleAction === 'function') {
+        window.toggleAction('mute');
+      }
+    });
+  }
+  const pinBtn = $('gcPinBtn');
+  if (pinBtn) {
+    pinBtn.addEventListener('click', () => {
+      if (state.activeConversation && typeof window.toggleAction === 'function') {
+        window.toggleAction('pin');
+      }
+    });
+  }
+  const clearBtn = $('gcClearChatBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (state.activeConversation && typeof window.clearChat === 'function') {
+        window.clearChat();
+      }
+    });
+  }
+  const transferBtn = $('gcTransferBtn');
+  if (transferBtn) {
+    transferBtn.addEventListener('click', () => {
+      if (_currentGroupDetail) transferGroupOwnership(_currentGroupDetail.id);
+    });
+  }
+}

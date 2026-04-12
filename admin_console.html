@@ -43,7 +43,7 @@
     </nav>
     <div class="sidebar-footer">
       <div class="admin-info" id="adminInfo"></div>
-      <button class="btn-sidebar" onclick="showChangePassword()" style="margin-bottom:6px">修改密码</button>
+      <button id="sidebarChangePasswordBtn" class="btn-sidebar" style="margin-bottom:6px">修改密码</button>
       <button id="logoutBtn" class="btn-sidebar">退出登录</button>
     </div>
   </aside>
@@ -54,7 +54,7 @@
       <button id="menuToggle" class="menu-toggle">☰</button>
       <h1 id="pageTitle" class="page-title">数据概览</h1>
       <div class="top-actions">
-        <button id="autoRefreshBtn" class="btn-outline btn-sm" onclick="toggleAutoRefresh()">自动刷新:关</button>
+        <button id="autoRefreshBtn" class="btn-outline btn-sm">自动刷新:关</button>
         <button id="refreshBtn" class="btn-outline btn-sm">刷新</button>
       </div>
     </header>
@@ -75,8 +75,8 @@
         <input id="userSearch" class="search-input" placeholder="搜索用户名/昵称/手机号/APP号...">
         <select id="userStatusFilter" class="filter-sel"><option value="">全部状态</option><option value="active">正常</option><option value="disabled">已禁用</option></select>
         <select id="userRoleFilter" class="filter-sel"><option value="">全部角色</option><option value="admin">管理员</option><option value="user">普通用户</option></select>
-        <button class="btn-primary btn-sm" onclick="showCreateUser()">+ 创建用户</button>
-        <button class="btn-outline btn-sm" onclick="exportUsers()">导出CSV</button>
+        <button id="createUserBtn" class="btn-primary btn-sm">+ 创建用户</button>
+        <button id="exportUsersBtn" class="btn-outline btn-sm">导出CSV</button>
       </div>
       <div id="usersTable"></div>
       <div id="usersPager" class="pager"></div>
@@ -89,8 +89,8 @@
         <select id="orderStatusFilter" class="filter-sel"><option value="">全部状态</option><option value="pending">待处理</option><option value="accepted">已接单</option><option value="processing">处理中</option><option value="in_progress">进行中</option><option value="completed">已完成</option></select>
         <input id="orderDateFrom" type="date" class="filter-sel" title="起始日期">
         <input id="orderDateTo" type="date" class="filter-sel" title="截止日期">
-        <button class="btn-outline btn-sm" onclick="applyOrderDateFilter()">按日期筛选</button>
-        <button class="btn-outline btn-sm" onclick="exportOrders()">导出CSV</button>
+        <button id="applyOrderDateFilterBtn" class="btn-outline btn-sm">按日期筛选</button>
+        <button id="exportOrdersBtn" class="btn-outline btn-sm">导出CSV</button>
       </div>
       <div id="ordersTable"></div>
       <div id="ordersPager" class="pager"></div>
@@ -188,7 +188,7 @@
         <div class="card">
           <div class="card-title">管理员操作</div>
           <div class="form-actions" style="margin-bottom:14px">
-            <button class="btn-primary btn-sm" onclick="showChangePassword()">修改密码</button>
+            <button id="sysChangePasswordBtn" class="btn-primary btn-sm">修改密码</button>
           </div>
           <div class="card-title">操作日志</div>
           <div id="auditLogPanel"><div class="empty">暂无记录</div></div>
@@ -210,7 +210,7 @@
 <!-- Toast -->
 <div id="toast" class="toast hidden"></div>
 
-<script defer src="admin_console.js?v=40.0"></script>
+<script defer src="admin_console.js?v=40.1"></script>
 <script defer src="admin_console_ext.js?v=40.0"></script>
 <script defer src="admin_console_adv.js?v=40.0"></script>
 </body>
