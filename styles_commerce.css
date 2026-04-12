@@ -691,6 +691,10 @@
   display:flex;
   align-items:center;
   gap:12px;
+  cursor:pointer;
+}
+.checkout-seller-info:active{
+  background:#f7f7f8;
 }
 .checkout-seller-avatar{
   width:42px;

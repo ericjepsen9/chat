@@ -466,6 +466,14 @@ function renderProfileCartPage(){
     const nameNode = createEl('span', 'checkout-seller-name', sellerName);
     sellerInfo.append(avatarNode, nameNode);
     sellerInfo.classList.toggle('hidden', !sellerId);
+    // Clicking the seller row opens the seller's profile page. Using .onclick
+    // (not addEventListener) so repeated renderProfileCartPage() calls replace
+    // the previous handler instead of stacking listeners. Reading `nameNode`
+    // at click-time picks up the latest name in case the async profile fetch
+    // below updated it.
+    sellerInfo.onclick = sellerId
+      ? () => window.openUserProfile(sellerId, nameNode.textContent || sellerName)
+      : null;
     // Fetch seller profile for avatar if not already loaded
     if (!sellerAvatarUrl && sellerId) {
       api(`/api/users/${encodeURIComponent(sellerId)}/profile?viewerId=${encodeURIComponent(state.currentUser?.id || '')}`).then(data => {
