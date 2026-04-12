@@ -317,7 +317,8 @@ input, textarea { font-size: var(--font-body); }
     background: var(--bg);
     align-items: flex-start;
   }
-  .mobile-shell {
+  .mobile-shell,
+  .mobile-shell.sidebar-hidden {
     position: fixed;
     top: 0;
     left: 0;
