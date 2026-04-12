@@ -1,0 +1,18 @@
+{
+  "name": "ChatTrade",
+  "short_name": "ChatTrade",
+  "description": "ChatTrade - 聊天与交易",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f2f6",
+  "theme_color": "#07c160",
+  "icons": [
+    {
+      "src": "/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
