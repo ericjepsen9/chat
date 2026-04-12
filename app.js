@@ -3245,6 +3245,7 @@ function bindShoppingEvents() {
       }catch(e){ showModal(e.message || '申请失败'); }
     });
   });
+  on("orderDetailShipBtn", "click", shipSelectedOrder);
   on("orderDetailCompleteBtn", "click", completeSelectedOrder);
   on("orderDetailChatBtn", "click", async () => {
     const order = state.selectedOrderDetail;
