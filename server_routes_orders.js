@@ -64,6 +64,19 @@ module.exports = function createOrderRoutes(ctx) {
           stockUpdates: result.payload.stockChanges,
         });
       }
+      // Enrich order with display names so the client's order detail page
+      // can show the seller/buyer name instead of falling back to the raw
+      // user id. createOrder builds the order object without buyerName /
+      // sellerName (it would otherwise pollute the stored db object),
+      // so we mirror the same lookup used by the GET /api/orders route
+      // above. We spread into new objects to avoid mutating the order
+      // that's been pushed into db.orders / ordersById.
+      if (result.ok && result.payload?.order) {
+        const o = result.payload.order;
+        const buyerName = o.buyerName || index.usersById.get(o.buyerId)?.displayName || '';
+        const sellerName = o.sellerName || index.usersById.get(o.sellerId)?.displayName || '';
+        result.payload = { ...result.payload, order: { ...o, buyerName, sellerName } };
+      }
       return sendResult(res, result);
     }
 
