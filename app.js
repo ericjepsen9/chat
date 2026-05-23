@@ -1004,7 +1004,7 @@ function buildConversationRow(conv) {
   const actionsWrap = createEl('div', 'chat-swipe-actions');
   const pinBtn = createEl('button', 'chat-swipe-pin-btn', isPinned ? '取消置顶' : '置顶');
   pinBtn.type = 'button';
-  const deleteBtn = createEl('button', 'chat-swipe-delete-btn', '删除');
+  const deleteBtn = createEl('button', 'chat-swipe-delete-btn', '不显示');
   deleteBtn.type = 'button';
   actionsWrap.append(pinBtn, deleteBtn);
   wrap.append(content, actionsWrap);
@@ -1431,7 +1431,19 @@ window.forwardMsg = (msgId) => {
       const btn = createEl('button', 'chat-item');
       btn.type = 'button';
       btn.dataset.convId = c.id;
-      appendUserInfo(btn, {avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || '');
+      const isGroup = c.type === 'group';
+      if (isGroup && typeof buildGroupAvatar === 'function') {
+        const avatarWrap = createEl('div', 'avatar');
+        avatarWrap.appendChild(buildGroupAvatar(c.memberAvatars, c.title));
+        btn.appendChild(avatarWrap);
+      } else {
+        btn.appendChild(createAvatarNode({avatarUrl: c.peerAvatarUrl, displayName: c.title}, c.title || ''));
+      }
+      const info = createEl('div', '');
+      info.style.cssText = 'flex:1;min-width:0;text-align:left;';
+      const label = isGroup ? `[群] ${c.title || '群聊'}` : (c.title || '');
+      info.appendChild(createEl('strong', '', label));
+      btn.appendChild(info);
       list.appendChild(btn);
     }
     if (!_forwardListBound) {
@@ -1452,7 +1464,7 @@ window.confirmForward = async (convId) => {
 window.showContextMenu = function(event, msg) {
   const menu = $("contextMenu"); if(!menu) return;
   menu.replaceChildren();
-  if (msg.type === 'text') appendActionButton(menu, '复制', () => window.copyText(encodeURIComponent(msg.text || '')));
+  if (msg.type === 'text') appendActionButton(menu, '复制', () => window.copyText(msg.text || ''));
   appendActionButton(menu, '转发', () => window.forwardMsg(msg.id));
   appendActionButton(menu, '删除', () => window.deleteLocalMsg(msg.id));
   if (msg.senderId === state.currentUser.id && (Date.now() - msg.createdAt < DELAYS.MESSAGE_RECALL_WINDOW)) {
@@ -1465,6 +1477,7 @@ window.showContextMenu = function(event, msg) {
   let x = anchor.clientX; let y = anchor.clientY;
   if (x + rect.width > window.innerWidth - 10) x = window.innerWidth - rect.width - 10; if (x < 10) x = 10;
   if (y < rect.height + 20) { y = y + 20; } else { y = y - rect.height - 15; }
+  if (y + rect.height > window.innerHeight - 10) y = window.innerHeight - rect.height - 10; if (y < 10) y = 10;
   menu.style.left = `${x}px`; menu.style.top = `${y}px`;
   menu.style.visibility = '';
   if (state._ctxMenuClose) { document.removeEventListener('click', state._ctxMenuClose, true); document.removeEventListener('touchstart', state._ctxMenuClose, true); }
@@ -1772,7 +1785,7 @@ window.openConversation = async (id, options = {}) => {
   }
   refreshConversations();
   const _cv = $("chatView");
-  if (_cv) setTimeout(() => { _cv.scrollTop = _cv.scrollHeight; }, 100);
+  if (_cv) requestAnimationFrame(() => { _cv.scrollTop = _cv.scrollHeight; });
 };
 
 window.openPrivateChat = async (targetUserId) => {
@@ -1837,6 +1850,8 @@ window.sendMessage = async (payload) => {
     if (state.activeConversation?.id === sentConversationId) {
       state.messages = state.messages.filter(m => m.id !== tempMsg.id);
       rebuildMessagesById();
+      _msgElCache.delete(String(tempMsg.id));
+      if (tempMsg.clientMessageId) _msgElCacheByClient.delete(String(tempMsg.clientMessageId));
       if (!removeMessageFromView(tempMsg.id)) renderMessages();
       applyLastOutgoingReadState();
       syncActiveConversationListMeta();

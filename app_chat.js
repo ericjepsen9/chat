@@ -68,6 +68,7 @@ function upsertMessage(msg) {
   if (idx >= 0) {
     Object.assign(state.messages[idx], msg);
     state.messagesById.set(msg.id, idx);
+    _messagesSig = '';
     return { action: 'replace', index: idx };
   }
   const ts = msg.createdAt || 0;
