@@ -1,6 +1,6 @@
 /* app_calling.js — WebRTC calling & native bridge extracted from app.js */
 
-let callTimer = null; let callStartTime = 0; let outgoingTimeoutTimer = null; let incomingTimeoutTimer = null; let connectTimeoutTimer = null; let lastCallAttemptAt = 0; let _iceDisconnectTimer = null;
+let callTimer = null; let callStartTime = 0; let outgoingTimeoutTimer = null; let incomingTimeoutTimer = null; let connectTimeoutTimer = null; let lastCallAttemptAt = 0; let _iceDisconnectTimer = null; let _callWatchdogTimer = null;
 // Cached call-panel DOM elements (populated lazily, cleared on stopCall)
 let _callEls = null;
 function _getCallEls() {
@@ -59,9 +59,8 @@ function isIgnoredCallPayload(payload) {
 }
 function isCurrentCallPayload(payload) {
   if (!payload || isIgnoredCallPayload(payload)) return false;
-  // Both have callId → compare; either has callId but not the other → mismatch
-  if (state.rtc.callId || payload.callId) return state.rtc.callId === payload.callId;
-  return true;
+  if (!state.rtc.callId || !payload.callId) return false;
+  return state.rtc.callId === payload.callId;
 }
 function buildIncomingCallKey(payload) {
   if (!payload) return '';
@@ -210,13 +209,21 @@ function markCallConnecting(peerId, mode, statusText = '建立连接中...') {
 function setRtcPhase(phase) {
   const prev = state.rtc.phase;
   state.rtc.phase = phase;
-  // Native bridge: start foreground service when call connects, stop when idle
   if (phase === 'connected' && prev !== 'connected') {
     const peerName = state.rtc.incomingMeta?.senderName || state.rtc.peerId || '通话';
     nativeOnCallConnected(peerName, state.rtc.mode);
   }
   if (phase === 'idle' && prev !== 'idle') {
     nativeOnCallEnded();
+  }
+  clearTimeout(_callWatchdogTimer); _callWatchdogTimer = null;
+  if (phase !== 'idle' && phase !== 'connected') {
+    _callWatchdogTimer = setTimeout(() => {
+      if (state.rtc.phase && state.rtc.phase !== 'idle' && state.rtc.phase !== 'connected') {
+        console.warn('[call] watchdog: stuck in phase', state.rtc.phase, '— forcing cleanup');
+        finalizeCall({ alertText: '通话异常，已自动结束', event: 'cancel', reason: 'watchdog' });
+      }
+    }, 45000);
   }
 }
 function isRingingPhase() {
@@ -340,14 +347,18 @@ window.stopCall = () => {
   isMuted = false; isCameraOff = false; isSpeaker = true;
   if(els.toggleMuteBtn) { els.toggleMuteBtn.classList.add('active'); els.toggleMuteBtn.style.color = '#fff'; } if(els.muteText) els.muteText.textContent = "静音";
   if(els.toggleCameraBtn) { els.toggleCameraBtn.classList.add('active'); els.toggleCameraBtn.style.color = '#fff'; } if(els.cameraText) els.cameraText.textContent = "镜头";
-  clearInterval(callTimer); callTimer = null; callStartTime = 0; clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; clearAllCallTimers();
+  clearInterval(callTimer); callTimer = null; callStartTime = 0; clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; clearTimeout(_callWatchdogTimer); _callWatchdogTimer = null; clearAllCallTimers();
+  if (typeof _callFloatingTimer !== 'undefined') { clearInterval(_callFloatingTimer); }
   if(els.callDuration) { els.callDuration.classList.add('hidden'); els.callDuration.textContent = "00:00"; }
   _clearCallEls(); // Invalidate cache for next call session
   refreshAfterCallStateChange(convId);
 };
 
 async function createPeerConnection(mode) {
-  // Acquire media FIRST - if this fails, we don't create a PC with orphaned listeners
+  if (state.rtc.pc) {
+    try { state.rtc.pc.onicecandidate = null; state.rtc.pc.ontrack = null; state.rtc.pc.onconnectionstatechange = null; state.rtc.pc.oniceconnectionstatechange = null; state.rtc.pc.close(); } catch (_) {}
+    state.rtc.pc = null;
+  }
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' });

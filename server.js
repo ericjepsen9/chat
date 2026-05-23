@@ -355,7 +355,10 @@ function sendPushFallback(userId, event, payload) {
     if (event === 'call_event' && payload.event === 'start') {
       pushIncomingCall(userId, payload.senderId, payload.senderName,
         payload.mode, payload.conversationId, payload.callId).catch(() => {});
-    } else if (event === 'webrtc_signal' && payload.signal?.type === 'offer') {
+    } else if (event === 'webrtc_signal' && (payload.signal?.type === 'offer' || payload.signal?.type === 'answer')) {
+      pushIncomingCall(userId, payload.senderId, payload.senderName,
+        payload.mode, payload.conversationId, payload.callId).catch(() => {});
+    } else if (event === 'call_event' && (payload.event === 'accept' || payload.event === 'reject' || payload.event === 'cancel')) {
       pushIncomingCall(userId, payload.senderId, payload.senderName,
         payload.mode, payload.conversationId, payload.callId).catch(() => {});
     } else if (event === 'message_created' && payload.message) {
