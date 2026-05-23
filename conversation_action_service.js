@@ -46,6 +46,10 @@ function checkRateLimit(map, key, windowMs, max) {
 }
 
 const activeCalls = new Map();
+const VALID_TRANSITIONS = {
+  ringing: new Set(['accept', 'reject', 'cancel', 'end']),
+  connected: new Set(['end']),
+};
 
 function cleanupStaleCalls() {
   const cutoff = Date.now() - 4 * 3600 * 1000;
@@ -249,6 +253,10 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
     } else if (existing) {
       const isParticipant = authUser.id === existing.initiator || authUser.id === existing.recipient;
       if (!isParticipant) return { ok: false, status: 403, error: 'not_call_participant' };
+      const allowed = VALID_TRANSITIONS[existing.state];
+      if (allowed && !allowed.has(body.event)) {
+        return { ok: false, status: 409, error: 'invalid_state_transition' };
+      }
       if (body.event === 'accept') {
         if (authUser.id !== existing.recipient) return { ok: false, status: 403, error: 'only_recipient_can_accept' };
         existing.state = 'connected';

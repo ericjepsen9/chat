@@ -369,10 +369,11 @@ async function createPeerConnection(mode) {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ];
-  // Use TURN server config if available (set via window.TURN_CONFIG)
-  if (window.TURN_CONFIG) {
-    iceServers.push(window.TURN_CONFIG);
-  }
+  try {
+    const turnResp = await api('/api/turn-config');
+    if (turnResp?.iceServers?.length) iceServers.push(...turnResp.iceServers);
+  } catch (_) {}
+  if (window.TURN_CONFIG) iceServers.push(window.TURN_CONFIG);
   const pc = new RTCPeerConnection({ iceServers });
   state.rtc.pc = pc; state.rtc.mode = mode; state.rtc.remoteStream = new MediaStream(); state.rtc.remoteCandidateQueue = []; state.rtc.localStream = stream;
   const _pcEls = _getCallEls();

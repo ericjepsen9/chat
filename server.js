@@ -880,6 +880,19 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    if (matchRoute(pathname, '/api/turn-config') && req.method === 'GET') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      const turnUrl = process.env.TURN_SERVER_URL;
+      const turnSecret = process.env.TURN_SHARED_SECRET;
+      if (!turnUrl || !turnSecret) return sendJson(res, 200, { iceServers: [] });
+      const ttl = 86400;
+      const timestamp = Math.floor(Date.now() / 1000) + ttl;
+      const username = `${timestamp}:${authUser.id}`;
+      const credential = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
+      return sendJson(res, 200, { iceServers: [{ urls: turnUrl, username, credential }], ttl });
+    }
+
     // Local QR code generation (avoids leaking data to third-party services)
     if (matchRoute(pathname, '/api/qrcode') && req.method === 'GET') {
       const data = String(searchParams.get('data') || '').trim().slice(0, 256);
