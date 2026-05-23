@@ -1,6 +1,7 @@
 const ALLOWED_MESSAGE_TYPES = new Set(['text', 'image', 'audio', 'card', 'order_card', 'broadcast_card', 'system']);
 const NO_FRIEND_CHECK_TYPES = new Set(['card', 'system', 'order_card']);
 const { formatOrderSummary } = require('./order_utils');
+const { encryptField, decryptField } = require('./server_crypto');
 
 function buildOrderCardPayload(order, authUserId) {
   return {
@@ -18,14 +19,21 @@ function buildOrderCardPayload(order, authUserId) {
   };
 }
 
+function decryptMessageForClient(msg) {
+  if (!msg || !msg.text) return msg;
+  const decrypted = decryptField(msg.text);
+  if (decrypted === msg.text) return msg;
+  return Object.assign({}, msg, { text: decrypted });
+}
+
 function listConversationMessages({ conv, authUser, searchParams, getVisibleMessagesSlice }) {
   if (!conv._memberSet.has(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
   const before = Math.max(0, parseInt(searchParams.get('before') || '0', 10) || 0);
   const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '30', 10) || 30), 100);
   const result = getVisibleMessagesSlice(conv, authUser.id, before, limit);
+  result.messages = result.messages.map(decryptMessageForClient);
   const members = conv.members || [];
   const peerId = members.length >= 2 ? (members[0] === authUser.id ? members[1] : members[0]) : null;
-  // Attach peerLastReadAt directly instead of spread-copying result
   result.peerLastReadAt = peerId ? (conv.lastRead?.[peerId] || 0) : 0;
   return { ok: true, status: 200, payload: result };
 }
@@ -109,7 +117,7 @@ function createConversationMessage({
     conversationId,
     senderId: authUser.id,
     type: body.type,
-    text: body.text ? String(body.text).slice(0, MAX_TEXT_LEN) : body.text,
+    text: body.text ? encryptField(String(body.text).slice(0, MAX_TEXT_LEN)) : body.text,
     imageUrl: body.imageUrl ? String(body.imageUrl).slice(0, MAX_URL_LEN) : body.imageUrl,
     audioUrl: body.audioUrl ? String(body.audioUrl).slice(0, MAX_URL_LEN) : body.audioUrl,
     card: body.card ? { cardType: String(body.card.cardType || '').slice(0, 32), imageUrl: String(body.card.imageUrl || '').slice(0, MAX_URL_LEN), name: String(body.card.name || '').slice(0, 80), avatarUrl: String(body.card.avatarUrl || '').slice(0, MAX_URL_LEN), userId: String(body.card.userId || '').slice(0, 64), title: String(body.card.title || '').slice(0, 80), description: String(body.card.description || '').slice(0, 500), meta: String(body.card.meta || '').slice(0, 200), sellerId: String(body.card.sellerId || '').slice(0, 64), productId: String(body.card.productId || '').slice(0, 64) } : undefined,
@@ -121,18 +129,19 @@ function createConversationMessage({
     createdAt: now,
   };
 
-  // Pre-lowercase text at creation time for search performance
-  if (msg.type === 'text' && msg.text) msg._lcText = msg.text.toLowerCase();
+  // Pre-lowercase on decrypted text for search performance
+  const rawText = decryptField(msg.text || '');
+  if (msg.type === 'text' && rawText) msg._lcText = rawText.toLowerCase();
   db.messages.push(msg);
   addToMapArray(index.messagesByConv, conversationId, msg);
   index.messagesById.set(msg.id, msg);
   if (msg.clientMessageId) index.messageByClientKey.set(`${conversationId}:${authUser.id}:${msg.clientMessageId}`, msg);
   conv.lastMessageAt = now;
   if (typeof invalidateConvMeta === 'function') invalidateConvMeta(conversationId);
-  schedulePersist('message_create', { conversationId, messageId: msg.id });
-  broadcastToConversation(conversationId, 'message_created', { conversationId, message: msg });
+  const clientMsg = decryptMessageForClient(msg);
+  broadcastToConversation(conversationId, 'message_created', { conversationId, message: clientMsg });
   broadcastToConversation(conversationId, 'conversation_updated', { conversationId });
-  return { ok: true, status: 201, payload: { message: msg, deduplicated: false } };
+  return { ok: true, status: 201, payload: { message: clientMsg, deduplicated: false } };
 }
 
 module.exports = {

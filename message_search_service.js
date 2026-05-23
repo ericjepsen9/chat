@@ -1,4 +1,5 @@
 /* message_search_service.js — consolidated message search logic */
+const { decryptField } = require('./server_crypto');
 
 /**
  * Search messages across all conversations for a user.
@@ -35,10 +36,11 @@ function searchMessagesGlobal({ authUser, keyword, limit, offset, index, isMessa
       const msg = msgs[i];
       if (msg.type !== 'text' || !msg.text) continue;
       if (!isMessageVisibleToUser(msg, conv, authUser.id)) continue;
-      if ((msg._lcText || (msg._lcText = msg.text.toLowerCase())).includes(kwLower)) {
+      const plainText = msg._lcText ? msg.text : decryptField(msg.text);
+      if ((msg._lcText || (msg._lcText = (typeof plainText === 'string' ? plainText : msg.text).toLowerCase())).includes(kwLower)) {
         results.push({
           messageId: msg.id, conversationId: conv.id, senderId: msg.senderId,
-          text: msg.text, createdAt: msg.createdAt,
+          text: decryptField(msg.text), createdAt: msg.createdAt,
           peerName: cached.peerName, peerAvatarUrl: cached.peerAvatarUrl, peerId: cached.peerId,
         });
         if (++scanned >= SCAN_CAP) break outer;
@@ -64,9 +66,10 @@ function searchMessagesInConversation({ conv, keyword, limit, offset, authUserId
     const msg = msgs[i];
     if (msg.type !== 'text' || !msg.text) continue;
     if (!isMessageVisibleToUser(msg, conv, authUserId)) continue;
-    if ((msg._lcText || (msg._lcText = msg.text.toLowerCase())).includes(kwLower)) {
+    const plainText = msg._lcText ? msg.text : decryptField(msg.text);
+    if ((msg._lcText || (msg._lcText = (typeof plainText === 'string' ? plainText : msg.text).toLowerCase())).includes(kwLower)) {
       if (total >= offset && results.length < limit) {
-        results.push({ id: msg.id, senderId: msg.senderId, text: msg.text, createdAt: msg.createdAt });
+        results.push({ id: msg.id, senderId: msg.senderId, text: decryptField(msg.text), createdAt: msg.createdAt });
       }
       total++;
     }

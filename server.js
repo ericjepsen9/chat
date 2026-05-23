@@ -1,4 +1,5 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -17,6 +18,7 @@ const {
   cleanupAuthState,
   EXPOSE_MOCK_PHONE_CODE, TRUST_PROXY,
   phoneCodeIpCooldownStore, PHONE_CODE_IP_COOLDOWN_MS,
+  decryptField,
 } = require('./server_crypto');
 const createIndexManager = require('./server_index');
 const { searchMessagesGlobal, searchMessagesInConversation } = require('./message_search_service');
@@ -50,6 +52,9 @@ const createGroupChatRoutes = require('./server_routes_group_chat');
 const { createGroupChat, getGroupChatDetail, updateGroupChat, addGroupMembers, removeGroupMember, leaveGroupChat, dismissGroupChat, transferGroupOwner, setGroupAdmin, setGroupNickname, muteGroupMember } = require('./group_chat_service');
 
 const PORT = process.env.PORT || 4173;
+const SSL_PORT = process.env.SSL_PORT || 4174;
+const SSL_CERT = process.env.SSL_CERT || '';
+const SSL_KEY = process.env.SSL_KEY || '';
 const ROOT = __dirname;
 const STATIC_ROOT = ROOT;
 
@@ -568,7 +573,7 @@ function buildConversationMeta(conv, userId) {
       else if (msg.type === 'card') {
         const cardType = String(msg.card?.cardType || '').trim();
         preview = cardType === '名片' ? '[名片]' : cardType === '收款码' ? '[收款码]' : '[商品卡片]';
-      } else preview = msg.text || '[消息]';
+      } else preview = decryptField(msg.text || '') || '[消息]';
       foundPreview = true;
     }
     if (msg.createdAt > lastRead && msg.senderId !== userId) unread += 1;
@@ -800,6 +805,10 @@ const allowOrigins = new Set([
   `http://localhost:${PORT}`,
   'http://127.0.0.1:4173',
   'http://localhost:4173',
+  `https://127.0.0.1:${SSL_PORT}`,
+  `https://localhost:${SSL_PORT}`,
+  'https://127.0.0.1:4174',
+  'https://localhost:4174',
 ]);
 
 // Route context shared by all extracted route modules
@@ -854,7 +863,9 @@ const handleAdminRoutes = createAdminRoutes(routeCtx);
 const handleAdminExtRoutes = createAdminExtRoutes(routeCtx);
 const handleGroupChatRoutes = createGroupChatRoutes(routeCtx);
 
-const server = http.createServer(async (req, res) => {
+const _sslEnabled = SSL_CERT && SSL_KEY && fs.existsSync(SSL_CERT) && fs.existsSync(SSL_KEY);
+
+async function requestHandler(req, res) {
   try {
   const qIdx = req.url.indexOf('?');
   const pathname = qIdx === -1 ? req.url : req.url.slice(0, qIdx);
@@ -864,7 +875,7 @@ const server = http.createServer(async (req, res) => {
   const searchParams = { get(k) { if (!_sp) _sp = new URLSearchParams(_qs); return _sp.get(k); } };
   const origin = req.headers.origin || '';
   if (!origin || allowOrigins.has(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || `http://127.0.0.1:${PORT}`);
+    res.setHeader('Access-Control-Allow-Origin', origin || (_sslEnabled ? `https://127.0.0.1:${SSL_PORT}` : `http://127.0.0.1:${PORT}`));
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -903,6 +914,28 @@ const server = http.createServer(async (req, res) => {
       const username = `${timestamp}:${authUser.id}`;
       const credential = crypto.createHmac('sha1', turnSecret).update(username).digest('base64');
       return sendJson(res, 200, { iceServers: [{ urls: turnUrl, username, credential }], ttl });
+    }
+
+    // E2EE public key management
+    if (matchRoute(pathname, '/api/e2ee/keys') && method === 'POST') {
+      const context = await parseBody(req);
+      const authUser = getAuthedUser(req, res);
+      if (!authUser) return;
+      const publicKey = String(context.publicKey || '').trim();
+      if (!publicKey || publicKey.length > 256) return sendJson(res, 400, { error: 'invalid_public_key' });
+      authUser.e2eePublicKey = publicKey;
+      schedulePersist('e2ee_key_upload', { userId: authUser.id });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (matchRoute(pathname, '/api/e2ee/keys') && method === 'GET') {
+      const authUser = getAuthedUser(req, res, { searchParams });
+      if (!authUser) return;
+      const peerId = searchParams.get('userId');
+      if (!peerId) return sendJson(res, 400, { error: 'missing_user_id' });
+      const peer = index.usersById.get(peerId);
+      if (!peer) return sendJson(res, 404, { error: 'user_not_found' });
+      return sendJson(res, 200, { userId: peerId, publicKey: peer.e2eePublicKey || null });
     }
 
     // Local QR code generation (avoids leaking data to third-party services)
@@ -1031,6 +1064,9 @@ const server = http.createServer(async (req, res) => {
           headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src 'self'; media-src 'self' blob:; font-src 'self';";
           headers['X-Content-Type-Options'] = 'nosniff';
           headers['X-Frame-Options'] = 'SAMEORIGIN';
+          headers['Referrer-Policy'] = 'strict-origin-when-cross-origin';
+          headers['Permissions-Policy'] = 'camera=(self), microphone=(self), geolocation=()';
+          if (_sslEnabled) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
         } else {
           headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE_DEFAULT}`;
         }
@@ -1052,8 +1088,22 @@ const server = http.createServer(async (req, res) => {
     const message = status >= 500 ? 'server_error' : (error.message || 'request_error');
     return sendJson(res, status, { error: message });
   }
-});
+}
 
+const server = _sslEnabled
+  ? https.createServer({ cert: fs.readFileSync(SSL_CERT), key: fs.readFileSync(SSL_KEY) }, requestHandler)
+  : http.createServer(requestHandler);
+
+// When TLS is enabled, redirect HTTP → HTTPS
+let _httpRedirectServer = null;
+if (_sslEnabled) {
+  _httpRedirectServer = http.createServer((req, res) => {
+    const host = (req.headers.host || '').replace(/:\d+$/, '');
+    const location = `https://${host}:${SSL_PORT}${req.url}`;
+    res.writeHead(301, { Location: location });
+    res.end();
+  });
+}
 
 async function gracefulShutdown(signal) {
   if (gracefulShutdown.inProgress) return;
@@ -1081,6 +1131,7 @@ async function gracefulShutdown(signal) {
   } catch (err) {
     console.error('[shutdown] persistence flush failed', err);
   }
+  if (_httpRedirectServer) try { _httpRedirectServer.close(); } catch (_) {}
   server.close((err) => {
     clearTimeout(hardExitTimer);
     if (err) {
@@ -1142,7 +1193,17 @@ setInterval(trimMessageIndexes, 10 * 60 * 1000).unref();
 process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
 
-server.listen(PORT, () => {
-  ensureWalFile();
-  console.log(`Server running at http://0.0.0.0:${PORT}`);
-});
+if (_sslEnabled) {
+  server.listen(SSL_PORT, () => {
+    ensureWalFile();
+    console.log(`Server running at https://0.0.0.0:${SSL_PORT} (TLS enabled)`);
+  });
+  _httpRedirectServer.listen(PORT, () => {
+    console.log(`HTTP redirect running at http://0.0.0.0:${PORT} → https`);
+  });
+} else {
+  server.listen(PORT, () => {
+    ensureWalFile();
+    console.log(`Server running at http://0.0.0.0:${PORT} (no TLS — set SSL_CERT and SSL_KEY for HTTPS)`);
+  });
+}
