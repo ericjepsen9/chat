@@ -146,6 +146,7 @@ function updateGroupChat({ convId, authUser, body, index, uid, db, addToMapArray
   const now = Date.now();
 
   if (body.name !== undefined) {
+    if (!isAdmin) return { ok: false, status: 403, error: '仅群主和管理员可修改群名' };
     const newName = String(body.name).trim().slice(0, MAX_GROUP_NAME_LEN);
     if (!newName) return { ok: false, status: 400, error: '群名不能为空' };
     conv.name = newName;
@@ -178,7 +179,7 @@ function updateGroupChat({ convId, authUser, body, index, uid, db, addToMapArray
   return { ok: true, status: 200, payload: { ok: true } };
 }
 
-function addGroupMembers({ convId, authUser, memberIds, index, uid, db, addToMapArray, invalidateConvMeta, schedulePersist, broadcastToUser, broadcastToConversation }) {
+function addGroupMembers({ convId, authUser, memberIds, areFriends, index, uid, db, addToMapArray, invalidateConvMeta, schedulePersist, broadcastToUser, broadcastToConversation }) {
   const conv = index.convById.get(convId);
   if (!conv || conv.type !== 'group') return { ok: false, status: 404, error: 'not_found' };
   if (!conv._memberSet || !conv._memberSet.has(authUser.id)) return { ok: false, status: 403, error: 'forbidden' };
@@ -202,6 +203,7 @@ function addGroupMembers({ convId, authUser, memberIds, index, uid, db, addToMap
   const added = [];
   for (const mid of memberIds) {
     if (!mid || !index.usersById.has(mid) || conv._memberSet.has(mid)) continue;
+    if (typeof areFriends === 'function' && !areFriends(authUser.id, mid)) continue;
     if (conv.members.length >= (conv.maxMembers || MAX_GROUP_MEMBERS)) break;
     conv.members.push(mid);
     conv._memberSet.add(mid);
@@ -441,6 +443,9 @@ function muteGroupMember({ convId, authUser, targetId, mute, index, schedulePers
   const isAdmin = isOwner || (Array.isArray(conv.admins) && conv.admins.includes(authUser.id));
   if (!isAdmin) return { ok: false, status: 403, error: '仅群主和管理员可禁言' };
   if (targetId === conv.ownerId) return { ok: false, status: 400, error: '不能禁言群主' };
+  if (!isOwner && Array.isArray(conv.admins) && conv.admins.includes(targetId)) {
+    return { ok: false, status: 403, error: '管理员不能禁言其他管理员' };
+  }
 
   if (!Array.isArray(conv.mutedMembers)) conv.mutedMembers = [];
   const idx = conv.mutedMembers.indexOf(targetId);

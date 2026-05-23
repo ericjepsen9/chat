@@ -705,9 +705,21 @@ function getDirectConversation(userId, peerId) {
   return index.directConvByPair.get(`${userId}:${peerId}`) || null;
 }
 
-function getOrCreateDirectConversation(userId, peerId) {
+function getOrCreateDirectConversation(userId, peerId, { skipBlacklistCheck = false } = {}) {
   const existed = getDirectConversation(userId, peerId);
   if (existed) return existed;
+  if (!skipBlacklistCheck) {
+    const user = index.usersById.get(userId);
+    const peer = index.usersById.get(peerId);
+    if (user) {
+      if (!user._blacklistSet) user._blacklistSet = new Set(user.blacklist || []);
+      if (user._blacklistSet.has(peerId)) return null;
+    }
+    if (peer) {
+      if (!peer._blacklistSet) peer._blacklistSet = new Set(peer.blacklist || []);
+      if (peer._blacklistSet.has(userId)) return null;
+    }
+  }
   const now = Date.now();
   const conv = {
     id: uid('c'),

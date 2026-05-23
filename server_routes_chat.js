@@ -87,7 +87,7 @@ module.exports = function createChatRoutes(ctx) {
       return sendJson(res, 200, searchMessagesInConversation({ conv, keyword, limit, offset, authUserId: authUser.id, index, isMessageVisibleToUser }));
     }
 
-    const convMsgMatch = pathname.match(RE_CONV_MSG);
+    const convMsgMatch = (method === 'GET' || method === 'POST') && pathname.match(RE_CONV_MSG);
     if (convMsgMatch) {
       const conversationId = convMsgMatch[1];
       const conv = index.convById.get(conversationId);

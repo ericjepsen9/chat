@@ -88,8 +88,7 @@ function listConversations({ authUser, directConvBasesByUser, convById, convByUs
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return b._sortKey - a._sortKey;
   });
-  // _sortKey is a transient property used only for sorting; left on base objects
-  // to avoid the overhead of delete (which deoptimizes V8 hidden classes)
+  for (let i = 0; i < conversations.length; i++) delete conversations[i]._sortKey;
   return { conversations };
 }
 

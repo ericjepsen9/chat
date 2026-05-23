@@ -108,7 +108,7 @@ module.exports = function createSocialRoutes(ctx) {
         const keyword = String(context.body.friendUsername || '').trim();
         const target = index.usersByName.get(keyword) || index.usersByAppNumber.get(keyword) || (findUserByPhone ? findUserByPhone(keyword) : null);
         if (target) {
-          const conv = getOrCreateDirectConversation(context.authUser.id, target.id);
+          const conv = getOrCreateDirectConversation(context.authUser.id, target.id, { skipBlacklistCheck: true });
           if (conv) {
             addTradeMessage(conv.id, {
               senderId: context.authUser.id,
@@ -139,7 +139,7 @@ module.exports = function createSocialRoutes(ctx) {
       if (result.ok) {
         const request = index.friendRequestsById.get(context.body.requestId);
         if (request) {
-          const conv = getOrCreateDirectConversation(context.authUser.id, request.userId);
+          const conv = getOrCreateDirectConversation(context.authUser.id, request.userId, { skipBlacklistCheck: true });
           if (conv) {
             const greeting = request.greeting || '';
             const welcomeText = greeting

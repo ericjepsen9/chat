@@ -55,7 +55,7 @@ function createFriendRequest({
       db.friendships.push({ id: uid('f'), userId: target.id, friendId: authUser.id, group: '我的好友', remark: '' });
     }
     if (typeof getOrCreateDirectConversation === 'function') {
-      getOrCreateDirectConversation(authUser.id, target.id);
+      getOrCreateDirectConversation(authUser.id, target.id, { skipBlacklistCheck: true });
     }
     rebuildFriendshipAndRequestIndexes();
     schedulePersist('friend_auto_accept', { requestId: reversePending.id });

@@ -14,6 +14,7 @@ module.exports = function createGroupChatRoutes(ctx) {
     schedulePersist, broadcastToUser, broadcastToConversation,
     indexNewConversation,
     createGroupChat, getGroupChatDetail, updateGroupChat,
+    areFriends,
     addGroupMembers, removeGroupMember, leaveGroupChat,
     dismissGroupChat, transferGroupOwner, setGroupAdmin,
     setGroupNickname, muteGroupMember,
@@ -110,6 +111,7 @@ module.exports = function createGroupChatRoutes(ctx) {
         return sendResult(res, addGroupMembers({
           convId, authUser: context.authUser,
           memberIds: context.body.memberIds || [],
+          areFriends,
           index, uid, db, addToMapArray, invalidateConvMeta,
           schedulePersist, broadcastToUser, broadcastToConversation,
         }));

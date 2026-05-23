@@ -227,7 +227,7 @@ async function createOrder({ authUser, body, db, usersById, uid, getOrCreateDire
   if (order.buyerId) addToMapArray(ordersByBuyer, order.buyerId, order);
   if (order.sellerId) addToMapArray(ordersBySeller, order.sellerId, order);
 
-  const conv = getOrCreateDirectConversation(authUser.id, seller.id);
+  const conv = getOrCreateDirectConversation(authUser.id, seller.id, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
@@ -258,7 +258,7 @@ function acceptOrder({ authUser, orderId, body, db, usersById, getOrCreateDirect
   order.status = 'accepted';
   order.updatedAt = Date.now();
 
-  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
@@ -291,7 +291,7 @@ function updateOrderPrice({ authUser, orderId, body, db, usersById, getOrCreateD
   order.total = clampOrderTotal(body.total);
   order.updatedAt = Date.now();
 
-  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
@@ -358,7 +358,7 @@ function updateOrderStatus({ authUser, orderId, body, db, usersById, getOrCreate
   order.updatedAt = Date.now();
 
   const STATUS_TITLES = _STATUS_TITLES;
-  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
@@ -396,7 +396,7 @@ function requestOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
   order.pendingPriceRequestedBy = authUser.id;
   order.updatedAt = nowPr;
   order._lastPriceRequestAt = nowPr;
-  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
@@ -432,7 +432,7 @@ function confirmOrderPriceChange({ authUser, orderId, body, db, usersById, getOr
     order.status = 'accepted';
   }
   order.priceAdjustmentLocked = true;
-  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
@@ -485,7 +485,7 @@ function shipOrder({ authUser, orderId, body, db, usersById, getOrCreateDirectCo
   order.status = 'shipped';
   order.updatedAt = Date.now();
 
-  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId);
+  const conv = getOrCreateDirectConversation(order.buyerId, order.sellerId, { skipBlacklistCheck: true });
   addTradeMessage(conv.id, {
     senderId: authUser.id,
     type: 'order_card',
