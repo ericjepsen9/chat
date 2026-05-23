@@ -348,12 +348,25 @@ window.stopCall = () => {
   if(els.toggleMuteBtn) { els.toggleMuteBtn.classList.add('active'); els.toggleMuteBtn.style.color = '#fff'; } if(els.muteText) els.muteText.textContent = "静音";
   if(els.toggleCameraBtn) { els.toggleCameraBtn.classList.add('active'); els.toggleCameraBtn.style.color = '#fff'; } if(els.cameraText) els.cameraText.textContent = "镜头";
   clearInterval(callTimer); callTimer = null; callStartTime = 0; clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; clearTimeout(_callWatchdogTimer); _callWatchdogTimer = null; clearAllCallTimers();
-  if (typeof _callFloatingTimer !== 'undefined') { clearInterval(_callFloatingTimer); }
   if(els.callDuration) { els.callDuration.classList.add('hidden'); els.callDuration.textContent = "00:00"; }
   _clearCallEls(); // Invalidate cache for next call session
   refreshAfterCallStateChange(convId);
 };
 
+let _turnCache = null; let _turnCacheExpiry = 0;
+async function _fetchTurnConfig() {
+  const now = Date.now();
+  if (_turnCache && now < _turnCacheExpiry) return _turnCache;
+  try {
+    const resp = await api('/api/turn-config');
+    if (resp?.iceServers?.length) {
+      _turnCache = resp.iceServers;
+      _turnCacheExpiry = now + ((resp.ttl || 3600) * 500);
+      return _turnCache;
+    }
+  } catch (_) {}
+  return null;
+}
 async function createPeerConnection(mode) {
   if (state.rtc.pc) {
     try { state.rtc.pc.onicecandidate = null; state.rtc.pc.ontrack = null; state.rtc.pc.onconnectionstatechange = null; state.rtc.pc.oniceconnectionstatechange = null; state.rtc.pc.close(); } catch (_) {}
@@ -369,11 +382,9 @@ async function createPeerConnection(mode) {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ];
-  try {
-    const turnResp = await api('/api/turn-config');
-    if (turnResp?.iceServers?.length) iceServers.push(...turnResp.iceServers);
-  } catch (_) {}
-  if (window.TURN_CONFIG) iceServers.push(window.TURN_CONFIG);
+  const turnServers = await _fetchTurnConfig();
+  if (turnServers) iceServers.push(...turnServers);
+  else if (window.TURN_CONFIG) iceServers.push(window.TURN_CONFIG);
   const pc = new RTCPeerConnection({ iceServers });
   state.rtc.pc = pc; state.rtc.mode = mode; state.rtc.remoteStream = new MediaStream(); state.rtc.remoteCandidateQueue = []; state.rtc.localStream = stream;
   const _pcEls = _getCallEls();

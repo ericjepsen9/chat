@@ -8,6 +8,7 @@ const MAX_SDP_LENGTH = 10240;
 const MAX_CANDIDATE_LENGTH = 2048;
 const MAX_SENDER_NAME = 50;
 const MAX_DURATION_SEC = 86400;
+const VALID_CALL_REASONS = new Set(['busy', 'timeout', 'disconnect', 'pagehide', 'manual', 'hangup', 'user_reject', 'caller_cancel', 'connect_timeout', 'watchdog', 'signal_failed', 'sdp_error', 'error', '']);
 
 function sanitizeSenderName(name, fallback) {
   if (!name || typeof name !== 'string') return String(fallback || '').slice(0, MAX_SENDER_NAME);
@@ -55,6 +56,13 @@ function cleanupStaleCalls() {
   const cutoff = Date.now() - 4 * 3600 * 1000;
   for (const [callId, call] of activeCalls) {
     if (call.startedAt < cutoff) activeCalls.delete(callId);
+  }
+  const now = Date.now();
+  for (const [key, entry] of _callSignalCounts) {
+    if (now - entry.start > SIGNAL_RATE_WINDOW * 2) _callSignalCounts.delete(key);
+  }
+  for (const [key, entry] of _callEventCounts) {
+    if (now - entry.start > CALL_RATE_WINDOW * 2) _callEventCounts.delete(key);
   }
 }
 setInterval(cleanupStaleCalls, 600000);
@@ -209,6 +217,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   if (action === 'signal') {
     const targetUserId = body.targetUserId;
     if (!targetUserId) return { ok: false, status: 400, error: 'target_user_required' };
+    if (targetUserId === authUser.id) return { ok: false, status: 400, error: 'cannot_signal_self' };
     if (!conv._memberSet.has(targetUserId)) return { ok: false, status: 403, error: 'forbidden' };
     if (body.signal?.type === 'typing') {
       broadcastToUser(targetUserId, 'typing_indicator', { conversationId, senderId: authUser.id });
@@ -236,6 +245,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
   if (action === 'call') {
     const targetUserId = body.targetUserId;
     if (!targetUserId) return { ok: false, status: 400, error: 'target_user_required' };
+    if (targetUserId === authUser.id) return { ok: false, status: 400, error: 'cannot_call_self' };
     if (!body.callId || !RE_CALL_ID.test(body.callId)) return { ok: false, status: 400, error: 'invalid_call_id' };
     if (!conv._memberSet.has(targetUserId)) return { ok: false, status: 403, error: 'forbidden' };
     if (!VALID_CALL_EVENTS.has(body.event)) return { ok: false, status: 400, error: 'invalid_event' };
@@ -249,6 +259,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
     const existing = activeCalls.get(callId);
 
     if (body.event === 'start') {
+      if (existing) return { ok: false, status: 409, error: 'call_already_exists' };
       activeCalls.set(callId, { initiator: authUser.id, recipient: targetUserId, state: 'ringing', startedAt: Date.now(), connectedAt: 0 });
     } else if (existing) {
       const isParticipant = authUser.id === existing.initiator || authUser.id === existing.recipient;
@@ -270,7 +281,8 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
     }
 
     const safeName = sanitizeSenderName(body.senderName, authUser.displayName);
-    const callBody = { ...body, durationSec, senderName: safeName };
+    const safeReason = VALID_CALL_REASONS.has(body.reason) ? body.reason : '';
+    const callBody = { ...body, durationSec, senderName: safeName, reason: safeReason };
     const text = buildCallHistoryText(callBody);
     if (text) {
       const msg = {
@@ -298,7 +310,7 @@ function applyConversationAction({ action, conversationId, body, authUser, conv,
       targetUserId,
       event: body.event,
       mode: body.mode || 'voice',
-      reason: body.reason,
+      reason: safeReason,
       callId,
       durationSec,
     });
