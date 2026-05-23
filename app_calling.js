@@ -95,18 +95,16 @@ async function enqueueSignal(conversationId, payload) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       await api(`/api/conversations/${conversationId}/signal`, { method: 'POST', body: JSON.stringify(payload) });
-      return; // success
+      return true;
     } catch (err) {
       console.warn(`[call] signal delivery failed (attempt ${attempt + 1}/${maxRetries + 1}):`, err?.message || err);
       if (attempt < maxRetries && state.rtc.phase && state.rtc.phase !== 'idle') {
         await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
         continue;
       }
-      if (state.rtc.phase && state.rtc.phase !== 'idle') {
-        showToast('通话信号发送失败，通话可能中断');
-      }
     }
   }
+  return false;
 }
 
 // Cached friends lookup map — rebuilt lazily when friends change
@@ -393,22 +391,43 @@ async function createPeerConnection(mode) {
     setCallActionLayout('connected');
   };
   _iceDisconnectTimer = null;
+  let _iceRestartAttempted = false;
   pc.onconnectionstatechange = () => {
     const st = pc.connectionState;
-    if (st === 'connected') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; markConnected(); return; }
-    if (st === 'failed') { clearTimeout(_iceDisconnectTimer); finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }
+    if (st === 'connected') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; _iceRestartAttempted = false; markConnected(); return; }
+    if (st === 'failed') {
+      clearTimeout(_iceDisconnectTimer);
+      if (!_iceRestartAttempted && pc.restartIce) {
+        _iceRestartAttempted = true;
+        console.warn('[webrtc] connection failed, attempting ICE restart');
+        updateCallUIInfo(state.rtc.peerId, state.rtc.mode, '连接失败，正在重试...');
+        try { pc.restartIce(); } catch (_) {}
+        return;
+      }
+      finalizeCall({ alertText: '无法建立通话连接，请检查网络', event: 'end', reason: 'disconnect' });
+    }
     else if (st === 'disconnected') {
       clearTimeout(_iceDisconnectTimer);
-      _iceDisconnectTimer = setTimeout(() => { if (pc.connectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 5000);
+      _iceDisconnectTimer = setTimeout(() => { if (pc.connectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 8000);
     }
   };
   pc.oniceconnectionstatechange = () => {
     const st = pc.iceConnectionState;
-    if (st === 'connected' || st === 'completed') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; markConnected(); return; }
-    if (st === 'failed') { clearTimeout(_iceDisconnectTimer); finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }
+    if (st === 'connected' || st === 'completed') { clearTimeout(_iceDisconnectTimer); _iceDisconnectTimer = null; _iceRestartAttempted = false; markConnected(); return; }
+    if (st === 'failed') {
+      clearTimeout(_iceDisconnectTimer);
+      if (!_iceRestartAttempted && pc.restartIce) {
+        _iceRestartAttempted = true;
+        console.warn('[webrtc] ICE failed, attempting restart');
+        updateCallUIInfo(state.rtc.peerId, state.rtc.mode, '连接失败，正在重试...');
+        try { pc.restartIce(); } catch (_) {}
+        return;
+      }
+      finalizeCall({ alertText: '无法建立通话连接，请检查网络', event: 'end', reason: 'disconnect' });
+    }
     else if (st === 'disconnected') {
       clearTimeout(_iceDisconnectTimer);
-      _iceDisconnectTimer = setTimeout(() => { if (pc.iceConnectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 5000);
+      _iceDisconnectTimer = setTimeout(() => { if (pc.iceConnectionState === 'disconnected') finalizeCall({ alertText: '通话已中断', event: 'end', reason: 'disconnect' }); }, 8000);
     }
   };
 }

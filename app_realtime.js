@@ -161,7 +161,14 @@ async function connectRealtime() {
       if (state.rtc.pendingAccept && $("acceptCallBtn")) $("acceptCallBtn").click();
     } else if (signal.type === 'answer' && state.rtc.pc) {
       if (!isCurrentCallPayload(payload)) return;
-      clearTimeout(outgoingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; setRtcPhase('connecting'); await state.rtc.pc.setRemoteDescription(signal.sdp);
+      clearTimeout(outgoingTimeoutTimer); state.rtc.callId = payload.callId || state.rtc.callId || null; setRtcPhase('connecting');
+      try {
+        await state.rtc.pc.setRemoteDescription(signal.sdp);
+      } catch (err) {
+        console.error('[webrtc] setRemoteDescription(answer) failed:', err);
+        finalizeCall({ alertText: '通话协商失败，请重试', event: 'end', reason: 'sdp_error' });
+        return;
+      }
       scheduleConnectTimeout();
       await flushQueuedRemoteCandidates();
 
@@ -178,10 +185,6 @@ async function connectRealtime() {
       } else {
         state.rtc.remoteCandidateQueue = state.rtc.remoteCandidateQueue || [];
         state.rtc.remoteCandidateQueue.push(signal.candidate);
-        if ((state.rtc.pendingOffer || state.rtc.pc) && state.rtc.incomingMeta?.senderId === payload.senderId) {
-          state.rtc.earlyCandidates = state.rtc.earlyCandidates || [];
-          state.rtc.earlyCandidates.push(signal.candidate);
-        }
       }
     }
   } catch (err) { console.warn('[sse] webrtc_signal handler error', err); } });

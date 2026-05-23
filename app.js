@@ -3545,37 +3545,38 @@ function bindChatEvents() {
       if (state.rtc._accepting) return;
       state.rtc._accepting = true;
       try {
-          clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); const conversationId = state.rtc.pendingOffer?.conversationId || state.rtc.incomingMeta?.conversationId || state.activeConversation?.id; 
-          if (!conversationId) return; state.rtc.conversationId = conversationId; 
+          clearTimeout(outgoingTimeoutTimer); clearTimeout(incomingTimeoutTimer); const conversationId = state.rtc.pendingOffer?.conversationId || state.rtc.incomingMeta?.conversationId || state.activeConversation?.id;
+          if (!conversationId) return; state.rtc.conversationId = conversationId;
           if(!state.activeConversation || state.activeConversation.id !== conversationId) { window.openConversation(conversationId, { skipFetch: true }); }
           syncCallConversationState(conversationId, state.rtc.pendingOffer?.senderId || state.rtc.incomingMeta?.senderId || state.rtc.peerId || null, state.rtc.incomingMeta?.senderName || '');
           showEl("callPanel");
-          setText("callTitle", `连接中...`); 
+          setText("callTitle", `连接中...`);
           setText("chatSubtitle", '建立连接中…');
-          if (!state.rtc.pendingOffer) { state.rtc.pendingAccept = true; return; } 
-          const { senderId, mode, signal } = state.rtc.pendingOffer; state.rtc.pendingAccept = false; state.rtc.peerId = senderId; setRtcPhase('connecting'); 
+          if (!state.rtc.pendingOffer) { state.rtc.pendingAccept = true; return; }
+          const { senderId, mode, signal } = state.rtc.pendingOffer; state.rtc.pendingAccept = false; state.rtc.peerId = senderId; setRtcPhase('connecting');
           await createPeerConnection(mode); await state.rtc.pc.setRemoteDescription(signal.sdp);
-          scheduleConnectTimeout(); 
-          for (const cand of (state.rtc.earlyCandidates || [])) { try { await state.rtc.pc.addIceCandidate(cand); } catch(e) { console.warn('[webrtc] addIceCandidate failed:', e); } } 
-          state.rtc.earlyCandidates = []; 
+          scheduleConnectTimeout();
           await flushQueuedRemoteCandidates();
           const answer = await state.rtc.pc.createAnswer(); await state.rtc.pc.setLocalDescription(answer);
-          
+
           const activeCallId = state.rtc.callId || state.rtc.pendingOffer?.callId || state.rtc.incomingMeta?.callId || null;
           state.rtc.callId = activeCallId;
-          enqueueSignal(conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, mode, callId: activeCallId, signal: { type: 'answer', sdp: answer } }); 
-          api(`/api/conversations/${conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, event: 'accept', mode, callId: activeCallId }) }).catch(() => {}); 
-          
+          const answerDelivered = await enqueueSignal(conversationId, { senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, mode, callId: activeCallId, signal: { type: 'answer', sdp: answer } });
+          if (!answerDelivered) {
+              finalizeCall({ alertText: '接听信号发送失败，请检查网络后重试', event: 'reject', reason: 'signal_failed' });
+              return;
+          }
+          api(`/api/conversations/${conversationId}/call`, { method: 'POST', body: JSON.stringify({ senderId: state.currentUser.id, senderName: state.currentUser.displayName, targetUserId: senderId, event: 'accept', mode, callId: activeCallId }) }).catch(() => {});
+
           const peerMeta = resolveCallPeerMeta(senderId, senderId);
           let peerName = peerMeta.name;
-          
-          markCallConnecting(senderId, mode, '已接听，建立连接中...'); 
+
+          markCallConnecting(senderId, mode, '已接听，建立连接中...');
           setText("callName", peerName);
-          state.rtc.pendingOffer = null; 
+          state.rtc.pendingOffer = null;
       } catch (err) {
           console.error('[call] accept failed:', err);
           const msg = err && err.message ? err.message : '接听失败';
-          // Distinguish media permission errors from WebRTC errors
           const isMediaErr = msg.includes('权限') || msg.includes('摄像头') || msg.includes('麦克风') || msg.includes('设备');
           finalizeCall({ alertText: isMediaErr ? msg : '接听失败，请检查网络后重试', event: 'reject', reason: 'error' });
       } finally { state.rtc._accepting = false; }
