@@ -274,6 +274,7 @@ function _getStorageKey() {
 }
 
 function encryptField(plaintext) {
+  if (!plaintext || typeof plaintext !== 'string') return plaintext;
   const key = _getStorageKey();
   if (!key) return plaintext;
   const iv = crypto.randomBytes(12);
